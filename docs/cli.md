@@ -38,8 +38,9 @@ or `facts_file` (a path to a file that must exist, read and frozen by content; n
 `measured` (each with `id`, `description`, and an optional numeric `max` or `min`),
 `declared_choices` (each with `choice` and `user_said`, the words of the person who asked for
 it), and the keys of the `[run]` configuration table, within their bounds. `template`
-(`{id, version}`, written by `rubrics use`) records the template the spec started from and is
-part of the rubric hash. Unknown keys are refused at every level, and so is any string that
+(`{id, version, sha256, modified}`, written by `rubrics use`) records the template the spec
+started from and is part of the rubric hash; `init` refuses an unknown id or version and
+computes `sha256` and `modified` itself. Unknown keys are refused at every level, and so is any string that
 still holds a `TODO(sealed-panel)` marker. Every `measured` field is type-checked (`id` and `description`
 strings, `min` and `max` finite numbers with `min` not above `max`, unique ids), weights must
 be finite numbers above 0, and `judges_per_persona` is between 2 and 9. A relative

@@ -19,6 +19,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `sealed-panel learn RUN` and `sealed-panel feedback RUN`.
 - A spec may record `template: {id, version, sha256}`, frozen by the rubric hash, and `init`
   records whether the dimensions were modified. A spec without it keeps its 0.1.0 hash.
+- Library guardrails: never inside the package, never inside a git working tree that does
+  not ignore it, and no relative path from the environment or the settings.
 - Learning after a sealed panel: `judges_disagree` and `control_too_close` candidates, and
   `user_disagreement` from `feedback`, de-duplicated by kind, template version and dimension,
   with rejections remembered. Learning never fails a seal. Nothing changes a template without

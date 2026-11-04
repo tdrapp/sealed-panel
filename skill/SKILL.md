@@ -37,7 +37,9 @@ sealed-panel rubrics suggest --kind <kind of text> --text draft.md
 
 and show the user the matching template's `when_to_use` and its table of dimensions (id and
 question), so they can say whether it fits. When no template matches, the command lists every
-template with its `when_to_use`; say so and write the spec by hand. Then write the spec from
+template with its `when_to_use`; say so and write the spec by hand. The skeleton's
+`template` reference (`id`, `version`, `sha256`) is checked by `init`, which also records
+whether you modified the dimensions; leave it as written. Then write the spec from
 the chosen one (`sealed-panel rubrics use ID --out spec.json [--persona-file personas.json]`)
 and replace every `TODO(sealed-panel)` marker; `init` refuses the spec until they are gone.
 When no template fits, write the spec by hand as below.
@@ -167,7 +169,8 @@ is unjudged: say so, or start a new run.
 
 Then point the user to the library inbox (`sealed-panel rubrics list --run RUN`): after
 the seal, rubric-level candidates are written there (a dimension the sealed judges disagree on,
-a dimension where the control scores close to the text). If aggregate printed "learning
+a dimension where the sealed panel scores the control close to the text). If aggregate
+printed "learning
 skipped", run `sealed-panel learn RUN`. If the user's own read disagrees with the grade, record
 it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never promote a candidate:
 draft a `proposed_change` only when the user asks for one, and let the user run
