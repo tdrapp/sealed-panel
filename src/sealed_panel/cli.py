@@ -139,7 +139,10 @@ def _confirm(a: argparse.Namespace, plan: dict[str, object]) -> None:
         return
     if not sys.stdin.isatty():
         raise EvalError("promote needs a person: run it in a terminal, or pass --yes")
-    answer = input(f"type the candidate id ({a.candidate}) to promote it: ").strip()
+    try:
+        answer = input(f"type the candidate id ({a.candidate}) to promote it: ").strip()
+    except EOFError:
+        answer = ""
     if answer != a.candidate:
         raise EvalError("not confirmed: nothing was written")
 
@@ -261,7 +264,8 @@ def _run(a: argparse.Namespace) -> None:
     elif a.cmd == "report":
         print(render_report(a.run), end="")
     elif a.cmd == "feedback":
-        path = user_disagreement(a.run, a.note, a.dimension, a.library)
+        lib = library_dir(a.library) if a.library else None
+        path = user_disagreement(a.run, a.note, a.dimension, lib)
         print(f"recorded your read as candidate {path.stem} in {path.parent}")
     elif a.cmd == "learn":
         if status(a.run)["decision"] != "SEALED":

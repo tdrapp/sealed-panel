@@ -8,15 +8,16 @@ the fields its action uses are filled. Learning never fails a seal: an error is 
 
 Kinds (rubric-level signals):
 - judges_disagree: in the sealed panel, a dimension whose valid judges' scores spread by 2 or
-  more, or a judge whose severity contradicts its score (blocking with a 4 or 5 before
-  capping, or none with a 1);
-- control_too_close: a dimension where the control's median is within 1 point of the
-  candidate's, in the sealed panel or in two or more loop rounds;
+  more, or a judge whose severity contradicts its score before capping (blocking with a 4 or
+  5, material with a 5, none with a 1);
+- control_too_close: in the sealed panel, a dimension where the control's raw median is
+  within 1 point of the candidate's raw median;
 - user_disagreement: the user's own read disagrees with the sealed grade (`feedback`).
 """
 
 from __future__ import annotations
 
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -29,10 +30,10 @@ from .store import load_json, round_dir
 
 # A spread of scores across a dimension's valid sealed judges that shows they disagree.
 DISAGREE_SPREAD = 2
-# A control median within this many points of the candidate's does not discriminate.
+# A control median within this many points of the candidate's does not discriminate. Both
+# medians are taken from raw scores (before severity caps), in the sealed panel only, so a
+# weak draft in the loop cannot trigger it.
 CONTROL_GAP = 1
-# Loop rounds in which the control must sit that close, when the sealed panel does not show it.
-CONTROL_LOOP_ROUNDS = 2
 
 
 def _todo(text: str) -> str:
@@ -95,7 +96,11 @@ def _judges_disagree(
                 raw, sev = cand.get("raw_scores", {}).get(did), cand.get("severity", {}).get(did)
                 if raw is None or sev is None:
                     continue
-                if (sev == "blocking" and raw >= 4) or (sev == "none" and raw <= 1):
+                if (
+                    (sev == "blocking" and raw >= 4)
+                    or (sev == "material" and raw >= 5)
+                    or (sev == "none" and raw <= 1)
+                ):
                     notes.append(f"judge {r['judge']} gave {raw} with severity {sev}")
             if not notes:
                 continue
@@ -131,54 +136,51 @@ def _judges_disagree(
     return proposals
 
 
+def _raw_median(results: list[dict[str, Any]], role: str, did: str) -> float | None:
+    raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]
+    values = [float(x) for x in raw if x is not None]
+    return statistics.median(values) if values else None
+
+
 def _control_too_close(
-    run: Path, spec: dict[str, Any], rounds: list[dict[str, Any]], info: dict[str, Any]
+    run: Path, spec: dict[str, Any], sealed: dict[str, Any], info: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    hits: dict[str, list[dict[str, Any]]] = {}
-    for r in rounds:
-        sealed = bool(r.get("sealed"))
-        results = None
-        for pid, p in r["personas"].items():
-            for did, e in p["dimensions"].items():
-                if "control_median" not in e or e["median"] - e["control_median"] > CONTROL_GAP:
-                    continue
-                if results is None:
-                    results = _valid(run, r["round"], sealed)
-                hits.setdefault(did, []).append(
-                    {
-                        "run": info["rubric_sha256"],
-                        "run_dir": info["run_dir"],
-                        "round": r["round"],
-                        "sealed": sealed,
-                        "persona": pid,
-                        "candidate_median": e["median"],
-                        "control_median": e["control_median"],
-                        "quotes": _quotes([x for x in results if x["persona"] == pid], did),
-                    }
-                )
+    results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only
     proposals = []
-    for did, evidence in sorted(hits.items()):
-        in_sealed = any(x["sealed"] for x in evidence)
-        loop_rounds = {x["round"] for x in evidence if not x["sealed"]}
-        if not in_sealed and len(loop_rounds) < CONTROL_LOOP_ROUNDS:
-            continue
-        proposals.append(
-            {
-                "kind": "control_too_close",
-                "dimension": did,
-                "run": info,
-                "evidence": evidence,
-                "proposed_change": {
-                    "action": "rewrite_anchors",
+    for pid, p in sealed["personas"].items():
+        mine = [r for r in results if r["persona"] == pid]
+        for did in p["dimensions"]:
+            cand, ctrl = _raw_median(mine, "candidate", did), _raw_median(mine, "control", did)
+            if cand is None or ctrl is None or cand - ctrl > CONTROL_GAP:
+                continue
+            proposals.append(
+                {
+                    "kind": "control_too_close",
                     "dimension": did,
-                    "current_anchors": _anchors_of(spec, did),
-                    "anchors": {
-                        "1": _todo("describe what the bad version does on this dimension"),
-                        "3": _todo("the middle, distinct from both the 1 and the 5"),
+                    "run": info,
+                    "evidence": [
+                        {
+                            "run": info["rubric_sha256"],
+                            "run_dir": info["run_dir"],
+                            "round": sealed["round"],
+                            "sealed": True,
+                            "persona": pid,
+                            "candidate_raw_median": cand,
+                            "control_raw_median": ctrl,
+                            "quotes": _quotes(mine, did),
+                        }
+                    ],
+                    "proposed_change": {
+                        "action": "rewrite_anchors",
+                        "dimension": did,
+                        "current_anchors": _anchors_of(spec, did),
+                        "anchors": {
+                            "1": _todo("describe what the bad version does on this dimension"),
+                            "3": _todo("the middle, distinct from both the 1 and the 5"),
+                        },
                     },
-                },
-            }
-        )
+                }
+            )
     return proposals
 
 
@@ -192,7 +194,7 @@ def proposals_after_seal(run: Path) -> list[dict[str, Any]]:
     info = _run_info(run, spec, ledger)
     return [
         *_judges_disagree(run, spec, sealed[-1], info),
-        *_control_too_close(run, spec, ledger["rounds"], info),
+        *_control_too_close(run, spec, sealed[-1], info),
     ]
 
 

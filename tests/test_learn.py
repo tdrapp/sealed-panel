@@ -75,6 +75,15 @@ class TestJudgesDisagree:
         found = kinds(private_library)
         assert ("judges_disagree", "clarity", 1) in found
 
+    def test_a_material_five_contradicts(self, h: Harness, private_library: Path) -> None:
+        h.init()
+        seal_with(
+            h,
+            [{"scores": FIVE, "severity": {"evidence": "material"}}, {"scores": FLAT},
+             {"scores": FLAT}],
+        )  # fmt: skip
+        assert ("judges_disagree", "evidence", 1) in kinds(private_library)
+
     def test_a_material_four_is_consistent(self, h: Harness, private_library: Path) -> None:
         h.init()
         seal_with(h, [{"scores": FLAT, "severity": {"evidence": "material"}},
@@ -100,15 +109,28 @@ class TestControlTooClose:
         assert e["personas"]["coo"]["dimensions"]["clarity"]["control_median"] == 1
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
         c = library.open_candidates(private_library)[0][0]
-        assert c["evidence"][0]["candidate_median"] == 2
+        assert c["evidence"][0]["candidate_raw_median"] == 2
 
-    def test_in_two_loop_rounds(self, h: Harness, private_library: Path) -> None:
+    def test_weak_loop_drafts_do_not_count(self, h: Harness, private_library: Path) -> None:
         h.init(max_rounds=2)
-        close = {"clarity": 2, "evidence": 4}
-        h.full(1, "cand", close)
-        h.full(2, "v2", close, close)
-        h.full(1, "v2", FLAT, sealed=True)
-        assert kinds(private_library) == [("control_too_close", "clarity", 2)]
+        drafts = {"clarity": 2, "evidence": 2}
+        h.full(1, "cand", drafts)
+        h.full(2, "v2", drafts, drafts)
+        h.full(1, "v2", FIVE, sealed=True)
+        assert kinds(private_library) == []
+
+    def test_raw_scores_are_compared_with_raw_scores(
+        self, h: Harness, private_library: Path
+    ) -> None:
+        h.init()
+        h.brief(1, "cand", sealed=True)
+        for meta in h.keys(1, True)["judges"]:
+            sc = {"candidate": FLAT, "control": {"clarity": 2, "evidence": 1}}
+            raw = judge_json(meta, h.texts(1, meta, True), sc, severity={"clarity": "blocking"})
+            record_reply(h.run, 1, meta["judge"], f"b{meta['judge']}", raw, True)
+        e = aggregate_round(h.run, 1, True)
+        assert e["personas"]["coo"]["dimensions"]["clarity"]["median"] == 3  # capped
+        assert [k for k, _, _ in kinds(private_library)] == ["judges_disagree"]
 
     def test_one_loop_round_is_not_enough(self, h: Harness, private_library: Path) -> None:
         h.init(max_rounds=1)

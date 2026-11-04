@@ -96,6 +96,9 @@ class TestRubricsCli:
             def isatty(self) -> bool:
                 return True
 
+        monkeypatch.setattr(sys, "stdin", Tty(""))  # end of input at the prompt
+        rc, out = run(capsys, "rubrics", "promote", cid)
+        assert rc == 2 and "not confirmed" in out and "Traceback" not in out
         monkeypatch.setattr(sys, "stdin", Tty("wrong\n"))
         assert run(capsys, "rubrics", "promote", cid)[0] == 2
         assert not (private_library / "message.json").exists()

@@ -5,15 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from conftest import Harness, make_spec
+from conftest import FLAT, Harness, make_spec
 from sealed_panel import library
 from sealed_panel.brief import write_briefs
-from sealed_panel.config import default_library_dir, library_dir
+from sealed_panel.cli import main
+from sealed_panel.config import default_library_dir, library_dir, load_config
 from sealed_panel.errors import EvalError
 from sealed_panel.report import render_report
 from sealed_panel.spec import RUBRIC_KEYS, TODO_MARKER, init_run, load_frozen, rubric_hash
@@ -311,11 +313,32 @@ class TestCandidates:
         c = json.loads((private_library / "inbox" / f"{new}.json").read_text())
         assert c["rejected_before"][0]["reason"] == "the anchor is right"
 
-    def test_a_promoted_key_may_return(self, private_library: Path) -> None:
+    def test_a_promoted_key_is_not_reopened(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
         library.promote(private_library, cid)
-        again = candidate(private_library, {**rewrite(), "anchors": {"5": "other"}})
-        assert again == f"{cid}-2"
+        assert library.add_candidate(private_library, proposal(rewrite())) is None
+        assert library.open_candidates(private_library)[0] == []
+
+    def test_a_modified_template_never_merges_with_the_original(
+        self, private_library: Path
+    ) -> None:
+        plain = candidate(private_library, rewrite(), template={"id": "message", "version": 1})
+        edited = candidate(
+            private_library, rewrite(), template={"id": "message", "version": 1, "modified": True}
+        )
+        assert plain != edited
+
+    def test_every_run_is_kept(self, private_library: Path) -> None:
+        first = proposal(rewrite())
+        second = proposal(rewrite())
+        second["run"] = {**second["run"], "run_dir": "/runs/y"}
+        second["evidence"] = [{**second["evidence"][0], "run_dir": "/runs/y"}]
+        library.add_candidate(private_library, first)
+        path = library.add_candidate(private_library, second)
+        assert path is not None
+        c = json.loads(path.read_text())
+        assert [r["run_dir"] for r in c["runs"]] == ["/runs/x", "/runs/y"]
+        assert c["count"] == 2
 
     def test_a_closed_candidate_left_in_the_inbox_is_refused(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
@@ -434,6 +457,40 @@ class TestPromote:
             library.promote(private_library, cid)
         assert not (private_library / "message.json").exists()
         assert (private_library / "inbox" / f"{cid}.json").exists()
+        assert not list(private_library.rglob("*.staged"))
+
+    def test_a_failed_second_move_rolls_back_the_first(
+        self, private_library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        private_library.mkdir(parents=True)
+        original = json.dumps(library.builtin_templates()["message"])
+        (private_library / "message.json").write_text(original)
+        cid = candidate(private_library, rewrite())
+        real = os.replace
+        calls = []
+
+        def second_fails(src: Any, dst: Any) -> None:
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            real(src, dst)
+
+        monkeypatch.setattr(library.os, "replace", second_fails)
+        with pytest.raises(OSError):
+            library.promote(private_library, cid)
+        assert (private_library / "message.json").read_text() == original
+        assert (private_library / "inbox" / f"{cid}.json").exists()
+        assert not list(private_library.rglob("*.staged"))
+
+    def test_a_file_holding_another_template_is_never_overwritten(
+        self, private_library: Path
+    ) -> None:
+        private_library.mkdir(parents=True)
+        other = {**library.builtin_templates()["pitch"], "id": "pitch-team"}
+        (private_library / "message.json").write_text(json.dumps(other))
+        with pytest.raises(EvalError, match="holds a template of another id"):
+            library.promote(private_library, candidate(private_library, rewrite()))
+        assert json.loads((private_library / "message.json").read_text())["id"] == "pitch-team"
 
     def test_side_by_side_shows_both_texts(self, private_library: Path) -> None:
         plan = library.plan_promotion(
@@ -469,3 +526,86 @@ class TestFrozenRun:
         assert "a different anchor" not in json.dumps(load_frozen(h.run))
         paths = write_briefs(h.run, 1, h.files["cand"], h.files["ctrl"], None, False)
         assert "a different anchor" not in paths[0].read_text()
+
+
+class TestTemplateReference:
+    def write(self, h: Harness, ref: dict[str, Any], change: bool = False) -> Path:
+        spec = filled(library.instantiate(library.builtin_templates()["message"]))
+        spec["template"] = ref
+        if change:
+            spec["dimensions"][0]["anchors"]["5"] = "my own five"
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(spec))
+        return sp
+
+    def test_an_unknown_template_or_version_is_refused(self, h: Harness) -> None:
+        with pytest.raises(EvalError, match="no known template"):
+            init_run(h.run, self.write(h, {"id": "villanelle", "version": 1}))
+        with pytest.raises(EvalError, match="has no version 7"):
+            init_run(h.run, self.write(h, {"id": "message", "version": 7}))
+
+    def test_the_hash_is_computed_and_modified_never_trusted(self, h: Harness) -> None:
+        init_run(h.run, self.write(h, {"id": "message", "version": 1, "modified": False}, True))
+        ref = load_frozen(h.run)["template"]
+        assert ref["modified"] is True
+        assert ref["sha256"] == library.dimensions_sha(
+            library.builtin_templates()["message"]["dimensions"]
+        )
+
+    def test_a_forged_hash_is_replaced(self, h: Harness) -> None:
+        init_run(h.run, self.write(h, {"id": "message", "version": 1, "sha256": "f" * 64}))
+        ref = load_frozen(h.run)["template"]
+        assert ref["sha256"] != "f" * 64 and ref["modified"] is False
+
+
+class TestLibraryGuardrails:
+    def test_inside_the_package_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
+        monkeypatch.setenv("SEALED_PANEL_RUBRICS", str(inside))
+        with pytest.raises(EvalError, match="inside the package"):
+            library_dir()
+
+    def test_inside_a_git_tree_needs_an_ignore(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        with pytest.raises(EvalError, match="not ignored"):
+            library_dir(repo / "lib")
+        (repo / ".gitignore").write_text("/lib/\n")
+        assert library_dir(repo / "lib") == repo / "lib"
+
+    @pytest.mark.parametrize("value", ["rubrics", "./lib", "../lib"])
+    def test_a_relative_environment_path_is_refused(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("SEALED_PANEL_RUBRICS", value)
+        with pytest.raises(EvalError, match="must be an absolute path"):
+            library_dir()
+
+    def test_a_relative_setting_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("SEALED_PANEL_RUBRICS")
+        cfg_file = tmp_path / "c.toml"
+        cfg_file.write_text('[library]\npath = "rubrics"\n')
+        with pytest.raises(EvalError, match=r"library\.path must be an absolute path"):
+            library_dir(cfg=load_config(cfg_file))
+
+    def test_a_relative_flag_is_made_absolute(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        assert library_dir("lib") == tmp_path / "lib"
+
+    def test_feedback_expands_the_library_flag(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        h.init()
+        h.full(1, "cand", FLAT, sealed=True)
+        monkeypatch.setenv("HOME", str(h.tmp / "home"))
+        monkeypatch.chdir(h.tmp)
+        assert main(["feedback", str(h.run), "--note", "too kind", "--library", "~/lib"]) == 0
+        assert list((h.tmp / "home" / "lib" / "inbox").glob("c-*.json"))
+        assert not (h.tmp / "~").exists()

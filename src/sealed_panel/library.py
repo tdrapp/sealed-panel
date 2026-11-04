@@ -314,7 +314,8 @@ def check_candidate_id(cid: str) -> str:
 
 def _template_tag(template: dict[str, Any] | None, rubric_sha: str) -> str:
     if template and template.get("id"):
-        return f"{template['id']}@v{template.get('version')}"
+        modified = "+modified" if template.get("modified") else ""
+        return f"{template['id']}@v{template.get('version')}{modified}"
     return f"run:{rubric_sha[:12]}"
 
 
@@ -366,8 +367,9 @@ def _same(a: Any, b: Any) -> bool:
 
 def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
     """Write a candidate to the inbox, or add its new evidence to the open candidate with the
-    same key. A key already rejected is not reopened: None is returned. Evidence already
-    recorded is not added twice, so learning a run again changes nothing."""
+    same key. A key already closed (rejected, or promoted into a newer version) is not
+    reopened: None is returned. Evidence already recorded is not added twice, so learning a
+    run again changes nothing; every run that showed the signal is listed under `runs`."""
     kind = proposal["kind"]
     if kind not in CANDIDATE_KINDS:
         raise EvalError(f"unknown candidate kind {kind!r}")
@@ -376,8 +378,9 @@ def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
     key = dedup_key(kind, template, run["rubric_sha256"], proposal["dimension"])
     family = _family(kind, template, run["rubric_sha256"], proposal["dimension"])
     history, _ = _load_candidates(history_dir(lib))
-    if any(c.get("key") == key and c.get("status") == "rejected" for c in history):
+    if any(c.get("key") == key and c.get("status") in ("rejected", "promoted") for c in history):
         return None
+    this_run = {"rubric_sha256": run["rubric_sha256"], "run_dir": run.get("run_dir")}
     opened, _ = open_candidates(lib)
     existing = next((c for c in opened if c.get("key") == key), None)
     if existing is not None:
@@ -386,6 +389,9 @@ def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
         ]
         existing["evidence"] += new
         existing["count"] = len(existing["evidence"])
+        runs = existing.setdefault("runs", [])
+        if this_run not in runs:
+            runs.append(this_run)
         path = inbox_dir(lib) / f"{existing['id']}.json"
         dump_json(path, existing)
         return path
@@ -409,6 +415,7 @@ def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
         "template": template or None,
         "dimension": proposal["dimension"],
         "run": run,
+        "runs": [this_run],
         "evidence": list(proposal["evidence"]),
         "count": len(proposal["evidence"]),
         "proposed_change": proposal["proposed_change"],
@@ -542,12 +549,18 @@ def plan_promotion(lib: Path, cid: str, into: str | None = None) -> dict[str, An
     ]
     _checked(updated, f"template {tid} after the change")
     target = served["path"] or lib / f"{tid}.json"
+    if served["path"] is None and target.exists():
+        raise EvalError(
+            f"{target} already holds a template of another id: rename it, or promote with "
+            "--into that id"
+        )
     return {"candidate": c, "id": tid, "target": target, "current": current, "updated": updated}
 
 
 def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
     """Write the template and close the candidate, all or nothing: both files are staged
-    first, then moved into place."""
+    first, then moved into place; if the second move fails, the first is rolled back, and no
+    staged file is left behind."""
     c, target = plan["candidate"], Path(plan["target"])
     c.update(
         {
@@ -559,10 +572,22 @@ def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
     history = history_dir(lib) / f"{c['id']}.json"
     staged_t = target.with_name(f".{target.name}.staged")
     staged_h = history.with_name(f".{history.name}.staged")
-    dump_json(staged_t, plan["updated"])
-    dump_json(staged_h, c)
-    os.replace(staged_t, target)
-    os.replace(staged_h, history)
+    before = target.read_bytes() if target.exists() else None
+    try:
+        dump_json(staged_t, plan["updated"])
+        dump_json(staged_h, c)
+        os.replace(staged_t, target)
+        try:
+            os.replace(staged_h, history)
+        except OSError:
+            if before is None:
+                target.unlink()
+            else:
+                target.write_bytes(before)
+            raise
+    finally:
+        for leftover in (staged_t, staged_h):
+            leftover.unlink(missing_ok=True)
     (inbox_dir(lib) / f"{c['id']}.json").unlink()
     return target
 

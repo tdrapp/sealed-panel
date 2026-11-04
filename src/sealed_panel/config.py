@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Mapping
@@ -382,12 +383,61 @@ def default_library_dir() -> Path:
     return base / "sealed-panel" / "rubrics"
 
 
+def _git_top(path: Path) -> Path | None:
+    for parent in [path, *path.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _git_ignored(top: Path, path: Path) -> bool:
+    try:
+        done = subprocess.run(
+            # A trailing slash: the library is a directory, even before it exists.
+            ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False  # no git: the library cannot be shown to be ignored
+    return done.returncode == 0
+
+
+def guard_library(path: Path) -> Path:
+    """Refuse a library inside the installed package, or inside a git working tree that does
+    not ignore it: candidates quote the judged texts and must never be committed by accident."""
+    path = path.absolute()
+    package = Path(__file__).resolve().parent
+    if path.resolve() == package or package in path.resolve().parents:
+        raise ConfigError(f"the rubric library may not live inside the package: {path}")
+    top = _git_top(path)
+    if top is not None and not _git_ignored(top, path):
+        raise ConfigError(
+            f"the rubric library {path} is inside the git working tree {top} and not ignored "
+            "there: candidates quote the judged texts. Choose a path outside it, or ignore it."
+        )
+    return path
+
+
 def library_dir(flag: str | Path | None = None, cfg: Config | None = None) -> Path:
     """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the library.path setting,
-    else the user-level default. `~` is expanded and the result is absolute."""
-    value = str(flag or "") or os.environ.get(LIBRARY_ENV, "") or str(resolve(cfg).library["path"])
-    path = Path(value).expanduser() if value.strip() else default_library_dir()
-    return path.absolute()
+    else the user-level default. `~` is expanded; a flag may be relative to the current
+    directory, the environment variable and the setting may not. The result is absolute and
+    checked by guard_library."""
+    if flag is not None and str(flag).strip():
+        return guard_library(Path(flag).expanduser().absolute())
+    for source, value in (
+        (f"${LIBRARY_ENV}", os.environ.get(LIBRARY_ENV, "")),
+        ("library.path", str(resolve(cfg).library["path"])),
+    ):
+        if value.strip():
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                raise ConfigError(
+                    f"{source} must be an absolute path or start with ~, got {value!r}"
+                )
+            return guard_library(path)
+    return guard_library(default_library_dir())
 
 
 def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:

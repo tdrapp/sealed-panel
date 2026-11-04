@@ -401,16 +401,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "*_judges_disagree(run, spec, sealed[-1], info),",
         "*[x for r in ledger['rounds'] for x in _judges_disagree(run, spec, r, info)],",
     ),
-    "control gap off by one": (
+    "control gap off by one": (LEARN, "cand - ctrl > CONTROL_GAP", "cand - ctrl >= CONTROL_GAP"),
+    "control compared on capped scores": (
         LEARN,
-        'e["median"] - e["control_median"] > CONTROL_GAP',
-        'e["median"] - e["control_median"] >= CONTROL_GAP',
+        'raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]',
+        'raw = [r["items"].get(role, {}).get("scores", {}).get(did) for r in results]',
     ),
-    "one loop round enough for the control": (
+    "loop rounds read for the control": (
         LEARN,
-        "if not in_sealed and len(loop_rounds) < CONTROL_LOOP_ROUNDS:",
-        "if not in_sealed and len(loop_rounds) < 1:",
+        'results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only',
+        'results = _valid(run, sealed["round"], sealed=False)',
     ),
+    "material five ignored": (LEARN, 'or (sev == "material" and raw >= 5)', ""),
     "control median not stored": (
         AGG,
         '        entry["control_median"] = statistics.median(control)',
@@ -430,8 +432,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "dedup off": (LIB, "if existing is not None:", "if False:"),
     "dedup ignores the template version": (
         LIB,
-        "return f\"{template['id']}@v{template.get('version')}\"",
-        "return f\"{template['id']}\"",
+        "return f\"{template['id']}@v{template.get('version')}{modified}\"",
+        "return f\"{template['id']}{modified}\"",
     ),
     "dedup case-sensitive": (
         LIB,
@@ -445,7 +447,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "rejected key reopened": (
         LIB,
-        'if any(c.get("key") == key and c.get("status") == "rejected" for c in history):',
+        'if any(c.get("key") == key and c.get("status") in ("rejected", "promoted") for c in history):',
         "if False:",
     ),
     "rejection memory lost": (LIB, "    if earlier:\n", "    if False:\n"),
@@ -517,8 +519,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "promotion not staged": (
         LIB,
-        '    dump_json(staged_t, plan["updated"])\n    dump_json(staged_h, c)\n    os.replace(staged_t, target)',
-        '    dump_json(target, plan["updated"])\n    dump_json(staged_h, c)',
+        '        dump_json(staged_t, plan["updated"])\n        dump_json(staged_h, c)\n        os.replace(staged_t, target)',
+        '        dump_json(target, plan["updated"])\n        dump_json(staged_h, c)',
     ),
     "reject without a reason": (LIB, "if not reason.strip():", "if False:"),
     "kind not normalised": (
@@ -570,6 +572,80 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         CFG,
         "        if key not in current:\n            continue",
         "        if False:\n            continue",
+    ),
+    "promoted key reopened": (
+        LIB,
+        'c.get("status") in ("rejected", "promoted")',
+        'c.get("status") == "rejected"',
+    ),
+    "modified ignored in dedup": (
+        LIB,
+        'modified = "+modified" if template.get("modified") else ""',
+        'modified = ""',
+    ),
+    "runs not kept": (LIB, "            runs.append(this_run)", "            pass"),
+    "another template overwritten": (
+        LIB,
+        'if served["path"] is None and target.exists():',
+        "if False:",
+    ),
+    "no rollback of the first move": (
+        LIB,
+        "            if before is None:\n                target.unlink()\n            else:\n                target.write_bytes(before)\n",
+        "            pass\n",
+    ),
+    "staged files left behind": (
+        LIB,
+        "            leftover.unlink(missing_ok=True)",
+        "            pass",
+    ),
+    "end of input crashes the prompt": (
+        f"{PKG}/cli.py",
+        '    except EOFError:\n        answer = ""',
+        '    except ZeroDivisionError:\n        answer = ""',
+    ),
+    "promote without a terminal": (f"{PKG}/cli.py", "if not sys.stdin.isatty():", "if False:"),
+    "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
+    "feedback library unresolved": (
+        f"{PKG}/cli.py",
+        "lib = library_dir(a.library) if a.library else None",
+        "lib = a.library",
+    ),
+    "library inside the package": (
+        CFG,
+        "if path.resolve() == package or package in path.resolve().parents:",
+        "if False:",
+    ),
+    "library inside a git tree": (
+        CFG,
+        "if top is not None and not _git_ignored(top, path):",
+        "if False:",
+    ),
+    "library checked as a file": (
+        CFG,
+        'str(path) + "/"],',
+        "str(path)],",
+    ),
+    "relative library path accepted": (
+        CFG,
+        "            if not path.is_absolute():\n                raise ConfigError(",
+        "            if False:\n                raise ConfigError(",
+    ),
+    "unknown template accepted": (
+        SPEC,
+        '    if served is None:\n        raise EvalError(f"spec.template names no known template',
+        '    if False:\n        raise EvalError(f"spec.template names no known template',
+    ),
+    "unknown template version accepted": (SPEC, "    if match is None:\n", "    if False:\n"),
+    "template hash trusted": (
+        SPEC,
+        'ref["sha256"] = dimensions_sha(match["dimensions"])',
+        'ref.setdefault("sha256", dimensions_sha(match["dimensions"]))',
+    ),
+    "modified flag trusted": (
+        SPEC,
+        'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
+        'ref.setdefault("modified", dimensions_sha(spec["dimensions"]) != ref["sha256"])',
     ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -709,6 +785,10 @@ EXPECTED_SURVIVORS: dict[str, str] = {
     "sealed round directory exists": (
         "'this run already has a sealed panel' refuses first: a sealed round directory "
         "exists only once its briefs are written"
+    ),
+    "closed candidate reopened": (
+        "add_candidate returns before choosing an id when the key is closed, and a history "
+        "file of a key's id can only hold that key"
     ),
 }
 

@@ -13,6 +13,7 @@ from .config import (
     MAX_JUDGES_PER_PERSONA,
     RUN_BOUNDS,
     Config,
+    guard_library,
     library_dir,
     resolve,
     run_value_error,
@@ -281,6 +282,31 @@ def _freeze_facts(spec: dict[str, Any], base: Path) -> None:
         )
 
 
+def _check_template_ref(spec: dict[str, Any], cfg: Config) -> None:
+    """The template reference must name a template and version the library knows. Its hash is
+    the template's own, and `modified` is computed here, never taken from the spec."""
+    from . import library  # here, not at the top: library.py imports this module
+
+    ref = spec["template"]
+    lib = library_dir(cfg=cfg)
+    served = library.all_templates(lib)[0].get(ref["id"])
+    if served is None:
+        raise EvalError(f"spec.template names no known template: {ref['id']!r}")
+    known = [served["template"]]
+    builtin = library.builtin_templates().get(ref["id"])
+    if builtin is not None:
+        known.append(builtin)
+    match = next((t for t in known if t["version"] == ref["version"]), None)
+    if match is None:
+        versions = sorted({t["version"] for t in known})
+        raise EvalError(
+            f"spec.template {ref['id']!r} has no version {ref['version']} here (known: {versions})"
+        )
+    ref["sha256"] = dimensions_sha(match["dimensions"])
+    # Frozen with the rubric: whether the dimensions still match the template they came from.
+    ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
+
+
 def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash."""
     cfg = resolve(cfg)
@@ -293,10 +319,8 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent)
-    ref = spec.get("template")
-    if isinstance(ref, dict) and ref.get("sha256"):
-        # Frozen with the rubric: whether the dimensions still match the template they came from.
-        ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
+    if isinstance(spec.get("template"), dict):
+        _check_template_ref(spec, cfg)
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
@@ -333,7 +357,7 @@ def load_frozen(run: Path) -> dict[str, Any]:
 def run_library(run: Path) -> Path:
     """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now."""
     frozen = run_config(run).data.get("library") or {}
-    return Path(frozen["path"]) if frozen.get("path") else library_dir()
+    return guard_library(Path(frozen["path"])) if frozen.get("path") else library_dir()
 
 
 def run_config(run: Path) -> Config:
