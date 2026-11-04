@@ -9,7 +9,15 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import MAX_JUDGES_PER_PERSONA, RUN_BOUNDS, Config, resolve, run_value_error
+from .config import (
+    MAX_JUDGES_PER_PERSONA,
+    RUN_BOUNDS,
+    Config,
+    guard_library,
+    library_dir,
+    resolve,
+    run_value_error,
+)
 from .errors import EvalError
 from .store import dump_json, load_json, read_text
 from .text import injection_flags
@@ -30,7 +38,13 @@ RUBRIC_KEYS = (
     "control_max",
     "good_min",
     "noise_floor_min",
+    "template",
 )
+# Keys hashed only when present, so a spec without them keeps the hash it had before.
+OPTIONAL_HASH_KEYS = frozenset({"template"})
+# A string a skeleton leaves for the user to fill; `init` refuses a spec that still holds one.
+TODO_MARKER = "TODO(sealed-panel)"
+TEMPLATE_REF_KEYS = frozenset({"id", "version", "sha256", "modified"})
 SPEC_KEYS = frozenset({*RUBRIC_KEYS, "facts_file"})
 PERSONA_KEYS = frozenset({"id", "description"})
 DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors", "weight", "personas"})
@@ -113,6 +127,19 @@ def shape_errors(spec: Any) -> list[str]:
         for key in ("choice", "user_said"):
             if key in c and not isinstance(c[key], str):
                 errors.append(f"declared choice: {key} must be a string")
+    ref = spec.get("template")
+    if ref is not None:
+        if not isinstance(ref, dict):
+            errors.append("spec.template must be an object with id and version")
+        else:
+            errors += _unknown(ref, TEMPLATE_REF_KEYS, "spec.template")
+            version = ref.get("version")
+            if (
+                not isinstance(ref.get("id"), str)
+                or isinstance(version, bool)
+                or not isinstance(version, int)
+            ):
+                errors.append("spec.template needs a string id and an integer version")
     framings = spec.get("framings")
     if framings is not None and (
         not isinstance(framings, list)
@@ -123,11 +150,31 @@ def shape_errors(spec: Any) -> list[str]:
     return errors
 
 
+def dimensions_sha(dimensions: list[dict[str, Any]]) -> str:
+    """A hash of what a template asks judges: each dimension's id, name, question, anchors."""
+    core = [{k: d.get(k) for k in ("id", "name", "question", "anchors")} for d in dimensions or []]
+    return hashlib.sha256(json.dumps(core, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def todo_paths(value: Any, where: str = "spec") -> list[str]:
+    """Where a skeleton's TODO markers are still in place."""
+    if isinstance(value, str):
+        return [where] if TODO_MARKER in value else []
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in todo_paths(v, f"{where}.{k}")]
+    if isinstance(value, list):
+        return [p for i, v in enumerate(value) for p in todo_paths(v, f"{where}[{i}]")]
+    return []
+
+
 def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
     cfg = resolve(cfg)
     errors = shape_errors(spec)
     if errors:
         return errors
+    todo = todo_paths(spec)
+    if todo:
+        errors.append(f"fill the {TODO_MARKER} markers first: {', '.join(todo)}")
     for key in ("title", "purpose", "personas", "dimensions"):
         if not spec.get(key):
             errors.append(f"spec.{key} is missing or empty")
@@ -201,7 +248,7 @@ def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
 
 
 def rubric_hash(spec: dict[str, Any]) -> str:
-    core = {k: spec.get(k) for k in RUBRIC_KEYS}
+    core = {k: spec.get(k) for k in RUBRIC_KEYS if k not in OPTIONAL_HASH_KEYS or k in spec}
     canon = json.dumps(core, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
@@ -235,7 +282,36 @@ def _freeze_facts(spec: dict[str, Any], base: Path) -> None:
         )
 
 
-def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
+def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
+    """The template reference must name a template and version the library knows. Its hash is
+    the template's own, and `modified` is computed here, never taken from the spec."""
+    from . import library  # here, not at the top: library.py imports this module
+
+    ref = spec["template"]
+    served = library.all_templates(lib)[0].get(ref["id"])
+    if served is None:
+        raise EvalError(
+            f"spec.template names no known template: {ref['id']!r} (library {lib}; "
+            "pass --library to read another)"
+        )
+    known = [served["template"]]
+    builtin = library.builtin_templates().get(ref["id"])
+    if builtin is not None:
+        known.append(builtin)
+    match = next((t for t in known if t["version"] == ref["version"]), None)
+    if match is None:
+        versions = sorted({t["version"] for t in known})
+        raise EvalError(
+            f"spec.template {ref['id']!r} has no version {ref['version']} here (known: {versions})"
+        )
+    ref["sha256"] = dimensions_sha(match["dimensions"])
+    # Frozen with the rubric: whether the dimensions still match the template they came from.
+    ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
+
+
+def init_run(
+    run: Path, spec_path: Path, cfg: Config | None = None, library: Path | None = None
+) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash."""
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
@@ -247,6 +323,9 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent)
+    lib = library_dir(library, cfg)  # resolved before anything is written: a refusal leaves no run
+    if isinstance(spec.get("template"), dict):
+        _check_template_ref(spec, cfg, lib)
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
@@ -255,6 +334,9 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
     if injection_flags(exposed, cfg):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     run.mkdir(parents=True, exist_ok=True)
+    frozen = json.loads(json.dumps(cfg.data))
+    frozen["library"] = {**cfg.library, "path": str(lib)}
+    cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
     (run / "config.lock").write_text(cfg.fingerprint + "\n", encoding="utf-8")
     dump_json(run / "spec.json", spec)
@@ -275,6 +357,12 @@ def load_frozen(run: Path) -> dict[str, Any]:
             "Start a new run directory with the new spec."
         )
     return spec
+
+
+def run_library(run: Path) -> Path:
+    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now."""
+    frozen = run_config(run).data.get("library") or {}
+    return guard_library(Path(frozen["path"])) if frozen.get("path") else library_dir()
 
 
 def run_config(run: Path) -> Config:

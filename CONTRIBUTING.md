@@ -57,6 +57,11 @@ A known-good equal to the candidate made the calibration check pass by construct
 
 - Plain ASCII punctuation in docs: commas, colons, parentheses, straight quotes.
 - Sober prose: short sentences, no superlatives, no marketing words.
+- Markdown wraps at 96 columns; re-wrap the whole paragraph after an edit.
+  `tests/test_docs.py` checks the width and exempts code blocks, tables, front matter, lines
+  with no space (a badge, a long link), `tests/fixtures/`, and the judged example texts under
+  `examples/announcement/` (`control.md`, `draft_v1.md`, `facts.md`): those are texts a panel
+  scores, kept as written, so never re-wrap them.
 - Examples are synthetic. Do not commit real CVs, messages or other personal material.
 - Code: typed (mypy strict on `src`, `tools` and `examples`), formatted by ruff, standard
   library only at runtime. A setting goes in `defaults.toml` and `docs/configuration.md`; a

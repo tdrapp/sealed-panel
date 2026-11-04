@@ -1,0 +1,79 @@
+{
+  "id": "cover-letter",
+  "version": 1,
+  "title": "Cover letter for a named role",
+  "kinds": [
+    "cover-letter",
+    "letter",
+    "motivation-letter"
+  ],
+  "aliases": [
+    "cover letter",
+    "motivation letter",
+    "application letter"
+  ],
+  "keywords": [
+    "role",
+    "company",
+    "team",
+    "interest",
+    "experience",
+    "contribute",
+    "dear",
+    "position"
+  ],
+  "when_to_use": "A letter sent with an application, read by the hiring manager of one role.",
+  "facts_hint": "paste the job description, the company facts and the CV the letter goes with",
+  "personas": [
+    {
+      "id": "manager",
+      "description": "Hiring manager who reads the letter after the CV and decides whether the candidate understood the role."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "specificity",
+      "name": "Specific to the role",
+      "question": "Could this letter be sent unchanged to another company?",
+      "anchors": {
+        "1": "the letter would read the same for any company",
+        "3": "the company is named, but nothing ties the candidate to its situation",
+        "5": "the letter names a need of this team and a past result that answers it"
+      }
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence",
+      "question": "Is the candidate's main claim backed by a number or a named case?",
+      "anchors": {
+        "1": "the main claim is an adjective, with no number and no named case",
+        "3": "the main claim names a case without a number, or a number without a case",
+        "5": "the main claim carries a number and a named case, both consistent with the CV"
+      }
+    },
+    {
+      "id": "ask",
+      "name": "The ask",
+      "question": "Does the letter end on a concrete next step?",
+      "anchors": {
+        "1": "no next step",
+        "3": "a vague wish to talk",
+        "5": "a concrete next step the reader can say yes to"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "words",
+      "description": "word count, 350 or fewer",
+      "max": 350
+    }
+  ],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

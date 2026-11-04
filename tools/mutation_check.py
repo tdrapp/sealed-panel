@@ -25,6 +25,7 @@ REC, AGG, SPEC, CFG, BRIEF = (
 )
 DEFAULTS = f"{PKG}/defaults.toml"
 CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
+LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -367,6 +368,364 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
     "max_rounds exceeded": (BRIEF, 'if rnd > spec["max_rounds"]:', "if False:"),
     "sealed round directory exists": (BRIEF, "if round_dir(run, rnd, True).exists():", "if False:"),
+    # The rubric library and learning.
+    "auto-promotion": (
+        LEARN,
+        "paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]",
+        "paths = [library.promote(lib, library.add_candidate(lib, p).stem) for p in "
+        "proposals_after_seal(run)]",
+    ),
+    "learning switch ignored": (
+        LEARN,
+        'if not run_config(run).library["learn"]:\n            return [], "learning off"',
+        'if False:\n            return [], "learning off"',
+    ),
+    "learning can fail a seal": (
+        LEARN,
+        "    except Exception as exc:  # learning must never fail a seal",
+        "    except ZeroDivisionError as exc:  # learning must never fail a seal",
+    ),
+    "spread threshold off by one": (
+        LEARN,
+        "if spread >= DISAGREE_SPREAD:",
+        "if spread > DISAGREE_SPREAD:",
+    ),
+    "blocking contradiction ignored": (
+        LEARN,
+        'sev in ("blocking", "material") and raw > caps[sev]',
+        'sev == "material" and raw > caps[sev]',
+    ),
+    "none contradiction ignored": (
+        LEARN,
+        'sev == "none" and raw <= 1',
+        "False",
+    ),
+    "loop rounds read for disagreement": (
+        LEARN,
+        "*_judges_disagree(run, spec, sealed[-1], info, cfg),",
+        "*[x for r in ledger['rounds'] for x in _judges_disagree(run, spec, r, info, cfg)],",
+    ),
+    "control gap off by one": (
+        LEARN,
+        "cand - ctrl > gap",
+        "cand - ctrl >= gap",
+    ),
+    "control compared on capped scores": (
+        LEARN,
+        'raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]',
+        'raw = [r["items"].get(role, {}).get("scores", {}).get(did) for r in results]',
+    ),
+    "loop rounds read for the control": (
+        LEARN,
+        'results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only',
+        'results = _valid(run, sealed["round"], sealed=False)',
+    ),
+    "material five ignored": (
+        LEARN,
+        'sev in ("blocking", "material") and raw > caps[sev]',
+        'sev == "blocking" and raw > caps[sev]',
+    ),
+    "control median not stored": (
+        AGG,
+        '        entry["control_median"] = statistics.median(control)',
+        "        pass",
+    ),
+    "feedback before the seal": (LEARN, 'if d["decision"] != "SEALED":', "if False:"),
+    "feedback quotes from another round": (
+        LEARN,
+        '    results = _valid(run, final["round"], True)\n    info',
+        '    results = _valid(run, final["round"], False)\n    info',
+    ),
+    "quotes all marked verified": (
+        LEARN,
+        '"verified": did not in cand.get("unverified", []),',
+        '"verified": True,',
+    ),
+    "dedup off": (LIB, "if existing is not None:", "if False:"),
+    "dedup ignores the template version": (
+        LIB,
+        "return f\"{template['id']}@v{template.get('version')}{modified}\"",
+        "return f\"{template['id']}{modified}\"",
+    ),
+    "dedup case-sensitive": (
+        LIB,
+        'return f"{kind}|{_template_tag(template, rubric_sha)}|{dimension.casefold()}"',
+        'return f"{kind}|{_template_tag(template, rubric_sha)}|{dimension}"',
+    ),
+    "evidence added twice": (
+        LIB,
+        'if not any(_same(e, x) for x in existing["evidence"])',
+        "if True",
+    ),
+    "rejected key reopened": (
+        LIB,
+        'if any(c.get("key") == key and c.get("status") in ("rejected", "promoted") for c in history):',
+        "if False:",
+    ),
+    "rejection memory lost": (LIB, "    if earlier:\n", "    if False:\n"),
+    "closed candidate reopened": (
+        LIB,
+        'while (inbox_dir(lib) / f"{cid}.json").exists() or '
+        '(history_dir(lib) / f"{cid}.json").exists():',
+        'while (inbox_dir(lib) / f"{cid}.json").exists():',
+    ),
+    "candidate id unchecked": (
+        LIB,
+        "    if not CANDIDATE_ID.match(cid):\n        raise",
+        "    if False:\n        raise",
+    ),
+    "file id trusted": (
+        LIB,
+        'c["id"] = path.stem  # the file name is the id',
+        "pass  # the file name is the id",
+    ),
+    "bad inbox file fails the listing": (
+        LIB,
+        '        except (OSError, ValueError) as exc:\n            warnings.append(f"skipped {path}: {exc}")',
+        '        except ZeroDivisionError as exc:\n            warnings.append(f"skipped {path}: {exc}")',
+    ),
+    "bad user template fails the listing": (
+        LIB,
+        "            except (OSError, ValueError, EvalError) as exc:",
+        "            except ZeroDivisionError as exc:",
+    ),
+    "promotion ignores TODO markers": (
+        LIB,
+        'if todo_paths(_used_fields(change), "proposed_change"):',
+        "if False:",
+    ),
+    "unused TODO fields block a removal": (
+        LIB,
+        'if todo_paths(_used_fields(change), "proposed_change"):',
+        'if todo_paths(change, "proposed_change"):',
+    ),
+    "closed candidate promoted": (
+        LIB,
+        'if not isinstance(c, dict) or c.get("status") != "open":',
+        "if False:",
+    ),
+    "version not bumped": (
+        LIB,
+        'updated["version"] = max(versions) + 1',
+        'updated["version"] = current["version"] + 1',
+    ),
+    "provenance replaced": (
+        LIB,
+        '    updated["provenance"] = [\n        *current["provenance"],',
+        '    updated["provenance"] = [',
+    ),
+    "into ignored": (
+        LIB,
+        'tid = into or (c.get("template") or {}).get("id")',
+        'tid = (c.get("template") or {}).get("id") or into',
+    ),
+    "promote writes beside the served file": (
+        LIB,
+        'target = served["path"] or lib / f"{tid}.json"',
+        'target = lib / f"{tid}.json"',
+    ),
+    "invalid user file overwritten": (
+        LIB,
+        "        if w.startswith(f\"skipped {lib / (tid + '.json')}:\"):",
+        "        if False:",
+    ),
+    "promotion not staged": (
+        LIB,
+        '        dump_json(staged_t, plan["updated"])\n        dump_json(staged_h, c)\n        os.replace(staged_t, target)',
+        '        dump_json(target, plan["updated"])\n        dump_json(staged_h, c)',
+    ),
+    "reject without a reason": (LIB, "if not reason.strip():", "if False:"),
+    "kind not normalised": (
+        LIB,
+        'return re.sub(r"[\\s_]+", "-", kind.strip().casefold())',
+        "return kind",
+    ),
+    "aliases ignored": (
+        LIB,
+        'names = {normalise_kind(k) for k in [*t["kinds"], *t.get("aliases", [])]}',
+        'names = {normalise_kind(k) for k in t["kinds"]}',
+    ),
+    "keywords match inside words": (
+        LIB,
+        'if re.search(r"\\b" + re.escape(k.casefold()) + r"\\b", low)',
+        "if k.casefold() in low",
+    ),
+    "newer built-in not flagged": (
+        LIB,
+        'if base is not None and builtin[tid]["version"] > base:',
+        "if False:",
+    ),
+    "skeleton thresholds kept": (
+        LIB,
+        '                row[bound] = _todo(f"your {bound} (suggested {row[bound]})")',
+        "                pass",
+    ),
+    "skeleton facts hint dropped": (
+        LIB,
+        'hint = t.get("facts_hint") or "the facts the judges may trust"',
+        'hint = "the facts the judges may trust"',
+    ),
+    "modified flag never set": (
+        SPEC,
+        'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
+        'ref["modified"] = False',
+    ),
+    "template not frozen by the hash": (
+        SPEC,
+        "if k not in OPTIONAL_HASH_KEYS or k in spec",
+        "if k not in OPTIONAL_HASH_KEYS",
+    ),
+    "library not frozen at init": (
+        SPEC,
+        '    frozen["library"] = {**cfg.library, "path": str(lib)}\n',
+        "",
+    ),
+    "keys missing from an old run reported": (
+        CFG,
+        "        if key not in current:\n            continue",
+        "        if False:\n            continue",
+    ),
+    "promoted key reopened": (
+        LIB,
+        'c.get("status") in ("rejected", "promoted")',
+        'c.get("status") == "rejected"',
+    ),
+    "modified ignored in dedup": (
+        LIB,
+        'modified = "+modified" if template.get("modified") else ""',
+        'modified = ""',
+    ),
+    "runs not kept": (LIB, "            runs.append(this_run)", "            pass"),
+    "another template overwritten": (
+        LIB,
+        'if served["path"] is None and target.exists():',
+        "if False:",
+    ),
+    "no rollback of the first move": (
+        LIB,
+        "            if before is None:\n                target.unlink()\n            else:\n                target.write_bytes(before)\n",
+        "            pass\n",
+    ),
+    "staged files left behind": (
+        LIB,
+        "            leftover.unlink(missing_ok=True)",
+        "            pass",
+    ),
+    "end of input crashes the prompt": (
+        f"{PKG}/cli.py",
+        '    except EOFError:\n        answer = ""',
+        '    except ZeroDivisionError:\n        answer = ""',
+    ),
+    "promote without a terminal": (f"{PKG}/cli.py", "if not sys.stdin.isatty():", "if False:"),
+    "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
+    "inherited GIT_DIR obeyed": (
+        CFG,
+        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
+        "",
+    ),
+    "feedback library unresolved": (
+        f"{PKG}/cli.py",
+        "lib = library_dir(a.library) if a.library else None",
+        "lib = a.library",
+    ),
+    "library inside the package": (
+        CFG,
+        "if real == package or package in real.parents:",
+        "if False:",
+    ),
+    "library inside a git tree": (
+        CFG,
+        "if top is not None and not _git_ignored(top, real):",
+        "if False:",
+    ),
+    "library checked as a file": (
+        CFG,
+        'str(path) + "/"],',
+        "str(path)],",
+    ),
+    "relative library path accepted": (
+        CFG,
+        "            if not path.is_absolute():\n                raise ConfigError(",
+        "            if False:\n                raise ConfigError(",
+    ),
+    "unknown template accepted": (
+        SPEC,
+        '    if served is None:\n        raise EvalError(\n            f"spec.template names no known template',
+        '    if False:\n        raise EvalError(\n            f"spec.template names no known template',
+    ),
+    "unknown template version accepted": (SPEC, "    if match is None:\n", "    if False:\n"),
+    "template hash trusted": (
+        SPEC,
+        'ref["sha256"] = dimensions_sha(match["dimensions"])',
+        'ref.setdefault("sha256", dimensions_sha(match["dimensions"]))',
+    ),
+    "modified flag trusted": (
+        SPEC,
+        'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
+        'ref.setdefault("modified", dimensions_sha(spec["dimensions"]) != ref["sha256"])',
+    ),
+    "library compared lexically": (
+        CFG,
+        "real = path.expanduser().resolve(strict=False)",
+        "real = path.expanduser().absolute()",
+    ),
+    "weak candidate triggers the control signal": (LEARN, "cand < floor or ", ""),
+    "control gap hard-coded": (
+        LEARN,
+        'gap = float(cfg.library["control_gap"])',
+        "gap = 1.0",
+    ),
+    "control_min_candidate unbounded": (
+        CFG,
+        'if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:',
+        "if False:",
+    ),
+    "control_gap unbounded": (
+        CFG,
+        'if "control_gap" in library and not 0 <= library["control_gap"] <= 4:',
+        "if False:",
+    ),
+    "run created before the library is resolved": (
+        SPEC,
+        "    lib = library_dir(library, cfg)  # resolved",
+        "    run.mkdir(parents=True, exist_ok=True)\n    lib = library_dir(library, cfg)  # resolved",
+    ),
+    "closed id refused only after the prompt": (
+        LIB,
+        '    _history_file(lib, c["id"])  # a closed id',
+        "    pass  # a closed id",
+    ),
+    "control threshold hard-coded": (
+        LEARN,
+        'floor = float(cfg.library["control_min_candidate"])',
+        "floor = 4.0",
+    ),
+    "contradiction ignores the run caps": (
+        LEARN,
+        "    caps = cfg.severity_caps\n    results",
+        '    caps = {"blocking": 3, "material": 4}\n    results',
+    ),
+    "promoted feedback called rejected": (
+        LEARN,
+        'if library.closed_status(target, proposal) == "promoted":',
+        "if False:",
+    ),
+    "history file overwritten": (
+        LIB,
+        '    if dest.exists():\n        raise EvalError(f"{dest} already exists',
+        '    if False:\n        raise EvalError(f"{dest} already exists',
+    ),
+    "init ignores --library": (
+        SPEC,
+        "    lib = library_dir(library, cfg)  # resolved",
+        "    lib = library_dir(None, cfg)  # resolved",
+    ),
+    "init freezes the default library": (
+        SPEC,
+        'frozen["library"] = {**cfg.library, "path": str(lib)}',
+        'frozen["library"] = {**cfg.library, "path": str(library_dir(None, cfg))}',
+    ),
+    "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
     "min valid judges floor off": (
         CFG,
@@ -511,6 +870,9 @@ EXPECTED_SURVIVORS: dict[str, str] = {
 def _copy_tree(dest: Path) -> None:
     shutil.copytree(ROOT / "src", dest / "src", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "tests", dest / "tests", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(
+        ROOT / "examples", dest / "examples", ignore=shutil.ignore_patterns("__pycache__")
+    )
     shutil.copy(ROOT / "pyproject.toml", dest / "pyproject.toml")
 
 

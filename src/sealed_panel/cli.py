@@ -7,17 +7,23 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, library
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import load_config
+from .config import LIBRARY_ENV, library_dir, load_config
 from .errors import EvalError, MalformedReply
+from .learn import learn_safely, user_disagreement
 from .record import last_reply, record_measurement, record_reply, transcript_agent_id
 from .report import feedback_path, render_report, status
-from .spec import init_run, run_config
+from .spec import TODO_MARKER, init_run, run_config, run_library
+from .store import load_json
 
 DESCRIPTION = "Grade a text with blind panels of LLM judges and a sealed final panel."
 ROUND_HELP = "round number; optional with --sealed, where it defaults to 1"
+LIBRARY_HELP = (
+    f"user library directory (default: ${LIBRARY_ENV}, else the library.path setting, "
+    "else the user-level default)"
+)
 
 
 def _round_args(p: argparse.ArgumentParser) -> None:
@@ -37,6 +43,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config", type=Path, help="TOML file overriding defaults.toml, frozen into the run"
     )
+    p.add_argument("--library", type=Path, help=LIBRARY_HELP)
 
     p = sub.add_parser("brief", help="write one blind brief per judge")
     _round_args(p)
@@ -76,7 +83,118 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("run", type=Path)
     p = sub.add_parser("report", help="print the run's report")
     p.add_argument("run", type=Path)
+
+    p = sub.add_parser("feedback", help="record your own read disagreeing with the sealed grade")
+    p.add_argument("run", type=Path)
+    p.add_argument("--note", required=True)
+    p.add_argument("--dimension")
+    p.add_argument("--library", type=Path, help=LIBRARY_HELP)
+
+    p = sub.add_parser("learn", help="write a sealed run's rubric candidates to the inbox again")
+    p.add_argument("run", type=Path)
+
+    p = sub.add_parser("rubrics", help="the rubric library: templates and learned candidates")
+    rsub = p.add_subparsers(dest="rcmd", required=True)
+
+    def lib_args(r: argparse.ArgumentParser) -> None:
+        r.add_argument("--library", type=Path, help=LIBRARY_HELP)
+        r.add_argument("--run", type=Path, help="use the library frozen into this run")
+
+    r = rsub.add_parser("list", help="templates (built-in and user) and open candidates")
+    lib_args(r)
+    r = rsub.add_parser("suggest", help="the templates for a kind of text")
+    r.add_argument("--kind", required=True)
+    r.add_argument("--text", type=Path, help="the text; its keywords only break ties")
+    r.add_argument("--top", type=int, default=3)
+    lib_args(r)
+    r = rsub.add_parser("show", help="print a template")
+    r.add_argument("id")
+    lib_args(r)
+    r = rsub.add_parser("use", help="write a spec skeleton from a template")
+    r.add_argument("id")
+    r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--persona-file", type=Path, help="JSON list of personas (id, description)")
+    lib_args(r)
+    r = rsub.add_parser("promote", help="apply a candidate to a user template (a person decides)")
+    r.add_argument("candidate")
+    r.add_argument("--into", help="template id; takes precedence over the candidate's template")
+    r.add_argument("--yes", action="store_true", help="confirm without a prompt (no terminal)")
+    lib_args(r)
+    r = rsub.add_parser("reject", help="close a candidate with a reason")
+    r.add_argument("candidate")
+    r.add_argument("--reason", required=True)
+    lib_args(r)
     return ap
+
+
+def _warn(warnings: list[str]) -> None:
+    for w in warnings:
+        print(f"sealed-panel: warning: {w}", file=sys.stderr)
+
+
+def _confirm(a: argparse.Namespace, plan: dict[str, object]) -> None:
+    for line in library.side_by_side(plan["current"], plan["updated"]):  # type: ignore[arg-type]
+        print(line)
+    print(f"writes {plan['target']}")
+    if a.yes:
+        return
+    if not sys.stdin.isatty():
+        raise EvalError("promote needs a person: run it in a terminal, or pass --yes")
+    try:
+        answer = input(f"type the candidate id ({a.candidate}) to promote it: ").strip()
+    except EOFError:
+        answer = ""
+    if answer != a.candidate:
+        raise EvalError("not confirmed: nothing was written")
+
+
+def _rubrics(a: argparse.Namespace) -> None:
+    lib = library_dir(a.library) if a.library or not a.run else run_library(a.run)
+    if a.rcmd == "list":
+        print(f"library: {lib}")
+        served, warnings = library.all_templates(lib)
+        for tid, srv in served.items():
+            t = srv["template"]
+            print(f"{tid:18} v{t['version']:<3} {srv['source']:30} {t['title']}")
+        cands, more = library.open_candidates(lib)
+        _warn(warnings + more)
+        print(f"inbox: {len(cands)} open candidate(s)")
+        for c in cands:
+            tpl = c.get("template") or {}
+            name = f"{tpl.get('id')} v{tpl.get('version')}" if tpl else "-"
+            print(
+                f"  {c['id']}  {c['kind']:19} template {name:18} {c['dimension']} (x{c['count']})"
+            )
+            for before in c.get("rejected_before") or []:
+                version = (before.get("template") or {}).get("version")
+                print(f"      rejected before (v{version}): {before.get('reason')}")
+    elif a.rcmd == "suggest":
+        text = a.text.read_text(encoding="utf-8") if a.text else ""
+        rows = library.suggest(lib, a.kind, text, a.top)
+        if not rows:
+            print(f"no template for kind {a.kind!r}. The templates and when to use each:")
+            for tid, srv in library.all_templates(lib)[0].items():
+                print(f"  {tid}: {srv['template']['when_to_use']}")
+        for row in rows:
+            print(f"{row['id']} v{row['version']} ({row['source']}): {row['when_to_use']}")
+            for did, question in row["dimensions"]:
+                print(f"  {did:14} {question}")
+    elif a.rcmd == "show":
+        srv = library.get_template(lib, a.id)
+        t = srv["template"]
+        print(f"# {a.id} v{t['version']}, {srv['source']}")
+        print(json.dumps(t, ensure_ascii=False, indent=2))
+    elif a.rcmd == "use":
+        out = library.write_skeleton(lib, a.id, a.out, a.persona_file)
+        print(f"wrote {out}: fill every {TODO_MARKER} marker, then run init")
+    elif a.rcmd == "promote":
+        plan = library.plan_promotion(lib, a.candidate, a.into)
+        _confirm(a, plan)
+        path = library.apply_promotion(lib, plan)
+        print(f"promoted {a.candidate} into {path} (v{load_json(path)['version']})")
+    elif a.rcmd == "reject":
+        path = library.reject(lib, a.candidate, a.reason)
+        print(f"rejected {a.candidate}: moved to {path}")
 
 
 def _round(a: argparse.Namespace) -> int:
@@ -122,7 +240,7 @@ def _record(a: argparse.Namespace) -> str:
 def _run(a: argparse.Namespace) -> None:
     if a.cmd == "init":
         cfg = load_config(a.config) if a.config else None
-        print(f"frozen: rubric sha256 {init_run(a.run, a.spec, cfg)}")
+        print(f"frozen: rubric sha256 {init_run(a.run, a.spec, cfg, a.library)}")
     elif a.cmd == "brief":
         for path in write_briefs(a.run, _round(a), a.artefact, a.control, a.good, a.sealed):
             print(path)
@@ -139,11 +257,26 @@ def _run(a: argparse.Namespace) -> None:
         )
         if not e["sealed"]:
             line += f"; findings in {feedback_path(a.run, e['round'])}"
+        else:
+            line += f"; {e['learning']}"
         print(line + "; run `status`")
     elif a.cmd == "status":
         print(json.dumps(status(a.run), ensure_ascii=False, indent=2))
     elif a.cmd == "report":
         print(render_report(a.run), end="")
+    elif a.cmd == "feedback":
+        lib = library_dir(a.library) if a.library else None
+        path = user_disagreement(a.run, a.note, a.dimension, lib)
+        print(f"recorded your read as candidate {path.stem} in {path.parent}")
+    elif a.cmd == "learn":
+        if status(a.run)["decision"] != "SEALED":
+            raise EvalError("learn reads a sealed panel: seal the run first")
+        _, learning = learn_safely(a.run)
+        print(learning)
+        if learning.startswith("learning skipped"):
+            raise EvalError(learning)
+    elif a.cmd == "rubrics":
+        _rubrics(a)
 
 
 def main(argv: list[str] | None = None) -> int:

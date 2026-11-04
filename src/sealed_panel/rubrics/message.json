@@ -1,0 +1,94 @@
+{
+  "id": "message",
+  "version": 1,
+  "title": "Email or chat message with a request",
+  "kinds": [
+    "message",
+    "email",
+    "chat",
+    "announcement"
+  ],
+  "aliases": [
+    "e-mail",
+    "mail",
+    "slack message",
+    "chat message",
+    "memo"
+  ],
+  "keywords": [
+    "please",
+    "reply",
+    "before",
+    "deadline",
+    "service",
+    "team",
+    "help",
+    "ask",
+    "update",
+    "enable"
+  ],
+  "when_to_use": "An email or chat message that asks its readers to do something by a date.",
+  "facts_hint": "paste the facts the message states (dates, numbers, links)",
+  "personas": [
+    {
+      "id": "reader",
+      "description": "Busy reader who gets many messages a day, reads this one between meetings, and decides whether to act on it now."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "ask",
+      "name": "The ask",
+      "question": "After one read, can the persona say what is asked, by when, and how small the first step is?",
+      "anchors": {
+        "1": "no request, or a request with no action and no date",
+        "3": "the action is named, but the date or the size of the first step is missing",
+        "5": "one concrete action, a date, and the effort of the first step are stated in the first lines"
+      }
+    },
+    {
+      "id": "relevance",
+      "name": "Relevance to the persona",
+      "question": "Is the reason to act stated in terms the persona already tracks?",
+      "anchors": {
+        "1": "the reason to act would read the same for any reader",
+        "3": "the reason is stated in the persona's own terms, without a number they can check",
+        "5": "the reason is stated in the persona's own terms with one number they can check"
+      }
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence",
+      "question": "Is each claim the ask depends on backed by a number or a named case consistent with the facts?",
+      "anchors": {
+        "1": "no claim the ask depends on carries a number or a named case",
+        "3": "one claim the ask depends on is backed, another is only asserted",
+        "5": "every claim the ask depends on carries a number or a named case consistent with the facts"
+      }
+    },
+    {
+      "id": "brevity",
+      "name": "Brevity",
+      "question": "Does every sentence serve the ask?",
+      "anchors": {
+        "1": "most sentences could be cut without loss",
+        "3": "a few sentences could be cut without loss",
+        "5": "no sentence could be cut without losing something the persona needs"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "length",
+      "description": "word count of the message, 150 or fewer",
+      "max": 150
+    }
+  ],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

@@ -7,6 +7,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A rubric library: eight built-in templates (cv, cover-letter, pitch, message, essay,
+  interview-answer, plan-doc, prompt-output) with aliases and facts hints, checked against a
+  template format, and a user-level library (`SEALED_PANEL_RUBRICS`, `[library] path`, or the
+  platform's user data directory) whose templates override built-ins.
+- `sealed-panel rubrics list`, `suggest` (by kind and alias, keywords only break ties),
+  `show`, `use` (a spec skeleton with TODO markers that `init` refuses until filled),
+  `promote` (side by side, typed confirmation or `--yes`, all or nothing) and `reject`;
+  `sealed-panel learn RUN` and `sealed-panel feedback RUN`.
+- A spec may record `template: {id, version, sha256}`, frozen by the rubric hash, and `init`
+  records whether the dimensions were modified. A spec without it keeps its 0.1.0 hash.
+- Library guardrails: never inside the package, never inside a git working tree that does
+  not ignore it, and no relative path from the environment or the settings.
+- Learning after a sealed panel: `judges_disagree` and `control_too_close` candidates, and
+  `user_disagreement` from `feedback`, de-duplicated by kind, template version and dimension,
+  with rejections remembered. Learning never fails a seal. Nothing changes a template without
+  a person running `rubrics promote`, and a frozen run never changes.
+- The control's median per dimension is stored in each round.
+
+### Changed
+
+- A run frozen by 0.1.0 keeps working: its configuration has no `[library]` section, and the
+  library is resolved when a command needs it.
+
 ## [0.1.0] - 2026-11-04
 
 ### Added

@@ -3,7 +3,8 @@
 [![CI](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final grade.
+Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final
+grade.
 
 ## What it is
 
@@ -21,7 +22,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 133 mutations, 131
+bound or boundary at a time and requires the suite to fail on each. Of its 212 mutations, 210
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -272,6 +273,22 @@ Then come the round table, the open findings, the repeat-test line when the seal
 also judged in the loop (a measure of panel-to-panel noise), and a note that replies were
 pasted rather than read from transcripts.
 
+## Rubric library
+
+sealed-panel ships eight generic rubric templates (CV, cover letter, pitch, message, essay,
+interview answer, plan or design doc, prompt output). `sealed-panel rubrics suggest --kind
+email` shows the templates for a kind of text, with when to use each and its dimensions, and
+`rubrics use message --out spec.json` writes a spec skeleton whose TODO markers `init` refuses
+until they are filled.
+
+After each sealed panel, sealed-panel writes rubric-level candidates to a user-level library
+inbox: a dimension the sealed judges disagree on, a dimension where the sealed panel scores the
+bad control close to a strong text, or your own disagreement recorded with
+`sealed-panel feedback`. A person reads each candidate, sees the change side by side, and runs
+`rubrics promote` or `rubrics reject`; nothing changes a template on its own, and a frozen run
+never changes. Candidates quote the judged texts, so the user library is private by nature. See
+[docs/rubrics.md](docs/rubrics.md).
+
 ## Using the agent skill
 
 `skill/` holds an agent skill in the open Agent Skills format: `SKILL.md` is the procedure an
@@ -301,6 +318,9 @@ sealed-panel/
     __main__.py          python -m sealed_panel
     defaults.toml        the settings, with their bounds checked in config.py
     config.py            load, merge and bound the settings; list overrides
+    rubrics/             the built-in rubric templates (JSON)
+    library.py           templates, suggest, skeletons, candidates, promotion
+    learn.py             candidates learned from a sealed run, and user feedback
     errors.py            EvalError and ConfigError
     store.py             JSON and text files, round directories
     spec.py              validate, freeze and hash the spec
@@ -311,7 +331,7 @@ sealed-panel/
     aggregate.py         medians, paired gains, noise, findings
     decide.py            the stop rule
     report.py            findings file, status, report
-    cli.py               the sealed-panel command
+    cli.py               the sealed-panel command, including `rubrics` and `feedback`
     py.typed             typing marker
   tests/                 the behaviour contract (pytest), one file per concern
   tools/
@@ -330,6 +350,7 @@ sealed-panel/
     README.md            the example explained
   docs/
     configuration.md     every setting and its bounds
+    rubrics.md           the rubric library: format, suggest, candidates, promotion
     cli.md               every command and flag
     protocol.md          why each rule exists
   .github/

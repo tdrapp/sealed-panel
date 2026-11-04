@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import subprocess
+import sys
 import tomllib
 from collections.abc import Mapping
 from fractions import Fraction
@@ -153,6 +156,11 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     elif not 0 <= share <= MAX_BAD_SHARE_CEILING:
         errors.append(f"quotes.max_bad_share must be between 0 and {MAX_BAD_SHARE_CEILING}")
     errors += _text_errors(data["text"])
+    library = data.get("library") or {}
+    if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:
+        errors.append("library.control_min_candidate must be between 1 and 5")
+    if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
+        errors.append("library.control_gap must be between 0 and 4")
     errors += _injection_errors(data["injection"])
     transcript = data["transcript"]
     for key, value in transcript.items():
@@ -338,6 +346,12 @@ class Config:
     def transcript(self) -> dict[str, Any]:
         return self.section("transcript")
 
+    @property
+    def library(self) -> dict[str, Any]:
+        """The [library] section; a run frozen by 0.1.0 has none, and gets the defaults."""
+        value: dict[str, Any] = self.data.get("library") or default_data()["library"]
+        return value
+
 
 @cache
 def default_config() -> Config:
@@ -357,6 +371,83 @@ def load_config(path: Path | None = None) -> Config:
 
 def resolve(cfg: Config | None) -> Config:
     return default_config() if cfg is None else cfg
+
+
+LIBRARY_ENV = "SEALED_PANEL_RUBRICS"
+
+
+def default_library_dir() -> Path:
+    """The user-level rubric library: never relative to the current directory."""
+    home = Path.home()
+    if sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    elif os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    return base / "sealed-panel" / "rubrics"
+
+
+def _git_top(path: Path) -> Path | None:
+    for parent in [path, *path.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _git_ignored(top: Path, path: Path) -> bool:
+    try:
+        done = subprocess.run(
+            # A trailing slash: the library is a directory, even before it exists.
+            ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],
+            capture_output=True,
+            check=False,
+            # An inherited GIT_DIR (a git hook, a wrapper) would make git answer for another
+            # repository than `top`.
+            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+        )
+    except OSError:
+        return False  # no git: the library cannot be shown to be ignored
+    return done.returncode == 0
+
+
+def guard_library(path: Path) -> Path:
+    """Refuse a library inside the installed package, or inside a git working tree that does
+    not ignore it: candidates quote the judged texts and must never be committed by accident.
+    The path is resolved first (symlinks and `..` followed), so the checks see where candidates
+    would really be written; the resolved path is returned."""
+    real = path.expanduser().resolve(strict=False)
+    package = Path(__file__).resolve().parent
+    if real == package or package in real.parents:
+        raise ConfigError(f"the rubric library may not live inside the package: {real}")
+    top = _git_top(real)
+    if top is not None and not _git_ignored(top, real):
+        raise ConfigError(
+            f"the rubric library {real} is inside the git working tree {top} and not ignored "
+            "there: candidates quote the judged texts. Choose a path outside it, or ignore it."
+        )
+    return real
+
+
+def library_dir(flag: str | Path | None = None, cfg: Config | None = None) -> Path:
+    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the library.path setting,
+    else the user-level default. `~` is expanded; a flag may be relative to the current
+    directory, the environment variable and the setting may not. The result is absolute and
+    checked by guard_library."""
+    if flag is not None and str(flag).strip():
+        return guard_library(Path(flag).expanduser().absolute())
+    for source, value in (
+        (f"${LIBRARY_ENV}", os.environ.get(LIBRARY_ENV, "")),
+        ("library.path", str(resolve(cfg).library["path"])),
+    ):
+        if value.strip():
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                raise ConfigError(
+                    f"{source} must be an absolute path or start with ~, got {value!r}"
+                )
+            return guard_library(path)
+    return guard_library(default_library_dir())
 
 
 def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -393,6 +484,10 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
     for key in sorted(set(defaults) | set(current)):
         if key.startswith("run.") and spec is not None:
             continue
+        if key == "library.path":
+            continue  # where candidates are written, not a grading setting
+        if key not in current:
+            continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):
             now, was = _show(current.get(key), "config.json"), _show(defaults.get(key), "defaults")
             out.append(f"{key} = {now} (default {was})")

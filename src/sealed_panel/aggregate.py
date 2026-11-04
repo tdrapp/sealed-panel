@@ -9,6 +9,7 @@ from typing import Any
 from .config import Config
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
+from .learn import learn_safely
 from .ledger import results_by_judge
 from .record import round_keys, transcript_agent_id
 from .report import write_feedback
@@ -74,6 +75,10 @@ def _dimension_entry(pv: list[dict[str, Any]], pid: str, did: str, cfg: Config) 
             gains.append(c - p)
     if gains:
         entry["paired_gain"] = statistics.median(gains)
+    control = [r["items"].get("control", {}).get("raw_scores", {}).get(did) for r in pv]
+    control = [x for x in control if x is not None]
+    if control:
+        entry["control_median"] = statistics.median(control)
     baseline = [r["items"].get("baseline", {}).get("scores", {}).get(did) for r in pv]
     baseline = [x for x in baseline if x is not None]
     if baseline:
@@ -134,7 +139,8 @@ def _check_complete(
 
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
-    loop round, also write the author's findings to RUN/feedback/after_rN.md."""
+    loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
+    panel, write learned candidates to the user library's inbox (listed under `inbox`)."""
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
@@ -218,4 +224,8 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     dump_json(run / "ledger.json", ledger)
     if not sealed:
         write_feedback(run, entry)
-    return entry
+        return entry
+    # Learning writes candidates to the user library's inbox; it never changes a template,
+    # and it never fails the seal: an error is reported in `learning`.
+    paths, learning = learn_safely(run)
+    return {**entry, "inbox": [str(p) for p in paths], "learning": learning}

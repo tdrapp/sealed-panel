@@ -165,6 +165,15 @@ cannot be voided.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.
 
+## `[library]`
+
+| Key | Default | Bounds | Meaning |
+|---|---|---|---|
+| `path` | `""` | absolute or starting with `~`; never inside the package, nor inside a git working tree that does not ignore it | The user rubric library. Empty means the user-level default (`~/.local/share/sealed-panel/rubrics`, or the platform equivalent), never the current directory. `SEALED_PANEL_RUBRICS` overrides it, `~` is expanded, and `init` freezes the resolved path into the run; it is not listed among the settings that differ from the defaults. See [rubrics.md](rubrics.md). |
+| `learn` | `true` | | After a sealed panel aggregates, write learned candidates to the library inbox. |
+| `control_min_candidate` | `4.0` | 1 to 5 | `control_too_close` fires only when the sealed candidate's mean raw score on the dimension is at least this. |
+| `control_gap` | `1.0` | 0 to 4 | ... and the control's mean raw score is within this of it. |
+
 ## What stays in code
 
 Some values are part of the instrument or of the protocol, not settings, and stay in the code
@@ -184,4 +193,6 @@ as named constants:
   replies, the rubric hash in the report (12), the characters searched for an agent id, and
   the largest file read when looking for unrecorded agents;
 - the file extensions that make a `facts` text look like a path (`spec.py`);
+- the learning thresholds (two loop judges for a new dimension, two judges of one round to
+  sharpen an anchor) and the suggest weights (`learn.py`, `library.py`);
 - rounding of stored statistics, and the error, findings and report wording.

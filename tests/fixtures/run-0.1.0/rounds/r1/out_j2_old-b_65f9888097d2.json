@@ -1,0 +1,81 @@
+{
+  "raw": "{\n  \"items\": {\n    \"T\": {\n      \"retell\": \"Demo reply r1_j2.\",\n      \"dimensions\": {\n        \"ask\": {\n          \"reasoning\": \"Demo reply: fixed score, not a reading of the text.\",\n          \"quote\": \"Subject: Remote build cache is ready for your services\",\n          \"severity\": \"none\",\n          \"score\": 5\n        },\n        \"relevance\": {\n          \"reasoning\": \"Demo reply: fixed score, not a reading of the text.\",\n          \"quote\": \"Since 4 November the remote build cache is available to ever\",\n          \"severity\": \"material\",\n          \"score\": 4\n        },\n        \"evidence\": {\n          \"reasoning\": \"Demo reply: fixed score, not a reading of the text.\",\n          \"quote\": \"On the three pilot services, median pull request CI time fel\",\n          \"severity\": \"none\",\n          \"score\": 5\n        }\n      },\n      \"weakest_point\": {\n        \"text\": \"The risk to the release train is only implied by the opt-out flag.\",\n        \"dimension\": \"relevance\",\n        \"quote\": \"Subject: Remote build cache is ready for your services\"\n      }\n    },\n    \"P\": {\n      \"retell\": \"Demo reply r1_j2.\",\n      \"dimensions\": {\n        \"ask\": {\n          \"reasoning\": \"Demo reply: fixed score, not a reading of the text.\",\n          \"quote\": \"Subject: Important news about build performance\",\n          \"severity\": \"blocking\",\n          \"score\": 1\n        },\n        \"relevance\": {\n          \"reasoning\": \"Demo reply: fixed score, not a reading of the text.\",\n          \"quote\": \"We are pleased to share an important improvement to our buil\",\n          \"severity\": \"blocking\",\n          \"score\": 1\n        },\n        \"evidence\": {\n          \"reasoning\": \"Demo reply: fixed score, not a reading of the text.\",\n          \"quote\": \"The new caching capability brings meaningful benefits to all\",\n          \"severity\": \"blocking\",\n          \"score\": 1\n        }\n      },\n      \"weakest_point\": {\n        \"text\": \"The risk to the release train is only implied by the opt-out flag.\",\n        \"dimension\": \"relevance\",\n        \"quote\": \"Subject: Important news about build performance\"\n      }\n    }\n  }\n}\n",
+  "result": {
+    "ok": true,
+    "errors": [],
+    "items": {
+      "candidate": {
+        "scores": {
+          "ask": 5,
+          "relevance": 4,
+          "evidence": 5
+        },
+        "raw_scores": {
+          "ask": 5,
+          "relevance": 4,
+          "evidence": 5
+        },
+        "severity": {
+          "ask": "none",
+          "relevance": "material",
+          "evidence": "none"
+        },
+        "unverified": [],
+        "capped": [],
+        "one_quote": false,
+        "retell": "Demo reply r1_j2.",
+        "weakest_point": {
+          "text": "The risk to the release train is only implied by the opt-out flag.",
+          "dimension": "relevance",
+          "quote": "Subject: Remote build cache is ready for your services",
+          "severity": "material"
+        },
+        "reasoning": {
+          "ask": "Demo reply: fixed score, not a reading of the text.",
+          "relevance": "Demo reply: fixed score, not a reading of the text.",
+          "evidence": "Demo reply: fixed score, not a reading of the text."
+        }
+      },
+      "control": {
+        "scores": {
+          "ask": 1,
+          "relevance": 1,
+          "evidence": 1
+        },
+        "raw_scores": {
+          "ask": 1,
+          "relevance": 1,
+          "evidence": 1
+        },
+        "severity": {
+          "ask": "blocking",
+          "relevance": "blocking",
+          "evidence": "blocking"
+        },
+        "unverified": [],
+        "capped": [],
+        "one_quote": false,
+        "retell": "Demo reply r1_j2.",
+        "weakest_point": {
+          "text": "The risk to the release train is only implied by the opt-out flag.",
+          "dimension": "relevance",
+          "quote": "Subject: Important news about build performance",
+          "severity": "blocking"
+        },
+        "reasoning": {
+          "ask": "Demo reply: fixed score, not a reading of the text.",
+          "relevance": "Demo reply: fixed score, not a reading of the text.",
+          "evidence": "Demo reply: fixed score, not a reading of the text."
+        }
+      }
+    },
+    "control_mean": 1,
+    "reply_sha256": "6df6785bec486647000d476956f9230304fd4f3fc7fd7be76acdd31985a0b1fa",
+    "judge": 2,
+    "agent_id": "old-b",
+    "persona": "em",
+    "source": "output",
+    "transcript": null,
+    "prompt_extra_chars": 0
+  }
+}

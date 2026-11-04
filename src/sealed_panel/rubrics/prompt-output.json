@@ -1,0 +1,74 @@
+{
+  "id": "prompt-output",
+  "version": 1,
+  "title": "Output of a prompt under tuning",
+  "kinds": [
+    "prompt-output",
+    "llm-output",
+    "generated-text"
+  ],
+  "aliases": [
+    "prompt output",
+    "llm output",
+    "model output",
+    "generated answer"
+  ],
+  "keywords": [
+    "answer",
+    "instructions",
+    "format",
+    "summary",
+    "user",
+    "question",
+    "output",
+    "task"
+  ],
+  "when_to_use": "The answer a model gave to a prompt you are tuning, judged for the person who asked.",
+  "facts_hint": "paste the prompt the output answers and the facts it may use",
+  "personas": [
+    {
+      "id": "user",
+      "description": "Person who sent the prompt and needs the answer to do a task now; reads it once and acts on it."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "task",
+      "name": "Does the task",
+      "question": "Does the output do what the prompt asked, all of it?",
+      "anchors": {
+        "1": "the output does a different task",
+        "3": "the output does part of the task, or adds what was not asked",
+        "5": "the output does every part of the task and nothing else"
+      }
+    },
+    {
+      "id": "accuracy",
+      "name": "Accuracy",
+      "question": "Is every factual claim consistent with the facts section?",
+      "anchors": {
+        "1": "a claim contradicts the facts",
+        "3": "claims are consistent, some are unsupported",
+        "5": "every claim is consistent with the facts, and unsupported points are marked as such"
+      }
+    },
+    {
+      "id": "format",
+      "name": "Format",
+      "question": "Does the output follow the format the prompt asked for?",
+      "anchors": {
+        "1": "the output uses another format than the one asked; the judge names which",
+        "3": "the asked format with one deviation the judge names",
+        "5": "the asked format with no deviation"
+      }
+    }
+  ],
+  "measured": [],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

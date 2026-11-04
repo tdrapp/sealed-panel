@@ -1,0 +1,91 @@
+{
+  "id": "plan-doc",
+  "version": 1,
+  "title": "Design doc, plan or proposal",
+  "kinds": [
+    "plan-doc",
+    "design-doc",
+    "plan",
+    "proposal",
+    "rfc"
+  ],
+  "aliases": [
+    "design doc",
+    "design document",
+    "project plan",
+    "rfc document"
+  ],
+  "keywords": [
+    "goal",
+    "scope",
+    "options",
+    "risk",
+    "milestone",
+    "decision",
+    "cost",
+    "alternatives",
+    "owner"
+  ],
+  "when_to_use": "A document that asks reviewers to approve a plan or choose between options.",
+  "facts_hint": "paste the constraints, costs and dates the plan must respect",
+  "personas": [
+    {
+      "id": "approver",
+      "description": "Approver who reads the document once before a review meeting and decides whether to approve, ask for changes, or reject."
+    },
+    {
+      "id": "implementer",
+      "description": "Engineer who will carry out the plan and reads it to find what is unclear or risky."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "decision",
+      "name": "The decision asked",
+      "question": "Can the approver say what decision is asked of them after the first section?",
+      "anchors": {
+        "1": "no decision is asked",
+        "3": "a decision is implied but not stated",
+        "5": "the first section states the decision asked, the options and the recommendation"
+      }
+    },
+    {
+      "id": "options",
+      "name": "Options",
+      "question": "Are the alternatives compared on the same criteria?",
+      "anchors": {
+        "1": "a single option, no alternative",
+        "3": "alternatives are listed but not compared",
+        "5": "two or more options are compared on the same named criteria, with the cost of each"
+      }
+    },
+    {
+      "id": "risks",
+      "name": "Risks",
+      "question": "Are the main risks named with how each is detected and handled?",
+      "anchors": {
+        "1": "no risk is named",
+        "3": "risks are named without detection or handling",
+        "5": "each main risk is named with how it is detected and what happens then"
+      }
+    },
+    {
+      "id": "plan",
+      "name": "Plan",
+      "question": "Can the implementer start from the plan without a meeting?",
+      "anchors": {
+        "1": "no steps, owners or dates",
+        "3": "steps without owners or dates",
+        "5": "steps with an owner, a date and a check that the step is done"
+      }
+    }
+  ],
+  "measured": [],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "seed": 9324266152879871814,
+  "sealed": false,
+  "round": 1,
+  "rubric_sha256": "0d16bd433b43c40589650a77440c124bd3a50c236a09198dd824ff4dc11bd5ca",
+  "candidate_hash": "0ca19d018b558738",
+  "roles": [
+    "candidate",
+    "control"
+  ],
+  "injection_flags": [],
+  "judges": [
+    {
+      "judge": 1,
+      "persona": "em",
+      "framing": 1,
+      "key": {
+        "R": "candidate",
+        "C": "control"
+      },
+      "order": [
+        "candidate",
+        "control"
+      ],
+      "nonce": "2921fbefac34"
+    },
+    {
+      "judge": 2,
+      "persona": "em",
+      "framing": 2,
+      "key": {
+        "T": "candidate",
+        "P": "control"
+      },
+      "order": [
+        "control",
+        "candidate"
+      ],
+      "nonce": "f2b4d6003677"
+    }
+  ]
+}
