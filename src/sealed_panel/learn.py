@@ -10,8 +10,9 @@ Kinds (rubric-level signals):
 - judges_disagree: in the sealed panel, a dimension whose valid judges' scores spread by 2 or
   more, or a judge whose severity contradicts its score before capping (blocking with a 4 or
   5, material with a 5, none with a 1);
-- control_too_close: in the sealed panel, a dimension where the control's raw median is
-  within 1 point of the candidate's raw median;
+- control_too_close: in the sealed panel, a dimension where the candidate's mean raw score
+  is at least `library.control_min_candidate` (4) and the control's mean raw score is within
+  `library.control_gap` (1) of it, both before severity caps;
 - user_disagreement: the user's own read disagrees with the sealed grade (`feedback`).
 """
 
@@ -151,8 +152,10 @@ def _control_too_close(
     cfg: Config,
 ) -> list[dict[str, Any]]:
     """A dimension that does not discriminate: the sealed panel scores a strong candidate and
-    the bad control close together. A weak candidate never triggers it: calibration keeps the
-    control's mean at 2 or less, so a candidate at 3 or less is close to it for any rubric."""
+    the bad control close together. A weak candidate never triggers it: a low candidate next to
+    a low control says nothing about the dimension. Calibration bounds each judge's control
+    mean over all dimensions (control_max), not its score on one dimension, so a control can
+    score 3 on one dimension and stay calibrated."""
     floor = float(cfg.library["control_min_candidate"])
     gap = float(cfg.library["control_gap"])
     results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only

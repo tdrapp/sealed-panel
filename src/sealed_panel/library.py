@@ -540,8 +540,10 @@ def side_by_side(current: dict[str, Any], updated: dict[str, Any]) -> list[str]:
 
 
 def plan_promotion(lib: Path, cid: str, into: str | None = None) -> dict[str, Any]:
-    """Everything promote would write, without writing it."""
+    """Everything promote would write, without writing it. Every refusal comes from here, so
+    it comes before the confirmation prompt."""
     c = _open_candidate(lib, cid)
+    _history_file(lib, c["id"])  # a closed id is refused before the person is asked
     tid = into or (c.get("template") or {}).get("id")
     if not tid:
         raise EvalError("this candidate names no template: say which one with --into")
@@ -589,7 +591,7 @@ def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
             "promoted_into": {"id": plan["id"], "version": plan["updated"]["version"]},
         }
     )
-    history = _history_file(lib, c["id"])
+    history = _history_file(lib, c["id"])  # again: it may have appeared during the prompt
     staged_t = target.with_name(f".{target.name}.staged")
     staged_h = history.with_name(f".{history.name}.staged")
     before = target.read_bytes() if target.exists() else None

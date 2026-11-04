@@ -559,6 +559,14 @@ class TestTemplateReference:
 
 
 class TestLibraryGuardrails:
+    def test_a_refused_library_leaves_no_run(self, tmp_path: Path) -> None:
+        sp = tmp_path / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
+        with pytest.raises(EvalError, match="inside the package"):
+            init_run(tmp_path / "run", sp, library=inside)
+        assert not (tmp_path / "run").exists()
+
     def test_inside_the_package_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
         monkeypatch.setenv("SEALED_PANEL_RUBRICS", str(inside))
@@ -657,6 +665,25 @@ class TestHistoryIsNeverOverwritten:
             library.promote(private_library, cid)
         assert (private_library / "history" / f"{cid}.json").read_text() == "{kept}"
         assert (private_library / "inbox" / f"{cid}.json").exists()
+
+    def test_promote_refuses_a_closed_id_before_the_prompt(
+        self, private_library: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cid = candidate(private_library, rewrite())
+        (private_library / "history").mkdir(parents=True, exist_ok=True)
+        (private_library / "history" / f"{cid}.json").write_text("{kept}")
+        with pytest.raises(EvalError, match="never overwritten"):
+            library.plan_promotion(private_library, cid)
+        asked: list[str] = []
+
+        def answer(prompt: str) -> str:
+            asked.append(prompt)
+            return cid
+
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", answer)
+        assert main(["rubrics", "promote", cid, "--library", str(private_library)]) != 0
+        assert asked == []
 
 
 class TestInitLibraryFlag:

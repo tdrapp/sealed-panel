@@ -323,8 +323,9 @@ def init_run(
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent)
+    lib = library_dir(library, cfg)  # resolved before anything is written: a refusal leaves no run
     if isinstance(spec.get("template"), dict):
-        _check_template_ref(spec, cfg, library_dir(library, cfg))
+        _check_template_ref(spec, cfg, lib)
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
@@ -334,7 +335,7 @@ def init_run(
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     run.mkdir(parents=True, exist_ok=True)
     frozen = json.loads(json.dumps(cfg.data))
-    frozen["library"] = {**cfg.library, "path": str(library_dir(library, cfg))}
+    frozen["library"] = {**cfg.library, "path": str(lib)}
     cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
     (run / "config.lock").write_text(cfg.fingerprint + "\n", encoding="utf-8")

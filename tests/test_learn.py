@@ -137,6 +137,15 @@ class TestControlTooClose:
         close_seal(h)
         assert kinds(private_library) == []
 
+    def test_the_gap_is_a_setting(self, h: Harness, private_library: Path) -> None:
+        cfg = h.tmp / "c.toml"
+        cfg.write_text("[library]\ncontrol_gap = 0.5\n")  # 4 vs 3 is a gap of 1: not close
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        init_run(h.run, sp, load_config(cfg))
+        close_seal(h)
+        assert kinds(private_library) == []
+
     def test_weak_loop_drafts_do_not_count(self, h: Harness, private_library: Path) -> None:
         h.init(max_rounds=2)
         drafts = {"clarity": 2, "evidence": 2}

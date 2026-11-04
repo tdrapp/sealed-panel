@@ -106,6 +106,10 @@ class TestBounds:
             ('[text.punctuation]\n"e" = ""\n', "must be one character, not a letter"),
             ('[text.punctuation]\n"-" = "x"\n', "may not hold a letter or digit"),
             ('[transcript]\nrole_key = ""\n', "transcript.role_key must not be empty"),
+            ("[library]\ncontrol_min_candidate = 0.5\n", "control_min_candidate must be between"),
+            ("[library]\ncontrol_min_candidate = 5.5\n", "control_min_candidate must be between"),
+            ("[library]\ncontrol_gap = -0.5\n", "control_gap must be between 0 and 4"),
+            ("[library]\ncontrol_gap = 4.5\n", "control_gap must be between 0 and 4"),
         ],
     )
     def test_out_of_bound_values_refused(self, tmp_path: Path, toml: str, match: str) -> None:
@@ -122,6 +126,12 @@ class TestBounds:
             )
         )
         assert cfg.max_replacements == 5
+
+    @pytest.mark.parametrize(("floor", "gap"), [(1.0, 0.0), (5.0, 4.0)])
+    def test_library_boundaries_accepted(self, tmp_path: Path, floor: float, gap: float) -> None:
+        toml = f"[library]\ncontrol_min_candidate = {floor}\ncontrol_gap = {gap}\n"
+        cfg = load_config(write(tmp_path / "c.toml", toml))
+        assert (cfg.library["control_min_candidate"], cfg.library["control_gap"]) == (floor, gap)
 
     @pytest.mark.parametrize(
         ("key", "value"),

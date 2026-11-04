@@ -577,7 +577,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "library not frozen at init": (
         SPEC,
-        '    frozen["library"] = {**cfg.library, "path": str(library_dir(library, cfg))}\n',
+        '    frozen["library"] = {**cfg.library, "path": str(lib)}\n',
         "",
     ),
     "keys missing from an old run reported": (
@@ -665,6 +665,31 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "real = path.expanduser().absolute()",
     ),
     "weak candidate triggers the control signal": (LEARN, "cand < floor or ", ""),
+    "control gap hard-coded": (
+        LEARN,
+        'gap = float(cfg.library["control_gap"])',
+        "gap = 1.0",
+    ),
+    "control_min_candidate unbounded": (
+        CFG,
+        'if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:',
+        "if False:",
+    ),
+    "control_gap unbounded": (
+        CFG,
+        'if "control_gap" in library and not 0 <= library["control_gap"] <= 4:',
+        "if False:",
+    ),
+    "run created before the library is resolved": (
+        SPEC,
+        "    lib = library_dir(library, cfg)  # resolved",
+        "    run.mkdir(parents=True, exist_ok=True)\n    lib = library_dir(library, cfg)  # resolved",
+    ),
+    "closed id refused only after the prompt": (
+        LIB,
+        '    _history_file(lib, c["id"])  # a closed id',
+        "    pass  # a closed id",
+    ),
     "control threshold hard-coded": (
         LEARN,
         'floor = float(cfg.library["control_min_candidate"])',
@@ -687,12 +712,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init ignores --library": (
         SPEC,
-        "_check_template_ref(spec, cfg, library_dir(library, cfg))",
-        "_check_template_ref(spec, cfg, library_dir(None, cfg))",
+        "    lib = library_dir(library, cfg)  # resolved",
+        "    lib = library_dir(None, cfg)  # resolved",
     ),
     "init freezes the default library": (
         SPEC,
-        'frozen["library"] = {**cfg.library, "path": str(library_dir(library, cfg))}',
+        'frozen["library"] = {**cfg.library, "path": str(lib)}',
         'frozen["library"] = {**cfg.library, "path": str(library_dir(None, cfg))}',
     ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
