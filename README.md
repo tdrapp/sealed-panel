@@ -22,7 +22,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 212 mutations, 210
+bound or boundary at a time and requires the suite to fail on each. Of its 216 mutations, 214
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -403,11 +403,11 @@ A configuration may still change, within bounds and with disclosure in the repor
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and
 known-good limits, the noise floor, the severity caps (tighter only), the quote lengths and
 bad-quote share (stricter only: the floors are the defaults), the punctuation normalisation for
-quote matching (one punctuation character to another, never deleting a character, reaching a
-letter, digit or whitespace, or adding an ellipsis; the stripped characters are held at the
-default set; every other check uses the built-in normalisation), added injection patterns (the
-defaults always stay), and the transcript field names. Every such value is frozen into the run
-at `init`.
+quote matching (one punctuation character to another, never deleting a character or reaching a
+letter, digit or whitespace; three characters mapped to `.` in a row read as an ellipsis, which
+a judge could write anyway; the stripped characters are held at the default set; every other
+check uses the built-in normalisation), added injection patterns (the defaults always stay), and
+the transcript field names. Every such value is frozen into the run at `init`.
 
 ## License
 

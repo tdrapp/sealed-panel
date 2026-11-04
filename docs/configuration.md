@@ -81,7 +81,7 @@ agent_id_key = "session_id"
 | Key | Default | Meaning |
 |---|---|---|
 | `strip_chars` | `` "*_`#>" `` | Characters removed before quotes are compared (markdown emphasis and headings). Held at the default set (a safety floor and ceiling): adding a character would loosen the quote check, removing one would fail quotes of markdown-emphasised text. Quote matching only: every other check uses the default (see below). |
-| `punctuation` | curly quotes, guillemets, dashes, ellipsis | Characters mapped to plain ones before quotes are compared, written as TOML escapes. Each key is one character that is not a letter, a digit or whitespace, before or after case folding (non-breaking spaces need no entry: NFKC already turns them into plain spaces). Each value is exactly one character that is not whitespace, not a letter or digit before or after case folding, and not a stripped character; the one exception is the built-in entry for the ellipsis character, which keeps its `...`, and no other key may map to `...`. A key may not be a stripped character either. So a mapping turns one punctuation character into another: it never deletes one, splits or joins words, or adds an ellipsis joint between quote fragments. Text is also put in Unicode NFKC form, whitespace is collapsed, and case is folded. Quote matching only: every other check uses the default map (see below). |
+| `punctuation` | curly quotes, guillemets, dashes, ellipsis | Characters mapped to plain ones before quotes are compared, written as TOML escapes. Each key is one character that is not a letter, a digit or whitespace, before or after case folding (non-breaking spaces need no entry: NFKC already turns them into plain spaces). Each value is exactly one character that is not whitespace, not a letter or digit before or after case folding, and not a stripped character; the one exception is the built-in entry for the ellipsis character, which keeps its `...`, and no other key may map to `...`. A key may not be a stripped character either. So a mapping turns one punctuation character into another: it never deletes one, splits a word or joins two. A value of `.` is legal, so three characters mapped to `.` in a row read as an ellipsis, which joins quote fragments; a judge could write `...` anyway, so no reach is gained. NFKC turns the ellipsis character into `...` before the map runs, so the built-in entry for it has no effect; it stays so that runs frozen with it remain valid. Text is also put in Unicode NFKC form, whitespace is collapsed, and case is folded. Quote matching only: every other check uses the default map (see below). |
 
 The run's `[text]` settings decide one thing: whether a judge's quote is found in an item.
 Every other check normalises with the built-in settings, whatever the configuration says,
@@ -158,9 +158,9 @@ cannot be voided.
   only whether a judge's quote is found: every other check, the injection scan included, uses
   the built-in normalisation (see the table under `[text]`), so an override can loosen none of
   them. The settings are bounded: `strip_chars` is held at the default set, and a punctuation
-  mapping turns one punctuation character into another, never deleting one, splitting or
-  joining words, or adding an ellipsis joint. They are listed as overrides in the report
-  header and in `status`.
+  mapping turns one punctuation character into another, never deleting one, splitting a word
+  or joining two (three characters mapped to `.` in a row read as an ellipsis, which a judge
+  could write anyway). They are listed as overrides in the report header and in `status`.
 - `[injection]`: texts in other languages need more patterns; the defaults always stay.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.

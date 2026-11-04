@@ -15,7 +15,7 @@ from .report import render_report, status
 from .spec import init_run, load_frozen, validate_spec
 from .text import normalise, quote_found
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "Config",

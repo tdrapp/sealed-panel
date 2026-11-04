@@ -169,8 +169,9 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     return errors
 
 
-# The one value that is not a single character: the built-in entry that writes an ellipsis as
-# "...", a quote joint by design. No other key may map to it.
+# The one value that is not a single character: the built-in entry for the ellipsis character.
+# NFKC already turns it into "..." before the map runs, so the entry has no effect; it stays so
+# that runs frozen with it remain valid. No other key may map to "...".
 ELLIPSIS = "\u2026"
 
 
@@ -183,8 +184,9 @@ def _text_errors(text: Mapping[str, Any]) -> list[str]:
     """The quote check's normalisation. A key is one character, not a letter, digit or
     whitespace. A value is exactly one character: not whitespace, not a letter or digit (after
     case folding too) and not stripped; the only exception is the built-in ELLIPSIS entry. So a
-    mapping can turn one punctuation character into another, never delete one, split a word,
-    join two words or add an ellipsis joint. No other check uses these settings."""
+    mapping can turn one punctuation character into another, never delete one, split a word or
+    join two words. Three characters mapped to "." in a row read as an ellipsis, which a judge
+    could write anyway, so no reach is gained. No other check uses these settings."""
     errors = []
     if any(c.isalnum() or c.isspace() for c in text["strip_chars"]):
         errors.append("text.strip_chars may hold punctuation only, no letter, digit or space")

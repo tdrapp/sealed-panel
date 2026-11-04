@@ -7,6 +7,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-04
+
+### Fixed
+
+- The configuration docs no longer say a punctuation mapping cannot add an ellipsis joint:
+  three characters mapped to `.` in a row read as an ellipsis, which a judge could write
+  anyway. A test pins the behaviour, and the docs say why the built-in ellipsis entry stays
+  (NFKC turns the character into `...` first; runs frozen with the entry stay valid).
+- Every check but quote matching is pinned to the built-in normalisation by a test and a
+  mutation: the re-roll hash, the previous version and the baseline riding along, and the
+  one-quote flag.
+- The library guard and the tests no longer obey an inherited `GIT_DIR`: inside a git hook,
+  `git check-ignore` answered for the repository running the hook, not the one holding the
+  library.
+
+## [0.2.0] - 2026-11-04
+
 ### Added
 
 - A rubric library: eight built-in templates (cv, cover-letter, pitch, message, essay,
@@ -58,5 +75,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Agent skill in `skill/`, synthetic example with demo judges in `examples/announcement/`.
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
-[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tdrapp/sealed-panel/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/tdrapp/sealed-panel/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tdrapp/sealed-panel/releases/tag/v0.1.0
