@@ -7,17 +7,22 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, library
 from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import load_config
 from .errors import EvalError, MalformedReply
+from .learn import user_disagreement
 from .record import last_reply, record_measurement, record_reply, transcript_agent_id
 from .report import feedback_path, render_report, status
-from .spec import init_run, run_config
+from .spec import TODO_MARKER, init_run, run_config
+from .store import load_json
 
 DESCRIPTION = "Grade a text with blind panels of LLM judges and a sealed final panel."
 ROUND_HELP = "round number; optional with --sealed, where it defaults to 1"
+LIBRARY_HELP = (
+    f"user library directory (default: ${library.ENV_VAR}, else the library.path setting)"
+)
 
 
 def _round_args(p: argparse.ArgumentParser) -> None:
@@ -76,7 +81,73 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("run", type=Path)
     p = sub.add_parser("report", help="print the run's report")
     p.add_argument("run", type=Path)
+
+    p = sub.add_parser("feedback", help="record your own read disagreeing with the sealed grade")
+    p.add_argument("run", type=Path)
+    p.add_argument("--note", required=True)
+    p.add_argument("--dimension")
+    p.add_argument("--library", type=Path, help=LIBRARY_HELP)
+
+    p = sub.add_parser("rubrics", help="the rubric library: templates and learned candidates")
+    rsub = p.add_subparsers(dest="rcmd", required=True)
+    r = rsub.add_parser("list", help="templates (built-in and user) and open candidates")
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
+    r = rsub.add_parser("suggest", help="rank templates for a kind of text")
+    r.add_argument("--kind", required=True)
+    r.add_argument("--text", type=Path, help="the text, for keyword overlap")
+    r.add_argument("--top", type=int, default=3)
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
+    r = rsub.add_parser("show", help="print a template")
+    r.add_argument("id")
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
+    r = rsub.add_parser("use", help="write a spec skeleton from a template")
+    r.add_argument("id")
+    r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--persona-file", type=Path, help="JSON list of personas (id, description)")
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
+    r = rsub.add_parser("promote", help="apply a candidate to a user template (a person decides)")
+    r.add_argument("candidate")
+    r.add_argument("--into", help="template id, when the candidate names none or another")
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
+    r = rsub.add_parser("reject", help="close a candidate with a reason")
+    r.add_argument("candidate")
+    r.add_argument("--reason", required=True)
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
     return ap
+
+
+def _rubrics(a: argparse.Namespace) -> None:
+    lib = library.library_dir(a.library)
+    if a.rcmd == "list":
+        print(f"library: {lib}")
+        for tid, (t, source) in library.all_templates(lib).items():
+            print(f"{tid:18} v{t['version']:<3} {source:30} {t['title']}")
+        cands = library.open_candidates(lib)
+        print(f"inbox: {len(cands)} open candidate(s)")
+        for c in cands:
+            tpl = (c.get("template") or {}).get("id", "-")
+            print(f"  {c['id']}  {c['kind']:19} template {tpl:16} {c['dimension']} (x{c['count']})")
+    elif a.rcmd == "suggest":
+        text = a.text.read_text(encoding="utf-8") if a.text else ""
+        for row in library.suggest(lib, a.kind, text, a.top):
+            print(
+                f"{row['score']:4}  {row['id']} v{row['version']} ({row['source']}): "
+                f"{row['reason']}"
+            )
+    elif a.rcmd == "show":
+        t, source = library.get_template(lib, a.id)
+        print(f"# {a.id} v{t['version']}, {source}")
+        print(json.dumps(t, ensure_ascii=False, indent=2))
+    elif a.rcmd == "use":
+        out = library.write_skeleton(lib, a.id, a.out, a.persona_file)
+        print(f"wrote {out}: fill every {TODO_MARKER} marker, then run init")
+    elif a.rcmd == "promote":
+        path = library.promote(lib, a.candidate, a.into)
+        t = load_json(path)
+        print(f"promoted {a.candidate} into {path} (v{t['version']})")
+    elif a.rcmd == "reject":
+        path = library.reject(lib, a.candidate, a.reason)
+        print(f"rejected {a.candidate}: moved to {path}")
 
 
 def _round(a: argparse.Namespace) -> int:
@@ -139,11 +210,18 @@ def _run(a: argparse.Namespace) -> None:
         )
         if not e["sealed"]:
             line += f"; findings in {feedback_path(a.run, e['round'])}"
+        else:
+            line += f"; {len(e['inbox'])} rubric candidate(s) in the library inbox"
         print(line + "; run `status`")
     elif a.cmd == "status":
         print(json.dumps(status(a.run), ensure_ascii=False, indent=2))
     elif a.cmd == "report":
         print(render_report(a.run), end="")
+    elif a.cmd == "feedback":
+        path = user_disagreement(a.run, a.note, a.dimension, a.library)
+        print(f"recorded your read as candidate {path.stem} in {path.parent}")
+    elif a.cmd == "rubrics":
+        _rubrics(a)
 
 
 def main(argv: list[str] | None = None) -> int:
