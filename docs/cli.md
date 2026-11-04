@@ -5,9 +5,8 @@ sealed-panel [--version] <command> RUN [options]
 ```
 
 `RUN` is the run directory; `rubrics` works on the rubric library instead (see below). Only
-`init` accepts `--config PATH` (see
-[configuration.md](configuration.md)); every later command reads the configuration frozen into
-the run.
+`init` accepts `--config PATH` (see [configuration.md](configuration.md)); every later command
+reads the configuration frozen into the run.
 
 `--round N` is required for a loop round. With `--sealed` it is optional and defaults to 1,
 since a run has one sealed panel.
@@ -38,8 +37,8 @@ or `facts_file` (a path to a file that must exist, read and frozen by content; n
 `measured` (each with `id`, `description`, and an optional numeric `max` or `min`),
 `declared_choices` (each with `choice` and `user_said`, the words of the person who asked for
 it), and the keys of the `[run]` configuration table, within their bounds. `template`
-(`{id, version, sha256}`, written by `rubrics use`) records the template the spec started from and is
-part of the rubric hash; `init` checks it against the library (`--library DIR`, else
+(`{id, version, sha256}`, written by `rubrics use`) records the template the spec started from
+and is part of the rubric hash; `init` checks it against the library (`--library DIR`, else
 `$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default), refuses an
 unknown id or version naming the library it read, recomputes `sha256`, and adds `modified`. The
 same library is frozen into the run. Unknown keys are refused at every level, and so is any

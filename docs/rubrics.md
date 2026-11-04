@@ -64,18 +64,17 @@ sealed-panel rubrics use message --out spec.json [--persona-file personas.json]
 
 Writes a spec skeleton: the template's dimensions, its suggested instruments, and
 `template: {id, version, sha256}`, where `sha256` is a hash of the dimensions; `init` adds
-`modified`. TODO markers
-stand for the title, the purpose, the facts (with the template's `facts_hint`), every
-suggested instrument threshold and, without `--persona-file`, the persona descriptions. `init`
-refuses the spec until every marker is replaced. A `facts_file` put in place of `facts` is read
-relative to the spec file's folder.
+`modified`. TODO markers stand for the title, the purpose, the facts (with the template's
+`facts_hint`), every suggested instrument threshold and, without `--persona-file`, the persona
+descriptions. `init` refuses the spec until every marker is replaced. A `facts_file` put in
+place of `facts` is read relative to the spec file's folder.
 
 At `init`, the template reference is checked against the library: an unknown id, or a version
 that is neither the served one nor the built-in one, is refused. `sha256` is recomputed from
 that template's dimensions, and `modified` records whether the spec's dimensions still match
 them; neither is taken from the spec. Both are part of the rubric hash, and the report header
-shows a modified template. A run holds a copy of
-the dimensions, not a link to the template: a later promotion never changes a frozen run.
+shows a modified template. A run holds a copy of the dimensions, not a link to the template: a
+later promotion never changes a frozen run.
 
 ## The user library
 
@@ -117,15 +116,24 @@ run again adds nothing that is already recorded.
 | Kind | Written when |
 |---|---|
 | `judges_disagree` | In the sealed panel, a dimension's valid judges' scores spread by 2 or more, or a judge's severity contradicts its score before capping: a score above the run's cap for a blocking or material flaw (a 4 or 5 with blocking, a 5 with material by default), or a 1 with none. |
-| `control_too_close` | In the sealed panel, the candidate's mean raw score on a dimension is at least `[library] control_min_candidate` (4 by default) and the control's mean raw score is within `control_gap` (1) of it, both before severity caps. A weak text cannot trigger it: calibration keeps the control's mean at 2 or less, so a text at 3 or less is close to any control and says nothing about the dimension. Loop rounds do not count. |
+| `control_too_close` | In the sealed panel, the candidate's mean raw score on a dimension is at least `[library] control_min_candidate` (4 by default) and the control's mean raw score is within `control_gap` (1) of it, both before severity caps. A weak text does not trigger it: a low text next to a low control says nothing about the dimension. Loop rounds do not count. See below for when it can fire. |
 | `user_disagreement` | The user records their own read with `sealed-panel feedback RUN --note TEXT [--dimension ID]`, after the seal. |
+
+`control_too_close` depends on the number of dimensions. Calibration bounds each judge's
+control mean over all the rubric's dimensions at the run's `control_max` (2 by default), not
+its score on one dimension. With n dimensions and every other score at the floor of 1, a
+calibrated judge can give the control at most `n * control_max - (n - 1)` on one dimension, and
+the signal needs the control's mean there to be at least `control_min_candidate - control_gap`
+(3 by default). With the defaults, a 1-dimension rubric allows at most 2, so the signal cannot
+fire. A 2-dimension rubric allows at most 3, so it fires only when every valid judge of the
+persona scores the control 3 on that dimension and 1 on the other, and the candidate's mean on
+it is exactly 4. From 3 dimensions (at most 4) it has room.
 
 Each candidate is a JSON file named by its id, with `kind`, `status` (`open`), `template` (the
 run's template reference), `dimension`, `run` (rubric hash, template, run directory), `runs`
-(every run that showed the signal),
-`evidence` (round, judge numbers, each judge's quote with whether code verified it, notes),
-`count`, and `proposed_change`. The id is the file name, checked against a fixed pattern; an
-`id` field inside the file is never used.
+(every run that showed the signal), `evidence` (round, judge numbers, each judge's quote with
+whether code verified it, notes), `count`, and `proposed_change`. The id is the file name,
+checked against a fixed pattern; an `id` field inside the file is never used.
 
 Candidates are de-duplicated by kind, template id, version and whether the run modified the
 template (or, without a template, the run's rubric hash) and dimension, ignoring case: the
