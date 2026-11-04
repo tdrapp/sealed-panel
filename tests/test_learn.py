@@ -16,7 +16,7 @@ from sealed_panel.config import load_config
 from sealed_panel.errors import EvalError
 from sealed_panel.learn import proposals_after_seal, user_disagreement
 from sealed_panel.record import record_reply
-from sealed_panel.spec import init_run
+from sealed_panel.spec import dims_for, init_run
 
 FIVE = {"clarity": 5, "evidence": 5}
 # A control that stays calibrated (mean 2) but scores clarity close to a strong candidate.
@@ -120,6 +120,33 @@ class TestControlTooClose:
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
         ev = library.open_candidates(private_library)[0][0]["evidence"][0]
         assert (ev["candidate_raw_mean"], ev["control_raw_mean"]) == (4, 3)
+
+    def test_calibration_counts_the_persona_dimensions(self, h: Harness) -> None:
+        """The reviewer's probe: a 3-dimension rubric, a persona limited to 2 of them. A
+        control at 4 and 1 has a mean of 2.5 over the persona's dimensions, and is refused."""
+        spec = make_spec()
+        spec["personas"].append({"id": "cfo", "description": "CFO of a retail bank"})
+        spec["dimensions"].append(
+            {"id": "cost", "question": "Is the cost clear?", "personas": ["cfo"],
+             "anchors": {"1": "no cost", "3": "a range", "5": "a firm figure"}}
+        )  # fmt: skip
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(spec))
+        init_run(h.run, sp)
+        h.brief(1, "cand", sealed=True)
+        results = {}
+        for meta in h.keys(1, True)["judges"]:
+            dims = [d["id"] for d in dims_for(spec, meta["persona"])]
+            control = {d: 4 if d == "clarity" else 1 for d in dims}
+            sc = {r: control if r == "control" else dict.fromkeys(dims, 4)
+                  for r in meta["key"].values()}  # fmt: skip
+            raw = judge_json(meta, h.texts(1, meta, True), sc)
+            results[meta["judge"]] = (meta["persona"], record_reply(
+                h.run, 1, meta["judge"], f"p{meta['judge']}", raw, True))  # fmt: skip
+        coo = [r for p, r in results.values() if p == "coo"]
+        cfo = [r for p, r in results.values() if p == "cfo"]
+        assert coo and all(not r["ok"] and r["control_mean"] == 2.5 for r in coo)
+        assert cfo and all(r["ok"] and r["control_mean"] == 2.0 for r in cfo)
 
     def test_a_weak_candidate_never_triggers_it(self, h: Harness, private_library: Path) -> None:
         h.init()  # the reviewer's probe: candidate 3/5, control 2/1, three unanimous judges

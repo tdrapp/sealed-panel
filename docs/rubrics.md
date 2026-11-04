@@ -119,15 +119,17 @@ run again adds nothing that is already recorded.
 | `control_too_close` | In the sealed panel, the candidate's mean raw score on a dimension is at least `[library] control_min_candidate` (4 by default) and the control's mean raw score is within `control_gap` (1) of it, both before severity caps. A weak text does not trigger it: a low text next to a low control says nothing about the dimension. Loop rounds do not count. See below for when it can fire. |
 | `user_disagreement` | The user records their own read with `sealed-panel feedback RUN --note TEXT [--dimension ID]`, after the seal. |
 
-`control_too_close` depends on the number of dimensions. Calibration bounds each judge's
-control mean over all the rubric's dimensions at the run's `control_max` (2 by default), not
-its score on one dimension. With n dimensions and every other score at the floor of 1, a
-calibrated judge can give the control at most `n * control_max - (n - 1)` on one dimension, and
-the signal needs the control's mean there to be at least `control_min_candidate - control_gap`
-(3 by default). With the defaults, a 1-dimension rubric allows at most 2, so the signal cannot
-fire. A 2-dimension rubric allows at most 3, so it fires only when every valid judge of the
-persona scores the control 3 on that dimension and 1 on the other, and the candidate's mean on
-it is exactly 4. From 3 dimensions (at most 4) it has room.
+`control_too_close` depends on how many dimensions the persona scores: the rubric's
+dimensions, less those restricted to other personas. Calibration bounds each judge's control
+mean over the persona's dimensions at the run's `control_max` (2 by default), not its score on
+one dimension. With n such dimensions and every other score at the floor of 1, a calibrated
+judge can give the control at most `n * control_max - (n - 1)` on one dimension, and the signal
+needs the control's mean there to be at least `control_min_candidate - control_gap` (3 by
+default). With the defaults, a persona with 1 dimension allows at most 2, so the signal cannot
+fire. A persona with 2 dimensions allows at most 3, so it fires only when every valid judge of
+the persona scores the control 3 on that dimension and 1 on the other, and the candidate's
+mean on it is exactly 4. From 3 dimensions (at most 4) it has room. A persona limited to 2 of a
+rubric's 3 dimensions counts as 2.
 
 Each candidate is a JSON file named by its id, with `kind`, `status` (`open`), `template` (the
 run's template reference), `dimension`, `run` (rubric hash, template, run directory), `runs`

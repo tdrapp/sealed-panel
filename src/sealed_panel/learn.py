@@ -154,8 +154,8 @@ def _control_too_close(
     """A dimension that does not discriminate: the sealed panel scores a strong candidate and
     the bad control close together. A weak candidate never triggers it: a low candidate next to
     a low control says nothing about the dimension. Calibration bounds each judge's control
-    mean over all dimensions (control_max), not its score on one dimension, so a control can
-    score 3 on one dimension and stay calibrated."""
+    mean over the persona's dimensions (control_max), not its score on one dimension, so a
+    control can score 3 on one dimension and stay calibrated; docs/rubrics.md derives when."""
     floor = float(cfg.library["control_min_candidate"])
     gap = float(cfg.library["control_gap"])
     results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only
