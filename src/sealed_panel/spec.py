@@ -30,7 +30,13 @@ RUBRIC_KEYS = (
     "control_max",
     "good_min",
     "noise_floor_min",
+    "template",
 )
+# Keys hashed only when present, so a spec without them keeps the hash it had before.
+OPTIONAL_HASH_KEYS = frozenset({"template"})
+# A string a skeleton leaves for the user to fill; `init` refuses a spec that still holds one.
+TODO_MARKER = "TODO(sealed-panel)"
+TEMPLATE_REF_KEYS = frozenset({"id", "version"})
 SPEC_KEYS = frozenset({*RUBRIC_KEYS, "facts_file"})
 PERSONA_KEYS = frozenset({"id", "description"})
 DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors", "weight", "personas"})
@@ -113,6 +119,19 @@ def shape_errors(spec: Any) -> list[str]:
         for key in ("choice", "user_said"):
             if key in c and not isinstance(c[key], str):
                 errors.append(f"declared choice: {key} must be a string")
+    ref = spec.get("template")
+    if ref is not None:
+        if not isinstance(ref, dict):
+            errors.append("spec.template must be an object with id and version")
+        else:
+            errors += _unknown(ref, TEMPLATE_REF_KEYS, "spec.template")
+            version = ref.get("version")
+            if (
+                not isinstance(ref.get("id"), str)
+                or isinstance(version, bool)
+                or not isinstance(version, int)
+            ):
+                errors.append("spec.template needs a string id and an integer version")
     framings = spec.get("framings")
     if framings is not None and (
         not isinstance(framings, list)
@@ -123,11 +142,25 @@ def shape_errors(spec: Any) -> list[str]:
     return errors
 
 
+def todo_paths(value: Any, where: str = "spec") -> list[str]:
+    """Where a skeleton's TODO markers are still in place."""
+    if isinstance(value, str):
+        return [where] if TODO_MARKER in value else []
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in todo_paths(v, f"{where}.{k}")]
+    if isinstance(value, list):
+        return [p for i, v in enumerate(value) for p in todo_paths(v, f"{where}[{i}]")]
+    return []
+
+
 def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
     cfg = resolve(cfg)
     errors = shape_errors(spec)
     if errors:
         return errors
+    todo = todo_paths(spec)
+    if todo:
+        errors.append(f"fill the {TODO_MARKER} markers first: {', '.join(todo)}")
     for key in ("title", "purpose", "personas", "dimensions"):
         if not spec.get(key):
             errors.append(f"spec.{key} is missing or empty")
@@ -201,7 +234,7 @@ def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
 
 
 def rubric_hash(spec: dict[str, Any]) -> str:
-    core = {k: spec.get(k) for k in RUBRIC_KEYS}
+    core = {k: spec.get(k) for k in RUBRIC_KEYS if k not in OPTIONAL_HASH_KEYS or k in spec}
     canon = json.dumps(core, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 

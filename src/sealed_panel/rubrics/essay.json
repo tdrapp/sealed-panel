@@ -1,0 +1,84 @@
+{
+  "id": "essay",
+  "version": 1,
+  "title": "Argumentative essay",
+  "kinds": [
+    "essay",
+    "article",
+    "op-ed",
+    "blog-post"
+  ],
+  "keywords": [
+    "argue",
+    "because",
+    "therefore",
+    "however",
+    "evidence",
+    "claim",
+    "thesis",
+    "conclusion"
+  ],
+  "when_to_use": "A text that defends one thesis for a reader who does not yet agree.",
+  "personas": [
+    {
+      "id": "skeptic",
+      "description": "Informed reader who does not share the thesis and reads to find where the argument breaks."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "thesis",
+      "name": "Thesis",
+      "question": "Can the persona state the thesis in one sentence after reading the first paragraph?",
+      "anchors": {
+        "1": "no thesis can be stated",
+        "3": "a thesis appears, but only later or in vague terms",
+        "5": "the thesis is stated in the first paragraph in one sentence the persona could dispute"
+      }
+    },
+    {
+      "id": "argument",
+      "name": "Argument",
+      "question": "Does each section move the thesis forward with a reason?",
+      "anchors": {
+        "1": "sections restate the thesis or wander",
+        "3": "some sections give a reason, others restate",
+        "5": "each section adds one reason, and the strongest objection is answered"
+      }
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence",
+      "question": "Is each reason backed by a source, a number or a worked example?",
+      "anchors": {
+        "1": "reasons are asserted",
+        "3": "some reasons are backed, others asserted",
+        "5": "every reason carries a source, a number or a worked example"
+      }
+    },
+    {
+      "id": "prose",
+      "name": "Prose",
+      "question": "Can the persona read it once without rereading a sentence?",
+      "anchors": {
+        "1": "many sentences need a second read",
+        "3": "a few sentences need a second read",
+        "5": "no sentence needs a second read"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "words",
+      "description": "word count, within the limit set for the essay",
+      "max": 1500
+    }
+  ],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

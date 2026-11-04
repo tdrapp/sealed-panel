@@ -107,3 +107,10 @@ tool_id_key = "id"
 tool_result_type = "tool_result"
 tool_result_id_key = "tool_use_id"
 tool_error_key = "is_error"
+
+[library]
+# The user rubric library: user templates, inbox/ and history/. The environment variable
+# SEALED_PANEL_RUBRICS overrides it; a relative path is read from the current directory.
+path = "./rubrics/"
+# After a sealed panel aggregates, write learned candidates to the inbox.
+learn = true

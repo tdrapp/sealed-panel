@@ -1,0 +1,87 @@
+{
+  "id": "cv",
+  "version": 1,
+  "title": "CV for a named role",
+  "kinds": [
+    "cv",
+    "resume"
+  ],
+  "keywords": [
+    "experience",
+    "role",
+    "skills",
+    "led",
+    "built",
+    "years",
+    "team",
+    "results",
+    "education"
+  ],
+  "when_to_use": "A CV or resume sent for one role, read by a recruiter or a hiring manager.",
+  "personas": [
+    {
+      "id": "recruiter",
+      "description": "Recruiter screening many CVs for one role; spends under a minute on a first pass and decides who goes to the hiring manager."
+    },
+    {
+      "id": "manager",
+      "description": "Hiring manager for the role; reads the shortlisted CVs and decides who to interview."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "fit",
+      "name": "Fit to the role",
+      "question": "Does the first third of the page show the role's core requirements?",
+      "anchors": {
+        "1": "no requirement of the role appears on the first third of the page",
+        "3": "some requirements appear, but the reader has to search for them",
+        "5": "the role's main requirements are each matched by a line on the first third of the page"
+      }
+    },
+    {
+      "id": "impact",
+      "name": "Impact",
+      "question": "Does each line state a result rather than a duty?",
+      "anchors": {
+        "1": "lines list duties only, with no result",
+        "3": "some lines state a result, most list duties",
+        "5": "most lines start with a result and name the method after it"
+      }
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence",
+      "question": "Is each claimed result backed by a number, a scope or a named case?",
+      "anchors": {
+        "1": "no number, scope or named case",
+        "3": "a few results carry a number or a scope, the rest are asserted",
+        "5": "every claimed result carries a number, a scope or a named case consistent with the facts"
+      }
+    },
+    {
+      "id": "clarity",
+      "name": "Clarity",
+      "question": "Can the reader find dates, titles and employers at a glance?",
+      "anchors": {
+        "1": "dates, titles or employers are missing or out of order",
+        "3": "the facts are there but the layout hides some of them",
+        "5": "dates, titles and employers are on one aligned line per role, in reverse order"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "pages",
+      "description": "number of pages, 2 or fewer",
+      "max": 2
+    }
+  ],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

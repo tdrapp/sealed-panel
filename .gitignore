@@ -21,6 +21,8 @@ htmlcov/
 # Local runs
 runs/
 replies/
+# The user rubric library at the repository root (private: candidates quote real texts).
+/rubrics/
 *.log
 
 # Editors and OS

@@ -1,0 +1,73 @@
+{
+  "id": "interview-answer",
+  "version": 1,
+  "title": "Answer to an interview question",
+  "kinds": [
+    "interview-answer",
+    "interview",
+    "behavioural-answer"
+  ],
+  "keywords": [
+    "situation",
+    "task",
+    "action",
+    "result",
+    "team",
+    "learned",
+    "challenge",
+    "decided"
+  ],
+  "when_to_use": "A spoken answer to one interview question, such as a behavioural question.",
+  "personas": [
+    {
+      "id": "interviewer",
+      "description": "Interviewer who asks the same question to several candidates and scores each answer on a sheet."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "answer",
+      "name": "Answers the question",
+      "question": "Does the first sentence answer the question asked?",
+      "anchors": {
+        "1": "the answer is about something else",
+        "3": "the answer gets to the question after a long setup",
+        "5": "the first sentence answers the question, and the rest supports it"
+      }
+    },
+    {
+      "id": "ownership",
+      "name": "Ownership",
+      "question": "Is it clear what the candidate did, as opposed to the team?",
+      "anchors": {
+        "1": "only 'we', no action of the candidate",
+        "3": "some actions are the candidate's, others are vague",
+        "5": "each step names what the candidate decided or did"
+      }
+    },
+    {
+      "id": "result",
+      "name": "Result",
+      "question": "Does the answer end on a result and what the candidate learned?",
+      "anchors": {
+        "1": "no result",
+        "3": "a result without a number or a lesson",
+        "5": "a result with a number or a scope, and one lesson the candidate applied later"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "seconds",
+      "description": "spoken length in seconds, 120 or fewer",
+      "max": 120
+    }
+  ],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}

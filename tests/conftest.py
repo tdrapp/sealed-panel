@@ -193,6 +193,14 @@ class Harness:
         )
 
 
+@pytest.fixture(autouse=True)
+def private_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Every test gets its own user library, never ./rubrics/ in the working tree."""
+    lib = tmp_path / "library"
+    monkeypatch.setenv("SEALED_PANEL_RUBRICS", str(lib))
+    return lib
+
+
 @pytest.fixture
 def h(tmp_path: Path) -> Harness:
     return Harness(tmp_path)

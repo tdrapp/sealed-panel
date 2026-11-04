@@ -158,6 +158,8 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
             errors.append(f"transcript.{key} must not be empty")
+    if not str(data["library"]["path"]).strip():
+        errors.append("library.path must not be empty")
     return errors
 
 
@@ -337,6 +339,10 @@ class Config:
     @property
     def transcript(self) -> dict[str, Any]:
         return self.section("transcript")
+
+    @property
+    def library(self) -> dict[str, Any]:
+        return self.section("library")
 
 
 @cache

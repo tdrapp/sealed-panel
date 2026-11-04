@@ -1,0 +1,74 @@
+{
+  "id": "pitch",
+  "version": 1,
+  "title": "Short pitch to a decision maker",
+  "kinds": [
+    "pitch",
+    "elevator-pitch",
+    "proposal-pitch"
+  ],
+  "keywords": [
+    "problem",
+    "solution",
+    "pilot",
+    "cost",
+    "risk",
+    "customers",
+    "revenue",
+    "ask",
+    "market"
+  ],
+  "when_to_use": "A pitch of a minute or two, spoken or written, asking a decision maker for a next step.",
+  "personas": [
+    {
+      "id": "decider",
+      "description": "Decision maker who hears many pitches a month, decides on cost and risk, and distrusts buzzwords."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "structure",
+      "name": "Structure",
+      "question": "After one hearing, can the persona retell the problem, the answer and the ask?",
+      "anchors": {
+        "1": "the persona cannot say what is proposed or what is asked",
+        "3": "problem and answer are retellable, the ask is missing or vague",
+        "5": "problem, answer and a concrete ask are each retellable in one sentence, in that order"
+      }
+    },
+    {
+      "id": "relevance",
+      "name": "Relevance to the persona",
+      "question": "Is the gain stated in the persona's own metric?",
+      "anchors": {
+        "1": "generic: the pitch would work unchanged for any listener",
+        "3": "the persona's context is named, but the gain is not in their metric",
+        "5": "the gain is stated in the persona's metric with one number they can check"
+      }
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence",
+      "question": "Is every claim backed by a fact the persona could verify?",
+      "anchors": {
+        "1": "no number, no named case",
+        "3": "one number or case, the rest asserted",
+        "5": "every claim carries a number or a named case consistent with the facts"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "seconds",
+      "description": "reading time in seconds at 150 words a minute, 60 or fewer",
+      "max": 60
+    }
+  ],
+  "provenance": [
+    {
+      "date": "2026-11-04",
+      "source": "sealed-panel 0.2.0",
+      "change": "first version"
+    }
+  ]
+}
