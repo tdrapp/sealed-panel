@@ -63,7 +63,8 @@ sealed-panel rubrics use message --out spec.json [--persona-file personas.json]
 ```
 
 Writes a spec skeleton: the template's dimensions, its suggested instruments, and
-`template: {id, version, sha256}`, where `sha256` is a hash of the dimensions. TODO markers
+`template: {id, version, sha256}`, where `sha256` is a hash of the dimensions; `init` adds
+`modified`. TODO markers
 stand for the title, the purpose, the facts (with the template's `facts_hint`), every
 suggested instrument threshold and, without `--persona-file`, the persona descriptions. `init`
 refuses the spec until every marker is replaced. A `facts_file` put in place of `facts` is read
@@ -115,8 +116,8 @@ run again adds nothing that is already recorded.
 
 | Kind | Written when |
 |---|---|
-| `judges_disagree` | In the sealed panel, a dimension's valid judges' scores spread by 2 or more, or a judge's severity contradicts its score before capping (blocking with a 4 or 5, material with a 5, none with a 1). |
-| `control_too_close` | In the sealed panel, the control's raw median on a dimension is within 1 point of the candidate's raw median (both before severity caps). Loop rounds do not count, so weak drafts cannot trigger it. |
+| `judges_disagree` | In the sealed panel, a dimension's valid judges' scores spread by 2 or more, or a judge's severity contradicts its score before capping: a score above the run's cap for a blocking or material flaw (a 4 or 5 with blocking, a 5 with material by default), or a 1 with none. |
+| `control_too_close` | In the sealed panel, the candidate's mean raw score on a dimension is at least `[library] control_min_candidate` (4 by default) and the control's mean raw score is within `control_gap` (1) of it, both before severity caps. A weak text cannot trigger it: calibration keeps the control's mean at 2 or less, so a text at 3 or less is close to any control and says nothing about the dimension. Loop rounds do not count. |
 | `user_disagreement` | The user records their own read with `sealed-panel feedback RUN --note TEXT [--dimension ID]`, after the seal. |
 
 Each candidate is a JSON file named by its id, with `kind`, `status` (`open`), `template` (the
@@ -156,9 +157,11 @@ a terminal it asks you to type the candidate id; without a terminal it refuses u
 is given. It refuses a change that still holds markers in the fields it uses, a change that
 would break the template format, and a user file for that id that cannot be read (fix or
 remove it first). It writes the file that serves the template (a user file of that id, or a
-new `<id>.json`; a `<id>.json` holding a template of another id is never overwritten), copying a built-in first and recording it in `based_on`; bumps the version
-above both the user and the built-in version; appends a provenance entry naming the candidate;
-and moves the candidate to `history/`. Both files are staged and then moved into place; if the
+new `<id>.json`; a `<id>.json` holding a template of another id is never overwritten), copying
+a built-in first and recording it in `based_on`; bumps the version above both the user and the
+built-in version; appends a provenance entry naming the candidate; and moves the candidate to
+`history/`. A history file is never overwritten, even an unreadable one: its id stays reserved,
+and a new candidate takes the next id. Both files are staged and then moved into place; if the
 second move fails, the first is rolled back, and no staged file is left behind, so a failure
 leaves the template and the inbox as they were. At the prompt, an empty answer or the end of
 input counts as "not confirmed". Built-in templates never change.

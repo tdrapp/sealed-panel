@@ -21,8 +21,8 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 185 mutations, 182
-are killed; the three that survive are redundant guards, kept as defence in depth, listed in the
+bound or boundary at a time and requires the suite to fail on each. Of its 197 mutations, 195
+are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
 
@@ -282,9 +282,10 @@ until they are filled.
 
 After each sealed panel, sealed-panel writes rubric-level candidates to a user-level library
 inbox: a dimension the sealed judges disagree on, a dimension where the sealed panel scores the
-control close to the text, or your own disagreement recorded with `sealed-panel feedback`. A person reads each
-candidate, sees the change side by side, and runs `rubrics promote` or `rubrics reject`;
-nothing changes a template on its own, and a frozen run never changes. Candidates quote the
+bad control close to a strong text, or your own disagreement recorded with `sealed-panel
+feedback`. A person reads each candidate, sees the change side by side, and runs `rubrics
+promote` or `rubrics reject`; nothing changes a template on its own, and a frozen run never
+changes. Candidates quote the
 judged texts, so the user library is private by nature. See [docs/rubrics.md](docs/rubrics.md).
 
 ## Using the agent skill

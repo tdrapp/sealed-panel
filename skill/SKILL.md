@@ -167,14 +167,13 @@ differs from the defaults, and how many judge contexts ran. Say whether replies 
 transcripts or were pasted. A text changed after the seal
 is unjudged: say so, or start a new run.
 
-Then point the user to the library inbox (`sealed-panel rubrics list --run RUN`): after
-the seal, rubric-level candidates are written there (a dimension the sealed judges disagree on,
-a dimension where the sealed panel scores the control close to the text). If aggregate
-printed "learning
-skipped", run `sealed-panel learn RUN`. If the user's own read disagrees with the grade, record
-it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never promote a candidate:
-draft a `proposed_change` only when the user asks for one, and let the user run
-`sealed-panel rubrics promote ID` themselves (it shows the change side by side and asks them
+Then point the user to the library inbox (`sealed-panel rubrics list --run RUN`): after the
+seal, rubric-level candidates are written there (a dimension the sealed judges disagree on, a
+dimension where the sealed panel scores the bad control close to a strong text). If aggregate
+printed "learning skipped", run `sealed-panel learn RUN`. If the user's own read disagrees with
+the grade, record it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never
+promote a candidate: draft a `proposed_change` only when the user asks for one, and let the user
+run `sealed-panel rubrics promote ID` themselves (it shows the change side by side and asks them
 to confirm) or `sealed-panel rubrics reject ID --reason "..."`. Candidates quote the judged
 texts: the user library is private.
 

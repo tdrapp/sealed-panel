@@ -23,7 +23,7 @@ the files the previous one wrote.
 ## init
 
 ```
-sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml]
+sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 ```
 
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
@@ -38,18 +38,19 @@ or `facts_file` (a path to a file that must exist, read and frozen by content; n
 `measured` (each with `id`, `description`, and an optional numeric `max` or `min`),
 `declared_choices` (each with `choice` and `user_said`, the words of the person who asked for
 it), and the keys of the `[run]` configuration table, within their bounds. `template`
-(`{id, version, sha256, modified}`, written by `rubrics use`) records the template the spec
-started from and is part of the rubric hash; `init` refuses an unknown id or version and
-computes `sha256` and `modified` itself. Unknown keys are refused at every level, and so is any string that
-still holds a `TODO(sealed-panel)` marker. Every `measured` field is type-checked (`id` and `description`
-strings, `min` and `max` finite numbers with `min` not above `max`, unique ids), weights must
-be finite numbers above 0, and `judges_per_persona` is between 2 and 9. A relative
-`facts_file` is read from the spec file's folder. A `facts` text is refused as a path, with a
-pointer to `facts_file`, when it starts with `~/`, `./` or `../`; when it starts with `/` and
-holds another slash; when it is one token with a slash; or when it is one line ending in a
-file extension. Anything else is text, so "~2/3 of revenue" or "/ marks a break" stays facts.
-See
-`skill/spec-reference.md` and `examples/announcement/spec.json`.
+(`{id, version, sha256}`, written by `rubrics use`) records the template the spec started from and is
+part of the rubric hash; `init` checks it against the library (`--library DIR`, else
+`$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default), refuses an
+unknown id or version naming the library it read, recomputes `sha256`, and adds `modified`. The
+same library is frozen into the run. Unknown keys are refused at every level, and so is any
+string that still holds a `TODO(sealed-panel)` marker. Every `measured` field is type-checked
+(`id` and `description` strings, `min` and `max` finite numbers with `min` not above `max`,
+unique ids), weights must be finite numbers above 0, and `judges_per_persona` is between 2 and
+9. A relative `facts_file` is read from the spec file's folder. A `facts` text is refused as a
+path, with a pointer to `facts_file`, when it starts with `~/`, `./` or `../`; when it starts
+with `/` and holds another slash; when it is one token with a slash; or when it is one line
+ending in a file extension. Anything else is text, so "~2/3 of revenue" or "/ marks a break"
+stays facts. See `skill/spec-reference.md` and `examples/announcement/spec.json`.
 
 Prints: `frozen: rubric sha256 <hash>`.
 
@@ -181,7 +182,8 @@ Records the user's own read disagreeing with the sealed grade as a `user_disagre
 candidate in the library frozen into the run. With `--dimension`, the candidate proposes to
 rewrite that dimension's anchors and carries the sealed judges' quotes on it; without, to add
 a dimension. Refused before the run is sealed, for an unknown dimension, with an empty note,
-or when the same disagreement was rejected before for this template version.
+when the same disagreement was rejected before for this template version, or when it was
+already promoted into a newer version of the template (the message says which).
 
 ## learn
 
@@ -214,6 +216,6 @@ or invalid user templates and inbox files are skipped with a warning on stderr. 
 | `list` | Every template (built-in and user) with its version and source, flagging a user template whose built-in is newer than its base; then the open candidates with kind, template version, dimension, count, and any earlier rejection with its reason. |
 | `suggest` | The templates whose kinds or aliases match the kind (case, spaces and underscores ignored), each with `when_to_use` and its dimensions; keywords found as whole words in `--text` only order them. With no match: "no template for kind K" and every template's `when_to_use`. Refused: `--top` below 1. |
 | `show` | Prints the served template (the user one when it overrides a built-in). Refused: unknown id. |
-| `use` | Writes a spec skeleton with `template: {id, version, sha256}` and TODO markers for title, purpose, facts (with the template's hint), each suggested instrument threshold and, without `--persona-file` (a JSON list of `{id, description}`), the persona descriptions. Refused: an existing `--out`, a persona file that is not a list of personas. |
+| `use` | Writes a spec skeleton with `template: {id, version, sha256}` (`init` adds `modified`) and TODO markers for title, purpose, facts (with the template's hint), each suggested instrument threshold and, without `--persona-file` (a JSON list of `{id, description}`), the persona descriptions. Refused: an existing `--out`, a persona file that is not a list of personas. |
 | `promote` | Prints the current and proposed text side by side and the file it writes, then asks for the candidate id to be typed (with no terminal it refuses unless `--yes`). Applies the change to the file serving the template (copying a built-in first), bumps the version above the user and built-in versions, appends provenance, and moves the candidate to `history/`, all or nothing. `--into` takes precedence over the candidate's template. Refused: an id that is not a candidate id, a candidate not open, TODO markers in the fields the action uses, an unknown action, a change that breaks the template format, an unreadable user file for that id, no template without `--into`. |
 | `reject` | Moves an open candidate to `history/` with the reason; the same signal is not reopened for that template version. Refused: an empty reason. |
