@@ -25,6 +25,7 @@ REC, AGG, SPEC, CFG, BRIEF = (
 )
 DEFAULTS = f"{PKG}/defaults.toml"
 CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
+LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -367,6 +368,71 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
     "max_rounds exceeded": (BRIEF, 'if rnd > spec["max_rounds"]:', "if False:"),
     "sealed round directory exists": (BRIEF, "if round_dir(run, rnd, True).exists():", "if False:"),
+    # The rubric library and learning.
+    "auto-promotion": (
+        LEARN,
+        "paths.append(library.add_candidate(lib, proposal))",
+        "paths.append(library.promote(lib, library.add_candidate(lib, proposal).stem))",
+    ),
+    "learning switch ignored": (LEARN, 'if not cfg.library["learn"]:', "if False:"),
+    "new dimension from one loop judge": (
+        LEARN,
+        "if not in_sealed and len(loop_judges) < NEW_DIMENSION_LOOP_JUDGES:",
+        "if False:",
+    ),
+    "new dimension ignores the sealed panel": (
+        LEARN,
+        'in_sealed = any(h["sealed"] for h in hits)',
+        "in_sealed = False",
+    ),
+    "known dimension counted as new": (
+        LEARN,
+        "or name.casefold() in known:",
+        ":",
+    ),
+    "sharpen from one judge": (LEARN, "if len(judges) < SHARPEN_JUDGES:", "if False:"),
+    "non-discriminating without movement elsewhere": (LEARN, "if not moved:", "if False:"),
+    "moved dimension called non-discriminating": (
+        LEARN,
+        "if (pid, did) in moved:",
+        "if False:",
+    ),
+    "feedback before the seal": (LEARN, 'if d["decision"] != "SEALED":', "if False:"),
+    "dedup off": (LIB, "if existing is not None:", "if False:"),
+    "closed candidate reopened": (
+        LIB,
+        'while (inbox_dir(lib) / f"{cid}.json").exists() or '
+        '(history_dir(lib) / f"{cid}.json").exists():',
+        "while False:",
+    ),
+    "promotion ignores TODO markers": (
+        LIB,
+        'if todo_paths(change, "proposed_change"):',
+        "if False:",
+    ),
+    "closed candidate promoted": (LIB, 'if c.get("status") != "open":', "if False:"),
+    "version not bumped": (
+        LIB,
+        'updated["version"] = max(versions) + 1',
+        'updated["version"] = current["version"]',
+    ),
+    "reject without a reason": (LIB, "if not reason.strip():", "if False:"),
+    "kind no longer outweighs keywords": (
+        LIB,
+        "score = (KIND_WEIGHT if kind_match else 0) + len(hits)",
+        "score = (1 if kind_match else 0) + len(hits)",
+    ),
+    "invalid template accepted": (
+        LIB,
+        '    if errors:\n        raise EvalError(f"{where} is not',
+        '    if False:\n        raise EvalError(f"{where} is not',
+    ),
+    "template not frozen by the hash": (
+        SPEC,
+        "if k not in OPTIONAL_HASH_KEYS or k in spec",
+        "if k not in OPTIONAL_HASH_KEYS",
+    ),
+    "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
     "min valid judges floor off": (
         CFG,
