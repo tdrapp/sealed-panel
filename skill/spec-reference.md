@@ -21,6 +21,10 @@ this file is a complete example.
 | `good_min` | no | number | Default 4.0, between 3.5 and 5. |
 | `noise_floor_min` | no | number | Default 0.5, between 0.25 and 1. |
 | `framings` | no | list of strings | Reading stances; the packaged three by default. |
+| `template` | no | object | `{id, version}` of the template the spec started from, written by `rubrics use`. Part of the rubric hash. |
+
+A string holding `TODO(sealed-panel)` is refused by `init`: `rubrics use` leaves these markers
+where the spec needs your words.
 
 ## A persona
 

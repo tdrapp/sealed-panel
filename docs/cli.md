@@ -4,7 +4,8 @@
 sealed-panel [--version] <command> RUN [options]
 ```
 
-`RUN` is the run directory. Only `init` accepts `--config PATH` (see
+`RUN` is the run directory; `rubrics` works on the rubric library instead (see below). Only
+`init` accepts `--config PATH` (see
 [configuration.md](configuration.md)); every later command reads the configuration frozen into
 the run.
 
@@ -36,8 +37,10 @@ A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and
 or `facts_file` (a path to a file that must exist, read and frozen by content; not both),
 `measured` (each with `id`, `description`, and an optional numeric `max` or `min`),
 `declared_choices` (each with `choice` and `user_said`, the words of the person who asked for
-it), and the keys of the `[run]` configuration table, within their bounds. Unknown keys are
-refused at every level. Every `measured` field is type-checked (`id` and `description`
+it), and the keys of the `[run]` configuration table, within their bounds. `template`
+(`{id, version}`, written by `rubrics use`) records the template the spec started from and is
+part of the rubric hash. Unknown keys are refused at every level, and so is any string that
+still holds a `TODO(sealed-panel)` marker. Every `measured` field is type-checked (`id` and `description`
 strings, `min` and `max` finite numbers with `min` not above `max`, unique ids), weights must
 be finite numbers above 0, and `judges_per_persona` is between 2 and 9. A relative
 `facts_file` is read from the spec file's folder. A `facts` text is refused as a path, with a
@@ -131,7 +134,8 @@ version, and in a sealed panel the median on the round-1 baseline. Computes the 
 medians, for information only), the best paired gain, the suspect jumps, the findings, the
 prompt extras and the judges who reused one quote. Writes `result.json` and appends the round
 to `ledger.json`. After a loop round, also writes `RUN/feedback/after_rN.md`, the findings the
-author revises from.
+author revises from. After a sealed panel, writes learned candidates to the user library's
+inbox (unless `[library] learn` is false) and prints how many.
 
 Refused: a round already aggregated; a sealed panel with a measured criterion not yet measured;
 a judge slot with no real attempt (a void never fills a seat: brief a fresh replacement on the
@@ -165,3 +169,37 @@ with its reasons, and each void with its label (no reply, or after replying when
 not verbatim); the repeat-test line when
 the sealed text was also judged in the loop; other runs found beside this one; suspect jumps,
 injection flags, prompt extras, judges who reused one quote, and rounds with pasted replies.
+
+## feedback
+
+```
+sealed-panel feedback RUN --note TEXT [--dimension ID] [--library DIR]
+```
+
+Records the user's own read disagreeing with the sealed grade as a `user_disagreement`
+candidate in the library inbox. With `--dimension`, the candidate proposes to rewrite that
+dimension's anchors; without, to add a dimension. Refused before the run is sealed, for an
+unknown dimension, or with an empty note.
+
+## rubrics
+
+```
+sealed-panel rubrics list    [--library DIR]
+sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR]
+sealed-panel rubrics show    ID [--library DIR]
+sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR]
+sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--library DIR]
+sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR]
+```
+
+The library is `--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the `[library] path`
+setting (default `./rubrics/`). See [rubrics.md](rubrics.md) for the formats.
+
+| Command | Does |
+|---|---|
+| `list` | Every template (built-in and user) with its version and source, then the open candidates with kind, template, dimension and count. |
+| `suggest` | Ranks templates: 100 for an exact kind match, plus one per keyword of the template found in the text; ties by id. Prints score, id, version, source and a one-line reason. Refused: `--top` below 1. |
+| `show` | Prints a template (the user one when it overrides a built-in). Refused: unknown id. |
+| `use` | Writes a spec skeleton with `template: {id, version}` and TODO markers for title, purpose, facts and, without `--persona-file` (a JSON list of `{id, description}`), the persona descriptions. Refused: an existing `--out`, a persona file that is not a list of personas. |
+| `promote` | Applies an open candidate's proposed change to a user template (copying a built-in first), bumps the version, appends provenance, and moves the candidate to `history/`. Refused: a candidate not open, a change that still holds TODO markers, an unknown action, a change that breaks the template format, no template without `--into`. |
+| `reject` | Moves an open candidate to `history/` with the reason. Refused: an empty reason. |

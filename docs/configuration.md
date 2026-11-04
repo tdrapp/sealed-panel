@@ -165,6 +165,13 @@ cannot be voided.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.
 
+## `[library]`
+
+| Key | Default | Bounds | Meaning |
+|---|---|---|---|
+| `path` | `"./rubrics/"` | not empty | The user rubric library, read from the current directory when relative. The `SEALED_PANEL_RUBRICS` environment variable overrides it, and `--library DIR` overrides both on the `rubrics` and `feedback` commands. See [rubrics.md](rubrics.md). |
+| `learn` | `true` | | After a sealed panel aggregates, write learned candidates to the library inbox. |
+
 ## What stays in code
 
 Some values are part of the instrument or of the protocol, not settings, and stay in the code
@@ -184,4 +191,6 @@ as named constants:
   replies, the rubric hash in the report (12), the characters searched for an agent id, and
   the largest file read when looking for unrecorded agents;
 - the file extensions that make a `facts` text look like a path (`spec.py`);
+- the learning thresholds (two loop judges for a new dimension, two judges of one round to
+  sharpen an anchor) and the suggest weights (`learn.py`, `library.py`);
 - rounding of stored statistics, and the error, findings and report wording.

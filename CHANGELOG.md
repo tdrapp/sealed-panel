@@ -7,6 +7,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - unreleased
+
+### Added
+
+- A rubric library: eight built-in templates (cv, cover-letter, pitch, message, essay,
+  interview-answer, plan-doc, prompt-output) checked against a template format, and a user
+  library (`[library] path`, `SEALED_PANEL_RUBRICS`) whose templates override built-ins.
+- `sealed-panel rubrics list`, `suggest` (deterministic ranking), `show`, `use` (a spec
+  skeleton with TODO markers that `init` refuses until filled), `promote` and `reject`.
+- A spec may record `template: {id, version}`, frozen by the rubric hash. A spec without it
+  keeps its 0.1.0 hash.
+- Learning after a sealed panel: `new_dimension`, `sharpen_anchor` and `non_discriminating`
+  candidates in the library inbox, de-duplicated by kind, template and dimension, and
+  `sealed-panel feedback` for the user's own disagreement. Nothing changes a template without
+  a person running `rubrics promote`, and a frozen run never changes.
+
 ## [0.1.0] - 2026-11-04
 
 ### Added

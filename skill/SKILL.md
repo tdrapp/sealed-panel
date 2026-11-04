@@ -29,6 +29,17 @@ not already say.
 
 ## 1. Rubric
 
+Always start from the library. Run:
+
+```
+sealed-panel rubrics suggest --kind <kind of text> --text draft.md --top 3
+```
+
+and show the user the three templates with their scores and reasons. Then write the spec from
+the chosen one (`sealed-panel rubrics use ID --out spec.json [--persona-file personas.json]`)
+and replace every `TODO(sealed-panel)` marker; `init` refuses the spec until they are gone.
+When no template fits, write the spec by hand as below.
+
 Write `spec.json`, starting from `spec.example.json` beside this file; every key is described
 in `spec-reference.md`, and unknown keys are refused. Three to six
 dimensions per persona, each a question plus anchors at 1, 3 and 5 written as observable
@@ -151,6 +162,14 @@ the round table with instruments, the repeat-test line when present, every setti
 differs from the defaults, and how many judge contexts ran. Say whether replies came from
 transcripts or were pasted. A text changed after the seal
 is unjudged: say so, or start a new run.
+
+Then point the user to the library inbox (`sealed-panel rubrics list`): after the seal,
+candidates for improving the rubric are written there (a missing dimension, an anchor several
+judges flagged, a dimension that never moved). If the user's own read disagrees with the grade,
+record it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never promote a
+candidate yourself: the user reads it, edits its `proposed_change` to replace the markers, and
+runs `sealed-panel rubrics promote ID` or `sealed-panel rubrics reject ID --reason "..."`.
+Candidates quote the judged texts: the user library is private.
 
 ## Refusals
 
