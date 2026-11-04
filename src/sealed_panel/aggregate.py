@@ -9,6 +9,7 @@ from typing import Any
 from .config import Config
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
+from .learn import learn_after_seal
 from .ledger import results_by_judge
 from .record import round_keys, transcript_agent_id
 from .report import write_feedback
@@ -134,7 +135,8 @@ def _check_complete(
 
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
-    loop round, also write the author's findings to RUN/feedback/after_rN.md."""
+    loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
+    panel, write learned candidates to the user library's inbox (listed under `inbox`)."""
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
@@ -218,4 +220,6 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     dump_json(run / "ledger.json", ledger)
     if not sealed:
         write_feedback(run, entry)
-    return entry
+        return entry
+    # Learning writes candidates to the user library's inbox; it never changes a template.
+    return {**entry, "inbox": [str(p) for p in learn_after_seal(run, cfg)]}

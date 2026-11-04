@@ -210,6 +210,7 @@ def check_output(
         unverified: list[str] = []
         capped: list[str] = []
         quotes: list[str] = []
+        quoted: dict[str, str] = {}
         for did in dim_ids:
             d = dims.get(did)
             if not isinstance(d, dict):
@@ -229,6 +230,7 @@ def check_output(
             quotes_total += 1
             quote = str(d.get("quote", ""))
             quotes.append(fixed_normalise(quote))
+            quoted[did] = quote
             if not quote_found(quote, texts[role], cfg):
                 quotes_bad += 1
                 unverified.append(did)
@@ -247,6 +249,7 @@ def check_output(
             "unverified": unverified,
             "capped": capped,
             "one_quote": len(quotes) >= 2 and len(set(quotes)) == 1,
+            "quotes": quoted,
             "retell": it.get("retell", ""),
             "weakest_point": {
                 "text": wp.get("text", ""),
