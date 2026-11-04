@@ -9,7 +9,14 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import MAX_JUDGES_PER_PERSONA, RUN_BOUNDS, Config, resolve, run_value_error
+from .config import (
+    MAX_JUDGES_PER_PERSONA,
+    RUN_BOUNDS,
+    Config,
+    library_dir,
+    resolve,
+    run_value_error,
+)
 from .errors import EvalError
 from .store import dump_json, load_json, read_text
 from .text import injection_flags
@@ -36,7 +43,7 @@ RUBRIC_KEYS = (
 OPTIONAL_HASH_KEYS = frozenset({"template"})
 # A string a skeleton leaves for the user to fill; `init` refuses a spec that still holds one.
 TODO_MARKER = "TODO(sealed-panel)"
-TEMPLATE_REF_KEYS = frozenset({"id", "version"})
+TEMPLATE_REF_KEYS = frozenset({"id", "version", "sha256", "modified"})
 SPEC_KEYS = frozenset({*RUBRIC_KEYS, "facts_file"})
 PERSONA_KEYS = frozenset({"id", "description"})
 DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors", "weight", "personas"})
@@ -140,6 +147,12 @@ def shape_errors(spec: Any) -> list[str]:
     ):
         errors.append("spec.framings must be a list of non-empty strings")
     return errors
+
+
+def dimensions_sha(dimensions: list[dict[str, Any]]) -> str:
+    """A hash of what a template asks judges: each dimension's id, name, question, anchors."""
+    core = [{k: d.get(k) for k in ("id", "name", "question", "anchors")} for d in dimensions or []]
+    return hashlib.sha256(json.dumps(core, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def todo_paths(value: Any, where: str = "spec") -> list[str]:
@@ -280,6 +293,10 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent)
+    ref = spec.get("template")
+    if isinstance(ref, dict) and ref.get("sha256"):
+        # Frozen with the rubric: whether the dimensions still match the template they came from.
+        ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
@@ -288,6 +305,9 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
     if injection_flags(exposed, cfg):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     run.mkdir(parents=True, exist_ok=True)
+    frozen = json.loads(json.dumps(cfg.data))
+    frozen["library"] = {**cfg.library, "path": str(library_dir(cfg=cfg))}
+    cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
     (run / "config.lock").write_text(cfg.fingerprint + "\n", encoding="utf-8")
     dump_json(run / "spec.json", spec)
@@ -308,6 +328,12 @@ def load_frozen(run: Path) -> dict[str, Any]:
             "Start a new run directory with the new spec."
         )
     return spec
+
+
+def run_library(run: Path) -> Path:
+    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now."""
+    frozen = run_config(run).data.get("library") or {}
+    return Path(frozen["path"]) if frozen.get("path") else library_dir()
 
 
 def run_config(run: Path) -> Config:

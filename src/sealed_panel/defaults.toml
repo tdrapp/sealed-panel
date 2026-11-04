@@ -109,8 +109,9 @@ tool_result_id_key = "tool_use_id"
 tool_error_key = "is_error"
 
 [library]
-# The user rubric library: user templates, inbox/ and history/. The environment variable
-# SEALED_PANEL_RUBRICS overrides it; a relative path is read from the current directory.
-path = "./rubrics/"
+# The user rubric library: user templates, inbox/ and history/. Empty means the user-level
+# default (~/.local/share/sealed-panel/rubrics, or the platform equivalent); the environment
+# variable SEALED_PANEL_RUBRICS overrides it. `~` is expanded. init freezes the resolved path.
+path = ""
 # After a sealed panel aggregates, write learned candidates to the inbox.
 learn = true

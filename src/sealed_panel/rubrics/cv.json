@@ -6,6 +6,10 @@
     "cv",
     "resume"
   ],
+  "aliases": [
+    "curriculum vitae",
+    "resume"
+  ],
   "keywords": [
     "experience",
     "role",
@@ -18,6 +22,7 @@
     "education"
   ],
   "when_to_use": "A CV or resume sent for one role, read by a recruiter or a hiring manager.",
+  "facts_hint": "paste the job description and the facts behind each line of the CV",
   "personas": [
     {
       "id": "recruiter",

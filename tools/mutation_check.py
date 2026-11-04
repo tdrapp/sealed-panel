@@ -371,66 +371,200 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # The rubric library and learning.
     "auto-promotion": (
         LEARN,
-        "paths.append(library.add_candidate(lib, proposal))",
-        "paths.append(library.promote(lib, library.add_candidate(lib, proposal).stem))",
+        "paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]",
+        "paths = [library.promote(lib, library.add_candidate(lib, p).stem) for p in "
+        "proposals_after_seal(run)]",
     ),
-    "learning switch ignored": (LEARN, 'if not cfg.library["learn"]:', "if False:"),
-    "new dimension from one loop judge": (
+    "learning switch ignored": (
         LEARN,
-        "if not in_sealed and len(loop_judges) < NEW_DIMENSION_LOOP_JUDGES:",
-        "if False:",
+        'if not run_config(run).library["learn"]:\n            return [], "learning off"',
+        'if False:\n            return [], "learning off"',
     ),
-    "new dimension ignores the sealed panel": (
+    "learning can fail a seal": (
         LEARN,
-        'in_sealed = any(h["sealed"] for h in hits)',
-        "in_sealed = False",
+        "    except Exception as exc:  # learning must never fail a seal",
+        "    except ZeroDivisionError as exc:  # learning must never fail a seal",
     ),
-    "known dimension counted as new": (
+    "spread threshold off by one": (
         LEARN,
-        "or name.casefold() in known:",
-        ":",
+        "if spread >= DISAGREE_SPREAD:",
+        "if spread > DISAGREE_SPREAD:",
     ),
-    "sharpen from one judge": (LEARN, "if len(judges) < SHARPEN_JUDGES:", "if False:"),
-    "non-discriminating without movement elsewhere": (LEARN, "if not moved:", "if False:"),
-    "moved dimension called non-discriminating": (
+    "blocking contradiction ignored": (
         LEARN,
-        "if (pid, did) in moved:",
-        "if False:",
+        '(sev == "blocking" and raw >= 4)',
+        "False",
+    ),
+    "none contradiction ignored": (LEARN, 'or (sev == "none" and raw <= 1)', ""),
+    "loop rounds read for disagreement": (
+        LEARN,
+        "*_judges_disagree(run, spec, sealed[-1], info),",
+        "*[x for r in ledger['rounds'] for x in _judges_disagree(run, spec, r, info)],",
+    ),
+    "control gap off by one": (
+        LEARN,
+        'e["median"] - e["control_median"] > CONTROL_GAP',
+        'e["median"] - e["control_median"] >= CONTROL_GAP',
+    ),
+    "one loop round enough for the control": (
+        LEARN,
+        "if not in_sealed and len(loop_rounds) < CONTROL_LOOP_ROUNDS:",
+        "if not in_sealed and len(loop_rounds) < 1:",
+    ),
+    "control median not stored": (
+        AGG,
+        '        entry["control_median"] = statistics.median(control)',
+        "        pass",
     ),
     "feedback before the seal": (LEARN, 'if d["decision"] != "SEALED":', "if False:"),
+    "feedback quotes from another round": (
+        LEARN,
+        '    results = _valid(run, final["round"], True)\n    info',
+        '    results = _valid(run, final["round"], False)\n    info',
+    ),
+    "quotes all marked verified": (
+        LEARN,
+        '"verified": did not in cand.get("unverified", []),',
+        '"verified": True,',
+    ),
     "dedup off": (LIB, "if existing is not None:", "if False:"),
+    "dedup ignores the template version": (
+        LIB,
+        "return f\"{template['id']}@v{template.get('version')}\"",
+        "return f\"{template['id']}\"",
+    ),
+    "dedup case-sensitive": (
+        LIB,
+        'return f"{kind}|{_template_tag(template, rubric_sha)}|{dimension.casefold()}"',
+        'return f"{kind}|{_template_tag(template, rubric_sha)}|{dimension}"',
+    ),
+    "evidence added twice": (
+        LIB,
+        'if not any(_same(e, x) for x in existing["evidence"])',
+        "if True",
+    ),
+    "rejected key reopened": (
+        LIB,
+        'if any(c.get("key") == key and c.get("status") == "rejected" for c in history):',
+        "if False:",
+    ),
+    "rejection memory lost": (LIB, "    if earlier:\n", "    if False:\n"),
     "closed candidate reopened": (
         LIB,
         'while (inbox_dir(lib) / f"{cid}.json").exists() or '
         '(history_dir(lib) / f"{cid}.json").exists():',
-        "while False:",
+        'while (inbox_dir(lib) / f"{cid}.json").exists():',
+    ),
+    "candidate id unchecked": (
+        LIB,
+        "    if not CANDIDATE_ID.match(cid):\n        raise",
+        "    if False:\n        raise",
+    ),
+    "file id trusted": (
+        LIB,
+        'c["id"] = path.stem  # the file name is the id',
+        "pass  # the file name is the id",
+    ),
+    "bad inbox file fails the listing": (
+        LIB,
+        '        except (OSError, ValueError) as exc:\n            warnings.append(f"skipped {path}: {exc}")',
+        '        except ZeroDivisionError as exc:\n            warnings.append(f"skipped {path}: {exc}")',
+    ),
+    "bad user template fails the listing": (
+        LIB,
+        "            except (OSError, ValueError, EvalError) as exc:",
+        "            except ZeroDivisionError as exc:",
     ),
     "promotion ignores TODO markers": (
         LIB,
-        'if todo_paths(change, "proposed_change"):',
+        'if todo_paths(_used_fields(change), "proposed_change"):',
         "if False:",
     ),
-    "closed candidate promoted": (LIB, 'if c.get("status") != "open":', "if False:"),
+    "unused TODO fields block a removal": (
+        LIB,
+        'if todo_paths(_used_fields(change), "proposed_change"):',
+        'if todo_paths(change, "proposed_change"):',
+    ),
+    "closed candidate promoted": (
+        LIB,
+        'if not isinstance(c, dict) or c.get("status") != "open":',
+        "if False:",
+    ),
     "version not bumped": (
         LIB,
         'updated["version"] = max(versions) + 1',
-        'updated["version"] = current["version"]',
+        'updated["version"] = current["version"] + 1',
+    ),
+    "provenance replaced": (
+        LIB,
+        '    updated["provenance"] = [\n        *current["provenance"],',
+        '    updated["provenance"] = [',
+    ),
+    "into ignored": (
+        LIB,
+        'tid = into or (c.get("template") or {}).get("id")',
+        'tid = (c.get("template") or {}).get("id") or into',
+    ),
+    "promote writes beside the served file": (
+        LIB,
+        'target = served["path"] or lib / f"{tid}.json"',
+        'target = lib / f"{tid}.json"',
+    ),
+    "invalid user file overwritten": (
+        LIB,
+        "        if w.startswith(f\"skipped {lib / (tid + '.json')}:\"):",
+        "        if False:",
+    ),
+    "promotion not staged": (
+        LIB,
+        '    dump_json(staged_t, plan["updated"])\n    dump_json(staged_h, c)\n    os.replace(staged_t, target)',
+        '    dump_json(target, plan["updated"])\n    dump_json(staged_h, c)',
     ),
     "reject without a reason": (LIB, "if not reason.strip():", "if False:"),
-    "kind no longer outweighs keywords": (
+    "kind not normalised": (
         LIB,
-        "score = (KIND_WEIGHT if kind_match else 0) + len(hits)",
-        "score = (1 if kind_match else 0) + len(hits)",
+        'return re.sub(r"[\\s_]+", "-", kind.strip().casefold())',
+        "return kind",
     ),
-    "invalid template accepted": (
+    "aliases ignored": (
         LIB,
-        '    if errors:\n        raise EvalError(f"{where} is not',
-        '    if False:\n        raise EvalError(f"{where} is not',
+        'names = {normalise_kind(k) for k in [*t["kinds"], *t.get("aliases", [])]}',
+        'names = {normalise_kind(k) for k in t["kinds"]}',
+    ),
+    "keywords match inside words": (
+        LIB,
+        'if re.search(r"\\b" + re.escape(k.casefold()) + r"\\b", low)',
+        "if k.casefold() in low",
+    ),
+    "newer built-in not flagged": (
+        LIB,
+        'if base is not None and builtin[tid]["version"] > base:',
+        "if False:",
+    ),
+    "skeleton thresholds kept": (
+        LIB,
+        '                row[bound] = _todo(f"your {bound} (suggested {row[bound]})")',
+        "                pass",
+    ),
+    "skeleton facts hint dropped": (
+        LIB,
+        'hint = t.get("facts_hint") or "the facts the judges may trust"',
+        'hint = "the facts the judges may trust"',
+    ),
+    "modified flag never set": (
+        SPEC,
+        'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
+        'ref["modified"] = False',
     ),
     "template not frozen by the hash": (
         SPEC,
         "if k not in OPTIONAL_HASH_KEYS or k in spec",
         "if k not in OPTIONAL_HASH_KEYS",
+    ),
+    "library not frozen at init": (
+        SPEC,
+        '    frozen["library"] = {**cfg.library, "path": str(library_dir(cfg=cfg))}\n',
+        "",
     ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -577,6 +711,9 @@ EXPECTED_SURVIVORS: dict[str, str] = {
 def _copy_tree(dest: Path) -> None:
     shutil.copytree(ROOT / "src", dest / "src", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "tests", dest / "tests", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(
+        ROOT / "examples", dest / "examples", ignore=shutil.ignore_patterns("__pycache__")
+    )
     shutil.copy(ROOT / "pyproject.toml", dest / "pyproject.toml")
 
 

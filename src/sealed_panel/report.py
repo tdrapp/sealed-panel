@@ -196,6 +196,14 @@ def render_report(run: Path) -> str:
     d = decide(spec, ledger)
     n_ctx = len(used_agent_ids(run))
     changed = overrides(cfg, spec)
+    ref = spec.get("template") or {}
+    template = (
+        f"template {ref.get('id')} v{ref.get('version')}"
+        + (" (modified)" if ref.get("modified") else "")
+        + ", "
+        if ref
+        else ""
+    )
     settings = (
         "settings: all defaults"
         if not changed
@@ -205,7 +213,7 @@ def render_report(run: Path) -> str:
         f"# Evaluation: {spec['title']}",
         "",
         f"Rubric sha256 `{ledger['rubric_sha256'][:HASH_CHARS]}`, "
-        f"decision **{d['decision']}**, {n_ctx} judge contexts, {settings}.",
+        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.",
         "",
     ]
     if d["decision"] == "SEALED":

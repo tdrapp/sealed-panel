@@ -149,7 +149,11 @@ class TestRunFreeze:
         sp = write(h.tmp / "spec.json", json.dumps(make_spec()))
         init_run(h.run, sp, cfg)
         assert run_config(h.run).min_quote_chars == 14
-        assert run_config(h.run).fingerprint == cfg.fingerprint
+        frozen = run_config(h.run).data
+        assert {k: v for k, v in frozen.items() if k != "library"} == {
+            k: v for k, v in cfg.data.items() if k != "library"
+        }
+        assert Path(frozen["library"]["path"]).is_absolute()
 
     def test_edited_frozen_config_refused(self, h: Harness) -> None:
         h.init()

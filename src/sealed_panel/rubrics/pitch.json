@@ -7,6 +7,11 @@
     "elevator-pitch",
     "proposal-pitch"
   ],
+  "aliases": [
+    "elevator pitch",
+    "sales pitch",
+    "investor pitch"
+  ],
   "keywords": [
     "problem",
     "solution",
@@ -19,6 +24,7 @@
     "market"
   ],
   "when_to_use": "A pitch of a minute or two, spoken or written, asking a decision maker for a next step.",
+  "facts_hint": "paste the numbers and named cases the pitch may use",
   "personas": [
     {
       "id": "decider",

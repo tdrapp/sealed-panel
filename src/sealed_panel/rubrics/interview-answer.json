@@ -7,6 +7,11 @@
     "interview",
     "behavioural-answer"
   ],
+  "aliases": [
+    "interview answer",
+    "behavioral answer",
+    "star answer"
+  ],
   "keywords": [
     "situation",
     "task",
@@ -18,6 +23,7 @@
     "decided"
   ],
   "when_to_use": "A spoken answer to one interview question, such as a behavioural question.",
+  "facts_hint": "paste the question and the facts of the story told",
   "personas": [
     {
       "id": "interviewer",
@@ -52,7 +58,7 @@
       "anchors": {
         "1": "no result",
         "3": "a result without a number or a lesson",
-        "5": "a result with a number or a scope, and one lesson the candidate applied later"
+        "5": "a result with a number or a scope, and one lesson the candidate names"
       }
     }
   ],

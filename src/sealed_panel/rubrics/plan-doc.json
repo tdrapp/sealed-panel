@@ -9,6 +9,12 @@
     "proposal",
     "rfc"
   ],
+  "aliases": [
+    "design doc",
+    "design document",
+    "project plan",
+    "rfc document"
+  ],
   "keywords": [
     "goal",
     "scope",
@@ -21,6 +27,7 @@
     "owner"
   ],
   "when_to_use": "A document that asks reviewers to approve a plan or choose between options.",
+  "facts_hint": "paste the constraints, costs and dates the plan must respect",
   "personas": [
     {
       "id": "approver",

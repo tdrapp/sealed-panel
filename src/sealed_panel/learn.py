@@ -3,45 +3,40 @@
 Learning proposes and a person decides. Nothing here writes a template: candidates go to the
 inbox, and only `sealed-panel rubrics promote`, run by a person, applies one. Each proposed
 change holds TODO markers where a person must write the new text, and promotion refuses until
-they are filled.
+the fields its action uses are filled. Learning never fails a seal: an error is reported as
+"learning skipped" and `sealed-panel learn RUN` tries again.
 
-Kinds:
-- new_dimension: a judge's weakest point names a dimension the rubric lacks, in the sealed
-  panel, or for two or more judges across the loop;
-- sharpen_anchor: two or more judges of one round give the same dimension a blocking or
-  material finding;
-- non_discriminating: over two or more loop rounds, a dimension's median never moved while
-  another dimension's did;
+Kinds (rubric-level signals):
+- judges_disagree: in the sealed panel, a dimension whose valid judges' scores spread by 2 or
+  more, or a judge whose severity contradicts its score (blocking with a 4 or 5 before
+  capping, or none with a 1);
+- control_too_close: a dimension where the control's median is within 1 point of the
+  candidate's, in the sealed panel or in two or more loop rounds;
 - user_disagreement: the user's own read disagrees with the sealed grade (`feedback`).
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 from . import library
-from .config import Config
 from .decide import decide
 from .errors import EvalError
 from .ledger import results_by_judge
-from .spec import TODO_MARKER, load_frozen, run_config
+from .spec import TODO_MARKER, load_frozen, run_config, run_library
 from .store import load_json, round_dir
 
-# Two or more loop judges must name the same missing dimension; one sealed judge is enough.
-NEW_DIMENSION_LOOP_JUDGES = 2
-# Judges of one round who flag the same dimension before an anchor is proposed for sharpening.
-SHARPEN_JUDGES = 2
-FLAGGED = ("blocking", "material")
+# A spread of scores across a dimension's valid sealed judges that shows they disagree.
+DISAGREE_SPREAD = 2
+# A control median within this many points of the candidate's does not discriminate.
+CONTROL_GAP = 1
+# Loop rounds in which the control must sit that close, when the sealed panel does not show it.
+CONTROL_LOOP_ROUNDS = 2
 
 
 def _todo(text: str) -> str:
     return f"{TODO_MARKER}: {text}"
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-") or "new-dimension"
 
 
 def _valid(run: Path, rnd: int, sealed: bool) -> list[dict[str, Any]]:
@@ -53,75 +48,28 @@ def _valid(run: Path, rnd: int, sealed: bool) -> list[dict[str, Any]]:
     ]
 
 
-def _quote(result: dict[str, Any], did: str) -> str:
-    return str(result["items"].get("candidate", {}).get("quotes", {}).get(did, ""))
-
-
-def _run_info(spec: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
-    return {"rubric_sha256": ledger["rubric_sha256"], "template": spec.get("template")}
-
-
-def _new_dimension(
-    run: Path, spec: dict[str, Any], rounds: list[dict[str, Any]], info: dict[str, Any]
-) -> list[dict[str, Any]]:
-    known = {d["id"].casefold() for d in spec["dimensions"]}
-    known |= {str(d.get("name", "")).casefold() for d in spec["dimensions"]}
-    seen: dict[str, list[dict[str, Any]]] = {}
-    for r in rounds:
-        for res in _valid(run, r["round"], bool(r.get("sealed"))):
-            wp = res["items"].get("candidate", {}).get("weakest_point", {})
-            name = wp.get("dimension")
-            if not isinstance(name, str) or not name.strip() or name.casefold() in known:
-                continue
-            seen.setdefault(name.casefold(), []).append(
+def _quotes(results: list[dict[str, Any]], did: str) -> list[dict[str, Any]]:
+    """Each judge's quote on the candidate for one dimension, and whether code verified it."""
+    out = []
+    for r in results:
+        cand = r["items"].get("candidate", {})
+        if did in cand.get("quotes", {}):
+            out.append(
                 {
-                    "round": r["round"],
-                    "sealed": bool(r.get("sealed")),
-                    "judge": res["judge"],
-                    "name": name,
-                    "quote": wp.get("quote", ""),
-                    "text": wp.get("text", ""),
+                    "judge": r["judge"],
+                    "quote": cand["quotes"][did],
+                    "verified": did not in cand.get("unverified", []),
                 }
             )
-    proposals = []
-    for key, hits in sorted(seen.items()):
-        in_sealed = any(h["sealed"] for h in hits)
-        loop_judges = {(h["round"], h["judge"]) for h in hits if not h["sealed"]}
-        if not in_sealed and len(loop_judges) < NEW_DIMENSION_LOOP_JUDGES:
-            continue
-        name = hits[0]["name"]
-        proposals.append(
-            {
-                "kind": "new_dimension",
-                "dimension": key,
-                "run": info,
-                "evidence": [
-                    {
-                        "run": info["rubric_sha256"],
-                        "round": h["round"],
-                        "sealed": h["sealed"],
-                        "judges": [h["judge"]],
-                        "quotes": [h["quote"]],
-                        "note": h["text"],
-                    }
-                    for h in hits
-                ],
-                "proposed_change": {
-                    "action": "add_dimension",
-                    "dimension": {
-                        "id": _slug(name),
-                        "name": name,
-                        "question": _todo("the question a judge answers"),
-                        "anchors": {
-                            "1": _todo("evidence on the page for a 1"),
-                            "3": _todo("evidence on the page for a 3"),
-                            "5": _todo("evidence on the page for a 5"),
-                        },
-                    },
-                },
-            }
-        )
-    return proposals
+    return out
+
+
+def _run_info(run: Path, spec: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "rubric_sha256": ledger["rubric_sha256"],
+        "template": spec.get("template"),
+        "run_dir": str(run.absolute()),
+    }
 
 
 def _anchors_of(spec: dict[str, Any], did: str) -> dict[str, str]:
@@ -129,97 +77,105 @@ def _anchors_of(spec: dict[str, Any], did: str) -> dict[str, str]:
     return dict(found.get("anchors", {}))
 
 
-def _sharpen_anchor(
+def _judges_disagree(
+    run: Path, spec: dict[str, Any], sealed: dict[str, Any], info: dict[str, Any]
+) -> list[dict[str, Any]]:
+    results = _valid(run, sealed["round"], True)
+    proposals = []
+    for pid, p in sealed["personas"].items():
+        for did, e in p["dimensions"].items():
+            notes = []
+            spread = max(e["scores"]) - min(e["scores"])
+            if spread >= DISAGREE_SPREAD:
+                notes.append(f"scores spread by {spread:g} ({'/'.join(map(str, e['scores']))})")
+            for r in results:
+                if r["persona"] != pid:
+                    continue
+                cand = r["items"].get("candidate", {})
+                raw, sev = cand.get("raw_scores", {}).get(did), cand.get("severity", {}).get(did)
+                if raw is None or sev is None:
+                    continue
+                if (sev == "blocking" and raw >= 4) or (sev == "none" and raw <= 1):
+                    notes.append(f"judge {r['judge']} gave {raw} with severity {sev}")
+            if not notes:
+                continue
+            proposals.append(
+                {
+                    "kind": "judges_disagree",
+                    "dimension": did,
+                    "run": info,
+                    "evidence": [
+                        {
+                            "run": info["rubric_sha256"],
+                            "run_dir": info["run_dir"],
+                            "round": sealed["round"],
+                            "sealed": True,
+                            "persona": pid,
+                            "scores": e["scores"],
+                            "quotes": _quotes([r for r in results if r["persona"] == pid], did),
+                            "note": "; ".join(notes),
+                        }
+                    ],
+                    "proposed_change": {
+                        "action": "rewrite_anchors",
+                        "dimension": did,
+                        "current_anchors": _anchors_of(spec, did),
+                        "anchors": {
+                            "1": _todo("evidence on the page for a 1, so judges agree"),
+                            "3": _todo("evidence on the page for a 3"),
+                            "5": _todo("evidence on the page for a 5"),
+                        },
+                    },
+                }
+            )
+    return proposals
+
+
+def _control_too_close(
     run: Path, spec: dict[str, Any], rounds: list[dict[str, Any]], info: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    by_dim: dict[str, list[dict[str, Any]]] = {}
+    hits: dict[str, list[dict[str, Any]]] = {}
     for r in rounds:
-        results = {res["judge"]: res for res in _valid(run, r["round"], bool(r.get("sealed")))}
-        for p in r["personas"].values():
-            flagged: dict[str, list[dict[str, Any]]] = {}
-            for f in p["findings"]:
-                if f["severity"] in FLAGGED:
-                    flagged.setdefault(f["dimension"], []).append(f)
-            for did, fs in flagged.items():
-                judges = sorted({f["judge"] for f in fs})
-                if len(judges) < SHARPEN_JUDGES:
-                    continue
-                by_dim.setdefault(did, []).append(
-                    {
-                        "run": info["rubric_sha256"],
-                        "round": r["round"],
-                        "sealed": bool(r.get("sealed")),
-                        "judges": judges,
-                        "quotes": [_quote(results[j], did) for j in judges if j in results],
-                        "note": "; ".join(f["text"] for f in fs),
-                    }
-                )
-    return [
-        {
-            "kind": "sharpen_anchor",
-            "dimension": did,
-            "run": info,
-            "evidence": evidence,
-            "proposed_change": {
-                "action": "rewrite_anchors",
-                "dimension": did,
-                "current_anchors": _anchors_of(spec, did),
-                "anchors": {
-                    "3": _todo("name the flaw the judges kept finding"),
-                    "5": _todo("say what the page shows when that flaw is absent"),
-                },
-            },
-        }
-        for did, evidence in sorted(by_dim.items())
-    ]
-
-
-def _non_discriminating(
-    run: Path, spec: dict[str, Any], loop: list[dict[str, Any]], info: dict[str, Any]
-) -> list[dict[str, Any]]:
-    # A median can only be seen not to move over two or more loop rounds: with one round,
-    # no dimension has moved and nothing below is proposed.
-    medians: dict[tuple[str, str], list[float]] = {}
-    for r in loop:
+        sealed = bool(r.get("sealed"))
+        results = None
         for pid, p in r["personas"].items():
             for did, e in p["dimensions"].items():
-                medians.setdefault((pid, did), []).append(e["median"])
-    moved = {k for k, v in medians.items() if len(set(v)) > 1}
-    if not moved:
-        return []
-    last = loop[-1]
-    results = _valid(run, last["round"], False)
+                if "control_median" not in e or e["median"] - e["control_median"] > CONTROL_GAP:
+                    continue
+                if results is None:
+                    results = _valid(run, r["round"], sealed)
+                hits.setdefault(did, []).append(
+                    {
+                        "run": info["rubric_sha256"],
+                        "run_dir": info["run_dir"],
+                        "round": r["round"],
+                        "sealed": sealed,
+                        "persona": pid,
+                        "candidate_median": e["median"],
+                        "control_median": e["control_median"],
+                        "quotes": _quotes([x for x in results if x["persona"] == pid], did),
+                    }
+                )
     proposals = []
-    for (pid, did), values in sorted(medians.items()):
-        if (pid, did) in moved:
+    for did, evidence in sorted(hits.items()):
+        in_sealed = any(x["sealed"] for x in evidence)
+        loop_rounds = {x["round"] for x in evidence if not x["sealed"]}
+        if not in_sealed and len(loop_rounds) < CONTROL_LOOP_ROUNDS:
             continue
         proposals.append(
             {
-                "kind": "non_discriminating",
+                "kind": "control_too_close",
                 "dimension": did,
                 "run": info,
-                "evidence": [
-                    {
-                        "run": info["rubric_sha256"],
-                        "rounds": [r["round"] for r in loop],
-                        "persona": pid,
-                        "medians": values,
-                        "judges": [res["judge"] for res in results],
-                        "quotes": [_quote(res, did) for res in results],
-                        "note": f"median stayed at {values[0]:g} over {len(values)} rounds "
-                        "while other dimensions moved",
-                    }
-                ],
+                "evidence": evidence,
                 "proposed_change": {
                     "action": "rewrite_anchors",
                     "dimension": did,
                     "current_anchors": _anchors_of(spec, did),
                     "anchors": {
-                        "1": _todo("evidence on the page for a 1"),
-                        "3": _todo("evidence on the page for a 3"),
-                        "5": _todo("evidence on the page for a 5"),
+                        "1": _todo("describe what the bad version does on this dimension"),
+                        "3": _todo("the middle, distinct from both the 1 and the 5"),
                     },
-                    "alternative": "set action to remove_dimension to drop it instead",
                 },
             }
         )
@@ -230,26 +186,33 @@ def proposals_after_seal(run: Path) -> list[dict[str, Any]]:
     """Every candidate the sealed run supports, before de-duplication. Writes nothing."""
     spec = load_frozen(run)
     ledger = load_json(run / "ledger.json")
-    loop = [r for r in ledger["rounds"] if not r.get("sealed")]
-    rounds = ledger["rounds"]
-    info = _run_info(spec, ledger)
+    sealed = [r for r in ledger["rounds"] if r.get("sealed")]
+    if not sealed:
+        raise EvalError("learning reads a sealed panel: seal the run first")
+    info = _run_info(run, spec, ledger)
     return [
-        *_new_dimension(run, spec, rounds, info),
-        *_sharpen_anchor(run, spec, rounds, info),
-        *_non_discriminating(run, spec, loop, info),
+        *_judges_disagree(run, spec, sealed[-1], info),
+        *_control_too_close(run, spec, ledger["rounds"], info),
     ]
 
 
-def learn_after_seal(run: Path, cfg: Config | None = None) -> list[Path]:
-    """Write the candidates of a sealed run to the inbox; nothing when learning is off."""
-    cfg = cfg or run_config(run)
-    if not cfg.library["learn"]:
-        return []
-    lib = library.library_dir(cfg=cfg)
-    paths = []
-    for proposal in proposals_after_seal(run):
-        paths.append(library.add_candidate(lib, proposal))
-    return sorted(set(paths))
+def learn_after_seal(run: Path) -> list[Path]:
+    """Write the candidates of a sealed run to the inbox. The learning switch is read by
+    learn_safely, which is how aggregate and `sealed-panel learn` call this."""
+    lib = run_library(run)
+    paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]
+    return sorted({p for p in paths if p is not None})
+
+
+def learn_safely(run: Path) -> tuple[list[Path], str]:
+    """Learning after a seal: never raises. Returns the candidates and a status line."""
+    try:
+        if not run_config(run).library["learn"]:
+            return [], "learning off"
+        paths = learn_after_seal(run)
+    except Exception as exc:  # learning must never fail a seal
+        return [], f"learning skipped: {exc}; run `sealed-panel learn {run}` to try again"
+    return paths, f"{len(paths)} rubric candidate(s) in {run_library(run) / 'inbox'}"
 
 
 def user_disagreement(
@@ -259,7 +222,6 @@ def user_disagreement(
     if not note.strip():
         raise EvalError("--note is required: say where your read differs from the grade")
     spec = load_frozen(run)
-    cfg = run_config(run)
     ledger = load_json(run / "ledger.json")
     d = decide(spec, ledger)
     if d["decision"] != "SEALED":
@@ -269,9 +231,10 @@ def user_disagreement(
     if dimension is not None and dimension not in dims:
         raise EvalError(f"the rubric has no dimension {dimension!r}")
     results = _valid(run, final["round"], True)
-    info = _run_info(spec, ledger)
+    info = _run_info(run, spec, ledger)
     evidence: dict[str, Any] = {
         "run": info["rubric_sha256"],
+        "run_dir": info["run_dir"],
         "round": final["round"],
         "sealed": True,
         "note": note,
@@ -279,7 +242,7 @@ def user_disagreement(
     }
     if dimension is not None:
         evidence["sealed_median"] = dims[dimension]["median"]
-        evidence["quotes"] = [_quote(r, dimension) for r in results]
+        evidence["quotes"] = _quotes(results, dimension)
         change: dict[str, Any] = {
             "action": "rewrite_anchors",
             "dimension": dimension,
@@ -310,4 +273,7 @@ def user_disagreement(
         "evidence": [evidence],
         "proposed_change": change,
     }
-    return library.add_candidate(lib or library.library_dir(cfg=cfg), proposal)
+    path = library.add_candidate(lib or run_library(run), proposal)
+    if path is None:
+        raise EvalError("this disagreement was rejected before for this template version")
+    return path

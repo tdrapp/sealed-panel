@@ -8,6 +8,11 @@
     "op-ed",
     "blog-post"
   ],
+  "aliases": [
+    "op ed",
+    "blog post",
+    "article"
+  ],
   "keywords": [
     "argue",
     "because",
@@ -19,6 +24,7 @@
     "conclusion"
   ],
   "when_to_use": "A text that defends one thesis for a reader who does not yet agree.",
+  "facts_hint": "paste the sources and numbers the essay may cite",
   "personas": [
     {
       "id": "skeptic",

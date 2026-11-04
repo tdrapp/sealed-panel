@@ -7,6 +7,12 @@
     "llm-output",
     "generated-text"
   ],
+  "aliases": [
+    "prompt output",
+    "llm output",
+    "model output",
+    "generated answer"
+  ],
   "keywords": [
     "answer",
     "instructions",
@@ -18,6 +24,7 @@
     "task"
   ],
   "when_to_use": "The answer a model gave to a prompt you are tuning, judged for the person who asked.",
+  "facts_hint": "paste the prompt the output answers and the facts it may use",
   "personas": [
     {
       "id": "user",
@@ -50,9 +57,9 @@
       "name": "Format",
       "question": "Does the output follow the format the prompt asked for?",
       "anchors": {
-        "1": "the format is ignored",
-        "3": "the format is followed with deviations",
-        "5": "the format is followed exactly"
+        "1": "the output uses another format than the one asked; the judge names which",
+        "3": "the asked format with one deviation the judge names",
+        "5": "the asked format with no deviation"
       }
     }
   ],

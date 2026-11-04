@@ -1,0 +1,88 @@
+{
+  "round": 1,
+  "sealed": false,
+  "candidate_hash": "0ca19d018b558738",
+  "personas": {
+    "em": {
+      "judges": [
+        1,
+        2
+      ],
+      "dimensions": {
+        "ask": {
+          "median": 5.0,
+          "scores": [
+            5,
+            5
+          ],
+          "severities": [
+            "none",
+            "none"
+          ],
+          "sd": 0.0
+        },
+        "relevance": {
+          "median": 4.0,
+          "scores": [
+            4,
+            4
+          ],
+          "severities": [
+            "material",
+            "material"
+          ],
+          "sd": 0.0
+        },
+        "evidence": {
+          "median": 5.0,
+          "scores": [
+            5,
+            5
+          ],
+          "severities": [
+            "none",
+            "none"
+          ],
+          "sd": 0.0
+        }
+      },
+      "findings": [
+        {
+          "judge": 1,
+          "dimension": "relevance",
+          "severity": "material",
+          "text": "The risk to the release train is only implied by the opt-out flag."
+        },
+        {
+          "judge": 2,
+          "dimension": "relevance",
+          "severity": "material",
+          "text": "The risk to the release train is only implied by the opt-out flag."
+        }
+      ],
+      "control_means": [
+        1,
+        1
+      ]
+    }
+  },
+  "composite": 4.5,
+  "noise": 0.5,
+  "best_gain": null,
+  "suspect_jumps": [],
+  "rejected_judges": [],
+  "voided": [],
+  "sources": [
+    "output"
+  ],
+  "injection_flags": [],
+  "prompt_extras": {},
+  "one_quote_judges": [],
+  "measured": [
+    {
+      "id": "length",
+      "value": "130",
+      "pass": true
+    }
+  ]
+}

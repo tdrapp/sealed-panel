@@ -8,6 +8,13 @@
     "chat",
     "announcement"
   ],
+  "aliases": [
+    "e-mail",
+    "mail",
+    "slack message",
+    "chat message",
+    "memo"
+  ],
   "keywords": [
     "please",
     "reply",
@@ -21,6 +28,7 @@
     "enable"
   ],
   "when_to_use": "An email or chat message that asks its readers to do something by a date.",
+  "facts_hint": "paste the facts the message states (dates, numbers, links)",
   "personas": [
     {
       "id": "reader",
@@ -43,19 +51,19 @@
       "name": "Relevance to the persona",
       "question": "Is the reason to act stated in terms the persona already tracks?",
       "anchors": {
-        "1": "generic: the message would read the same for any reader",
-        "3": "the reason is named, but not in the persona's own terms",
-        "5": "the reason is stated in the persona's terms with one number they can check, and the main risk is addressed"
+        "1": "the reason to act would read the same for any reader",
+        "3": "the reason is stated in the persona's own terms, without a number they can check",
+        "5": "the reason is stated in the persona's own terms with one number they can check"
       }
     },
     {
       "id": "evidence",
       "name": "Evidence",
-      "question": "Is every claim backed by a number or a named case consistent with the facts?",
+      "question": "Is each claim the ask depends on backed by a number or a named case consistent with the facts?",
       "anchors": {
-        "1": "no number and no named case",
-        "3": "one number or case, the rest asserted",
-        "5": "every claim carries a number or a named case consistent with the facts"
+        "1": "no claim the ask depends on carries a number or a named case",
+        "3": "one claim the ask depends on is backed, another is only asserted",
+        "5": "every claim the ask depends on carries a number or a named case consistent with the facts"
       }
     },
     {

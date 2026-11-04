@@ -7,6 +7,11 @@
     "letter",
     "motivation-letter"
   ],
+  "aliases": [
+    "cover letter",
+    "motivation letter",
+    "application letter"
+  ],
   "keywords": [
     "role",
     "company",
@@ -18,6 +23,7 @@
     "position"
   ],
   "when_to_use": "A letter sent with an application, read by the hiring manager of one role.",
+  "facts_hint": "paste the job description, the company facts and the CV the letter goes with",
   "personas": [
     {
       "id": "manager",
@@ -38,11 +44,11 @@
     {
       "id": "evidence",
       "name": "Evidence",
-      "question": "Is the candidate's main claim backed by a fact the reader can check?",
+      "question": "Is the candidate's main claim backed by a number or a named case?",
       "anchors": {
-        "1": "claims are adjectives only",
-        "3": "one claim has a number or a named case",
-        "5": "the main claim carries a number or a named case consistent with the CV"
+        "1": "the main claim is an adjective, with no number and no named case",
+        "3": "the main claim names a case without a number, or a number without a case",
+        "5": "the main claim carries a number and a named case, both consistent with the CV"
       }
     },
     {

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import sys
 import tomllib
 from collections.abc import Mapping
 from fractions import Fraction
@@ -158,8 +160,6 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
             errors.append(f"transcript.{key} must not be empty")
-    if not str(data["library"]["path"]).strip():
-        errors.append("library.path must not be empty")
     return errors
 
 
@@ -342,7 +342,9 @@ class Config:
 
     @property
     def library(self) -> dict[str, Any]:
-        return self.section("library")
+        """The [library] section; a run frozen by 0.1.0 has none, and gets the defaults."""
+        value: dict[str, Any] = self.data.get("library") or default_data()["library"]
+        return value
 
 
 @cache
@@ -363,6 +365,29 @@ def load_config(path: Path | None = None) -> Config:
 
 def resolve(cfg: Config | None) -> Config:
     return default_config() if cfg is None else cfg
+
+
+LIBRARY_ENV = "SEALED_PANEL_RUBRICS"
+
+
+def default_library_dir() -> Path:
+    """The user-level rubric library: never relative to the current directory."""
+    home = Path.home()
+    if sys.platform == "darwin":
+        base = home / "Library" / "Application Support"
+    elif os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    return base / "sealed-panel" / "rubrics"
+
+
+def library_dir(flag: str | Path | None = None, cfg: Config | None = None) -> Path:
+    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the library.path setting,
+    else the user-level default. `~` is expanded and the result is absolute."""
+    value = str(flag or "") or os.environ.get(LIBRARY_ENV, "") or str(resolve(cfg).library["path"])
+    path = Path(value).expanduser() if value.strip() else default_library_dir()
+    return path.absolute()
 
 
 def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -399,6 +424,8 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
     for key in sorted(set(defaults) | set(current)):
         if key.startswith("run.") and spec is not None:
             continue
+        if key == "library.path":
+            continue  # where candidates are written, not a grading setting
         if current.get(key) != defaults.get(key):
             now, was = _show(current.get(key), "config.json"), _show(defaults.get(key), "defaults")
             out.append(f"{key} = {now} (default {was})")
