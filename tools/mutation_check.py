@@ -566,6 +566,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '    frozen["library"] = {**cfg.library, "path": str(library_dir(cfg=cfg))}\n',
         "",
     ),
+    "keys missing from an old run reported": (
+        CFG,
+        "        if key not in current:\n            continue",
+        "        if False:\n            continue",
+    ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
     "min valid judges floor off": (

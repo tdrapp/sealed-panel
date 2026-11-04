@@ -129,7 +129,8 @@ class TestRunFrozenByVersion010:
         assert "library" not in json.loads((r / "config.json").read_text())
         rc, out = run(capsys, "status", r)
         assert rc == 0 and '"CAP"' in out
-        assert run(capsys, "report", r)[0] == 0
+        rc, out = run(capsys, "report", r)
+        assert rc == 0 and "library" not in out.splitlines()[2]
         args = ["--artefact", EXAMPLE / "draft_v1.md", "--control", EXAMPLE / "control.md"]
         assert run(capsys, "brief", r, "--sealed", *args)[0] == 0
         keys = json.loads((round_dir(r, 1, True) / "keys.json").read_text())

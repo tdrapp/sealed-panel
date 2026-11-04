@@ -426,6 +426,8 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
             continue
         if key == "library.path":
             continue  # where candidates are written, not a grading setting
+        if key not in current:
+            continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):
             now, was = _show(current.get(key), "config.json"), _show(defaults.get(key), "defaults")
             out.append(f"{key} = {now} (default {was})")
