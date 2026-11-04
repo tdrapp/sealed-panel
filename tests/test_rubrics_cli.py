@@ -141,11 +141,9 @@ class TestRunFrozenByVersion010:
             texts = {
                 x: (round_dir(r, 1, True) / f"{x}.md").read_text() for x in meta["key"].values()
             }
-            dims = {"ask": 2, "relevance": 4, "evidence": 5}
-            sc = {
-                x: (dims if x == "candidate" else {k: 1 for k in dims})
-                for x in meta["key"].values()
-            }
+            dims = {"ask": 4, "relevance": 4, "evidence": 5}
+            close = {"ask": 3, "relevance": 1, "evidence": 1}  # calibrated, but close on ask
+            sc = {x: (dims if x == "candidate" else close) for x in meta["key"].values()}
             raw = judge_json(meta, texts, sc)
             assert record_reply(r, 1, meta["judge"], f"new{meta['judge']}", raw, True)["ok"]
         assert run(capsys, "measure", r, "--sealed", "--id", "length", "--value", "130")[0] == 0

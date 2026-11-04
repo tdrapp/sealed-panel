@@ -282,16 +282,18 @@ def _freeze_facts(spec: dict[str, Any], base: Path) -> None:
         )
 
 
-def _check_template_ref(spec: dict[str, Any], cfg: Config) -> None:
+def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
     """The template reference must name a template and version the library knows. Its hash is
     the template's own, and `modified` is computed here, never taken from the spec."""
     from . import library  # here, not at the top: library.py imports this module
 
     ref = spec["template"]
-    lib = library_dir(cfg=cfg)
     served = library.all_templates(lib)[0].get(ref["id"])
     if served is None:
-        raise EvalError(f"spec.template names no known template: {ref['id']!r}")
+        raise EvalError(
+            f"spec.template names no known template: {ref['id']!r} (library {lib}; "
+            "pass --library to read another)"
+        )
     known = [served["template"]]
     builtin = library.builtin_templates().get(ref["id"])
     if builtin is not None:
@@ -307,7 +309,9 @@ def _check_template_ref(spec: dict[str, Any], cfg: Config) -> None:
     ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
 
 
-def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
+def init_run(
+    run: Path, spec_path: Path, cfg: Config | None = None, library: Path | None = None
+) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash."""
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
@@ -320,7 +324,7 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent)
     if isinstance(spec.get("template"), dict):
-        _check_template_ref(spec, cfg)
+        _check_template_ref(spec, cfg, library_dir(library, cfg))
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
@@ -330,7 +334,7 @@ def init_run(run: Path, spec_path: Path, cfg: Config | None = None) -> str:
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     run.mkdir(parents=True, exist_ok=True)
     frozen = json.loads(json.dumps(cfg.data))
-    frozen["library"] = {**cfg.library, "path": str(library_dir(cfg=cfg))}
+    frozen["library"] = {**cfg.library, "path": str(library_dir(library, cfg))}
     cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
     (run / "config.lock").write_text(cfg.fingerprint + "\n", encoding="utf-8")

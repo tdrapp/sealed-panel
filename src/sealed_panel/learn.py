@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from . import library
+from .config import Config
 from .decide import decide
 from .errors import EvalError
 from .ledger import results_by_judge
@@ -30,10 +31,6 @@ from .store import load_json, round_dir
 
 # A spread of scores across a dimension's valid sealed judges that shows they disagree.
 DISAGREE_SPREAD = 2
-# A control median within this many points of the candidate's does not discriminate. Both
-# medians are taken from raw scores (before severity caps), in the sealed panel only, so a
-# weak draft in the loop cannot trigger it.
-CONTROL_GAP = 1
 
 
 def _todo(text: str) -> str:
@@ -79,8 +76,13 @@ def _anchors_of(spec: dict[str, Any], did: str) -> dict[str, str]:
 
 
 def _judges_disagree(
-    run: Path, spec: dict[str, Any], sealed: dict[str, Any], info: dict[str, Any]
+    run: Path,
+    spec: dict[str, Any],
+    sealed: dict[str, Any],
+    info: dict[str, Any],
+    cfg: Config,
 ) -> list[dict[str, Any]]:
+    caps = cfg.severity_caps
     results = _valid(run, sealed["round"], True)
     proposals = []
     for pid, p in sealed["personas"].items():
@@ -96,10 +98,9 @@ def _judges_disagree(
                 raw, sev = cand.get("raw_scores", {}).get(did), cand.get("severity", {}).get(did)
                 if raw is None or sev is None:
                     continue
-                if (
-                    (sev == "blocking" and raw >= 4)
-                    or (sev == "material" and raw >= 5)
-                    or (sev == "none" and raw <= 1)
+                # A score above its severity's cap (the run's caps), or no flaw named on a 1.
+                if (sev in ("blocking", "material") and raw > caps[sev]) or (
+                    sev == "none" and raw <= 1
                 ):
                     notes.append(f"judge {r['judge']} gave {raw} with severity {sev}")
             if not notes:
@@ -136,22 +137,31 @@ def _judges_disagree(
     return proposals
 
 
-def _raw_median(results: list[dict[str, Any]], role: str, did: str) -> float | None:
+def _raw_mean(results: list[dict[str, Any]], role: str, did: str) -> float | None:
     raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]
     values = [float(x) for x in raw if x is not None]
-    return statistics.median(values) if values else None
+    return statistics.mean(values) if values else None
 
 
 def _control_too_close(
-    run: Path, spec: dict[str, Any], sealed: dict[str, Any], info: dict[str, Any]
+    run: Path,
+    spec: dict[str, Any],
+    sealed: dict[str, Any],
+    info: dict[str, Any],
+    cfg: Config,
 ) -> list[dict[str, Any]]:
+    """A dimension that does not discriminate: the sealed panel scores a strong candidate and
+    the bad control close together. A weak candidate never triggers it: calibration keeps the
+    control's mean at 2 or less, so a candidate at 3 or less is close to it for any rubric."""
+    floor = float(cfg.library["control_min_candidate"])
+    gap = float(cfg.library["control_gap"])
     results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only
     proposals = []
     for pid, p in sealed["personas"].items():
         mine = [r for r in results if r["persona"] == pid]
         for did in p["dimensions"]:
-            cand, ctrl = _raw_median(mine, "candidate", did), _raw_median(mine, "control", did)
-            if cand is None or ctrl is None or cand - ctrl > CONTROL_GAP:
+            cand, ctrl = _raw_mean(mine, "candidate", did), _raw_mean(mine, "control", did)
+            if cand is None or ctrl is None or cand < floor or cand - ctrl > gap:
                 continue
             proposals.append(
                 {
@@ -165,8 +175,8 @@ def _control_too_close(
                             "round": sealed["round"],
                             "sealed": True,
                             "persona": pid,
-                            "candidate_raw_median": cand,
-                            "control_raw_median": ctrl,
+                            "candidate_raw_mean": cand,
+                            "control_raw_mean": ctrl,
                             "quotes": _quotes(mine, did),
                         }
                     ],
@@ -192,9 +202,10 @@ def proposals_after_seal(run: Path) -> list[dict[str, Any]]:
     if not sealed:
         raise EvalError("learning reads a sealed panel: seal the run first")
     info = _run_info(run, spec, ledger)
+    cfg = run_config(run)
     return [
-        *_judges_disagree(run, spec, sealed[-1], info),
-        *_control_too_close(run, spec, sealed[-1], info),
+        *_judges_disagree(run, spec, sealed[-1], info, cfg),
+        *_control_too_close(run, spec, sealed[-1], info, cfg),
     ]
 
 
@@ -275,7 +286,13 @@ def user_disagreement(
         "evidence": [evidence],
         "proposed_change": change,
     }
-    path = library.add_candidate(lib or run_library(run), proposal)
+    target = lib or run_library(run)
+    path = library.add_candidate(target, proposal)
     if path is None:
+        if library.closed_status(target, proposal) == "promoted":
+            raise EvalError(
+                "this disagreement was already promoted into a newer version of the template: "
+                "start a run from that version to record a new read"
+            )
         raise EvalError("this disagreement was rejected before for this template version")
     return path

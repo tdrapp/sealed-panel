@@ -392,16 +392,24 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "blocking contradiction ignored": (
         LEARN,
-        '(sev == "blocking" and raw >= 4)',
+        'sev in ("blocking", "material") and raw > caps[sev]',
+        'sev == "material" and raw > caps[sev]',
+    ),
+    "none contradiction ignored": (
+        LEARN,
+        'sev == "none" and raw <= 1',
         "False",
     ),
-    "none contradiction ignored": (LEARN, 'or (sev == "none" and raw <= 1)', ""),
     "loop rounds read for disagreement": (
         LEARN,
-        "*_judges_disagree(run, spec, sealed[-1], info),",
-        "*[x for r in ledger['rounds'] for x in _judges_disagree(run, spec, r, info)],",
+        "*_judges_disagree(run, spec, sealed[-1], info, cfg),",
+        "*[x for r in ledger['rounds'] for x in _judges_disagree(run, spec, r, info, cfg)],",
     ),
-    "control gap off by one": (LEARN, "cand - ctrl > CONTROL_GAP", "cand - ctrl >= CONTROL_GAP"),
+    "control gap off by one": (
+        LEARN,
+        "cand - ctrl > gap",
+        "cand - ctrl >= gap",
+    ),
     "control compared on capped scores": (
         LEARN,
         'raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]',
@@ -412,7 +420,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only',
         'results = _valid(run, sealed["round"], sealed=False)',
     ),
-    "material five ignored": (LEARN, 'or (sev == "material" and raw >= 5)', ""),
+    "material five ignored": (
+        LEARN,
+        'sev in ("blocking", "material") and raw > caps[sev]',
+        'sev == "blocking" and raw > caps[sev]',
+    ),
     "control median not stored": (
         AGG,
         '        entry["control_median"] = statistics.median(control)',
@@ -565,7 +577,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "library not frozen at init": (
         SPEC,
-        '    frozen["library"] = {**cfg.library, "path": str(library_dir(cfg=cfg))}\n',
+        '    frozen["library"] = {**cfg.library, "path": str(library_dir(library, cfg))}\n',
         "",
     ),
     "keys missing from an old run reported": (
@@ -613,12 +625,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "library inside the package": (
         CFG,
-        "if path.resolve() == package or package in path.resolve().parents:",
+        "if real == package or package in real.parents:",
         "if False:",
     ),
     "library inside a git tree": (
         CFG,
-        "if top is not None and not _git_ignored(top, path):",
+        "if top is not None and not _git_ignored(top, real):",
         "if False:",
     ),
     "library checked as a file": (
@@ -633,8 +645,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "unknown template accepted": (
         SPEC,
-        '    if served is None:\n        raise EvalError(f"spec.template names no known template',
-        '    if False:\n        raise EvalError(f"spec.template names no known template',
+        '    if served is None:\n        raise EvalError(\n            f"spec.template names no known template',
+        '    if False:\n        raise EvalError(\n            f"spec.template names no known template',
     ),
     "unknown template version accepted": (SPEC, "    if match is None:\n", "    if False:\n"),
     "template hash trusted": (
@@ -646,6 +658,42 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         SPEC,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref.setdefault("modified", dimensions_sha(spec["dimensions"]) != ref["sha256"])',
+    ),
+    "library compared lexically": (
+        CFG,
+        "real = path.expanduser().resolve(strict=False)",
+        "real = path.expanduser().absolute()",
+    ),
+    "weak candidate triggers the control signal": (LEARN, "cand < floor or ", ""),
+    "control threshold hard-coded": (
+        LEARN,
+        'floor = float(cfg.library["control_min_candidate"])',
+        "floor = 4.0",
+    ),
+    "contradiction ignores the run caps": (
+        LEARN,
+        "    caps = cfg.severity_caps\n    results",
+        '    caps = {"blocking": 3, "material": 4}\n    results',
+    ),
+    "promoted feedback called rejected": (
+        LEARN,
+        'if library.closed_status(target, proposal) == "promoted":',
+        "if False:",
+    ),
+    "history file overwritten": (
+        LIB,
+        '    if dest.exists():\n        raise EvalError(f"{dest} already exists',
+        '    if False:\n        raise EvalError(f"{dest} already exists',
+    ),
+    "init ignores --library": (
+        SPEC,
+        "_check_template_ref(spec, cfg, library_dir(library, cfg))",
+        "_check_template_ref(spec, cfg, library_dir(None, cfg))",
+    ),
+    "init freezes the default library": (
+        SPEC,
+        'frozen["library"] = {**cfg.library, "path": str(library_dir(library, cfg))}',
+        'frozen["library"] = {**cfg.library, "path": str(library_dir(None, cfg))}',
     ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -785,10 +833,6 @@ EXPECTED_SURVIVORS: dict[str, str] = {
     "sealed round directory exists": (
         "'this run already has a sealed panel' refuses first: a sealed round directory "
         "exists only once its briefs are written"
-    ),
-    "closed candidate reopened": (
-        "add_candidate returns before choosing an id when the key is closed, and a history "
-        "file of a key's id can only hold that key"
     ),
 }
 

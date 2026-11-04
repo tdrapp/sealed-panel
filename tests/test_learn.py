@@ -19,6 +19,14 @@ from sealed_panel.record import record_reply
 from sealed_panel.spec import init_run
 
 FIVE = {"clarity": 5, "evidence": 5}
+# A control that stays calibrated (mean 2) but scores clarity close to a strong candidate.
+CLOSE = {"clarity": 3, "evidence": 1}
+
+
+def close_seal(h: Harness) -> dict[str, Any]:
+    """A sealed panel where the strong candidate (4) and the control (3) sit close on clarity."""
+    h.play(1, "cand", {"candidate": FLAT, "control": CLOSE}, sealed=True)
+    return aggregate_round(h.run, 1, True)
 
 
 def kinds(lib: Path) -> list[tuple[str, str, int]]:
@@ -103,13 +111,31 @@ class TestJudgesDisagree:
 
 
 class TestControlTooClose:
-    def test_in_the_sealed_panel(self, h: Harness, private_library: Path) -> None:
+    def test_a_strong_candidate_close_to_the_control(
+        self, h: Harness, private_library: Path
+    ) -> None:
         h.init()
-        e = h.full(1, "cand", {"clarity": 2, "evidence": 4}, sealed=True)
-        assert e["personas"]["coo"]["dimensions"]["clarity"]["control_median"] == 1
+        e = close_seal(h)
+        assert e["personas"]["coo"]["dimensions"]["clarity"]["control_median"] == 3
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
-        c = library.open_candidates(private_library)[0][0]
-        assert c["evidence"][0]["candidate_raw_median"] == 2
+        ev = library.open_candidates(private_library)[0][0]["evidence"][0]
+        assert (ev["candidate_raw_mean"], ev["control_raw_mean"]) == (4, 3)
+
+    def test_a_weak_candidate_never_triggers_it(self, h: Harness, private_library: Path) -> None:
+        h.init()  # the reviewer's probe: candidate 3/5, control 2/1, three unanimous judges
+        h.play(1, "cand", {"candidate": {"clarity": 3, "evidence": 5},
+                           "control": {"clarity": 2, "evidence": 1}}, sealed=True)  # fmt: skip
+        aggregate_round(h.run, 1, True)
+        assert kinds(private_library) == []
+
+    def test_the_threshold_is_a_setting(self, h: Harness, private_library: Path) -> None:
+        cfg = h.tmp / "c.toml"
+        cfg.write_text("[library]\ncontrol_min_candidate = 4.5\n")
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        init_run(h.run, sp, load_config(cfg))
+        close_seal(h)
+        assert kinds(private_library) == []
 
     def test_weak_loop_drafts_do_not_count(self, h: Harness, private_library: Path) -> None:
         h.init(max_rounds=2)
@@ -125,12 +151,16 @@ class TestControlTooClose:
         h.init()
         h.brief(1, "cand", sealed=True)
         for meta in h.keys(1, True)["judges"]:
-            sc = {"candidate": FLAT, "control": {"clarity": 2, "evidence": 1}}
+            sc = {"candidate": FLAT, "control": CLOSE}
             raw = judge_json(meta, h.texts(1, meta, True), sc, severity={"clarity": "blocking"})
             record_reply(h.run, 1, meta["judge"], f"b{meta['judge']}", raw, True)
         e = aggregate_round(h.run, 1, True)
         assert e["personas"]["coo"]["dimensions"]["clarity"]["median"] == 3  # capped
-        assert [k for k, _, _ in kinds(private_library)] == ["judges_disagree"]
+        # Raw against raw: 4 against 3 is close; the capped 3 would fall under the 4 floor.
+        assert sorted(k for k, _, _ in kinds(private_library)) == [
+            "control_too_close",
+            "judges_disagree",
+        ]
 
     def test_one_loop_round_is_not_enough(self, h: Harness, private_library: Path) -> None:
         h.init(max_rounds=1)
@@ -222,10 +252,11 @@ class TestGuards:
         seal_with(
             h,
             [
-                {"scores": {"clarity": 2, "evidence": 4}},
-                {"scores": {"clarity": 2, "evidence": 4}},
+                {"scores": {"clarity": 4, "evidence": 2}},
+                {"scores": FLAT},
                 {"scores": FLAT},
             ],
+            control=CLOSE,
         )
         assert {k for k, _, _ in kinds(private_library)} == {"judges_disagree", "control_too_close"}
         assert sorted(p.name for p in private_library.iterdir()) == ["inbox"]
@@ -236,7 +267,7 @@ class TestGuards:
         sp = h.tmp / "spec.json"
         sp.write_text(json.dumps(make_spec()))
         init_run(h.run, sp, load_config(cfg))
-        e = h.full(1, "cand", {"clarity": 2, "evidence": 4}, sealed=True)
+        e = close_seal(h)
         assert (e["inbox"], e["learning"]) == ([], "learning off")
         assert not private_library.exists()
 
@@ -250,7 +281,7 @@ class TestGuards:
             raise OSError("disk full")
 
         monkeypatch.setattr(learn, "proposals_after_seal", broken)
-        e = h.full(1, "cand", {"clarity": 2, "evidence": 4}, sealed=True)
+        e = close_seal(h)
         assert e["learning"].startswith("learning skipped: disk full")
         assert main(["learn", str(h.run)]) == 2
         monkeypatch.undo()
@@ -260,7 +291,7 @@ class TestGuards:
 
     def test_learning_twice_adds_nothing(self, h: Harness, private_library: Path) -> None:
         h.init()
-        h.full(1, "cand", {"clarity": 2, "evidence": 4}, sealed=True)
+        close_seal(h)
         assert main(["learn", str(h.run)]) == 0
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
 
@@ -274,6 +305,33 @@ class TestGuards:
     def test_aggregate_prints_the_library(self, h: Harness, private_library: Path,
                                           capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
         h.init()
-        h.play(1, "cand", {"candidate": {"clarity": 2, "evidence": 4}, "control": BAD}, sealed=True)
+        h.play(1, "cand", {"candidate": FLAT, "control": CLOSE}, sealed=True)
         assert main(["aggregate", str(h.run), "--sealed"]) == 0
         assert f"1 rubric candidate(s) in {private_library / 'inbox'}" in capsys.readouterr().out
+
+
+class TestRunSettings:
+    def test_contradiction_follows_the_run_caps(self, h: Harness, private_library: Path) -> None:
+        cfg = h.tmp / "c.toml"
+        cfg.write_text("[severity.caps]\nblocking = 2\n")
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        init_run(h.run, sp, load_config(cfg))
+        three = {"clarity": 3, "evidence": 4}
+        seal_with(h, [{"scores": three, "severity": {"clarity": "blocking"}},
+                      {"scores": three}, {"scores": three}])  # fmt: skip
+        note = library.open_candidates(private_library)[0][0]["evidence"][0]["note"]
+        assert "judge 1 gave 3 with severity blocking" in note
+
+    def test_feedback_after_a_promotion_says_promoted(
+        self, h: Harness, private_library: Path
+    ) -> None:
+        h.init()
+        h.full(1, "cand", FLAT, sealed=True)
+        path = user_disagreement(h.run, "first read", "evidence")
+        c = json.loads(path.read_text())
+        c["proposed_change"]["anchors"] = {"3": "a three", "5": "a five"}
+        path.write_text(json.dumps(c))
+        library.promote(private_library, path.stem, into="message")
+        with pytest.raises(EvalError, match="already promoted"):
+            user_disagreement(h.run, "again", "evidence")

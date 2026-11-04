@@ -609,3 +609,72 @@ class TestLibraryGuardrails:
         assert main(["feedback", str(h.run), "--note", "too kind", "--library", "~/lib"]) == 0
         assert list((h.tmp / "home" / "lib" / "inbox").glob("c-*.json"))
         assert not (h.tmp / "~").exists()
+
+
+class TestResolvedLibrary:
+    def repo(self, tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        return repo
+
+    def test_a_symlink_into_a_repository_is_refused(self, tmp_path: Path) -> None:
+        repo = self.repo(tmp_path)
+        (repo / "rubrics").mkdir()
+        link = tmp_path / "outside" / "lib"
+        link.parent.mkdir()
+        link.symlink_to(repo / "rubrics")
+        with pytest.raises(EvalError, match=f"{repo.resolve() / 'rubrics'}"):
+            library_dir(link)
+
+    def test_dot_dot_out_of_a_repository_is_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self.repo(tmp_path)
+        (repo / "sub").mkdir()
+        monkeypatch.chdir(repo / "sub")
+        assert library_dir("../../outside/lib") == (tmp_path / "outside" / "lib").resolve()
+
+
+class TestHistoryIsNeverOverwritten:
+    def test_an_unreadable_history_file_keeps_its_id(self, private_library: Path) -> None:
+        cid = candidate(private_library, rewrite())
+        library.reject(private_library, cid, "no")
+        damaged = private_library / "history" / f"{cid}.json"
+        damaged.write_text("{damaged")
+        again = candidate(private_library, rewrite())
+        assert again == f"{cid}-2"
+        library.reject(private_library, again, "still no")
+        assert damaged.read_text() == "{damaged"
+
+    def test_a_history_file_is_never_replaced(self, private_library: Path) -> None:
+        cid = candidate(private_library, rewrite())
+        (private_library / "history").mkdir(parents=True, exist_ok=True)
+        (private_library / "history" / f"{cid}.json").write_text("{kept}")
+        with pytest.raises(EvalError, match="never overwritten"):
+            library.reject(private_library, cid, "no")
+        with pytest.raises(EvalError, match="never overwritten"):
+            library.promote(private_library, cid)
+        assert (private_library / "history" / f"{cid}.json").read_text() == "{kept}"
+        assert (private_library / "inbox" / f"{cid}.json").exists()
+
+
+class TestInitLibraryFlag:
+    def test_init_reads_the_library_it_is_given(
+        self, h: Harness, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        other = tmp_path / "other-lib"
+        other.mkdir()
+        mine = {**library.builtin_templates()["message"], "id": "team-note"}
+        (other / "team-note.json").write_text(json.dumps(mine))
+        out = tmp_path / "spec.json"
+        assert (
+            main(["rubrics", "use", "team-note", "--out", str(out), "--library", str(other)]) == 0
+        )
+        out.write_text(json.dumps(filled(json.loads(out.read_text()))))
+        assert main(["init", str(h.run), "--spec", str(out)]) == 2
+        err = capsys.readouterr().err
+        assert "names no known template" in err and "library" in err
+        assert main(["init", str(h.run), "--spec", str(out), "--library", str(other)]) == 0
+        frozen = json.loads((h.run / "config.json").read_text())["library"]["path"]
+        assert frozen == str(other.resolve())

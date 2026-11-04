@@ -115,3 +115,8 @@ tool_error_key = "is_error"
 path = ""
 # After a sealed panel aggregates, write learned candidates to the inbox.
 learn = true
+# control_too_close fires only when the sealed candidate's mean raw score on a dimension is at
+# least this (a strong text), and the control's mean raw score is within control_gap of it.
+# Below it, a low control and a low candidate say nothing about the dimension.
+control_min_candidate = 4.0
+control_gap = 1.0

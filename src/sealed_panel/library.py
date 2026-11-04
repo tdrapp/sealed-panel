@@ -427,6 +427,26 @@ def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
     return path
 
 
+def closed_status(lib: Path, proposal: dict[str, Any]) -> str | None:
+    """How the proposal's key was closed (rejected or promoted), or None if it is not closed."""
+    run = proposal["run"]
+    key = dedup_key(
+        proposal["kind"], run.get("template"), run["rubric_sha256"], proposal["dimension"]
+    )
+    history, _ = _load_candidates(history_dir(lib))
+    found = [c.get("status") for c in history if c.get("key") == key]
+    return "promoted" if "promoted" in found else ("rejected" if found else None)
+
+
+def _history_file(lib: Path, cid: str) -> Path:
+    """The history file for a candidate. A history file is never overwritten, readable or not:
+    its id stays reserved."""
+    dest = history_dir(lib) / f"{cid}.json"
+    if dest.exists():
+        raise EvalError(f"{dest} already exists: a closed candidate is never overwritten")
+    return dest
+
+
 def _open_candidate(lib: Path, cid: str) -> dict[str, Any]:
     path = inbox_dir(lib) / f"{check_candidate_id(cid)}.json"
     if not path.exists():
@@ -569,7 +589,7 @@ def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
             "promoted_into": {"id": plan["id"], "version": plan["updated"]["version"]},
         }
     )
-    history = history_dir(lib) / f"{c['id']}.json"
+    history = _history_file(lib, c["id"])
     staged_t = target.with_name(f".{target.name}.staged")
     staged_h = history.with_name(f".{history.name}.staged")
     before = target.read_bytes() if target.exists() else None
@@ -601,7 +621,7 @@ def reject(lib: Path, cid: str, reason: str) -> Path:
         raise EvalError("--reason is required: say why the candidate is rejected")
     c = _open_candidate(lib, cid)
     c.update({"status": "rejected", "closed": _now(), "reason": reason})
-    dest = history_dir(lib) / f"{c['id']}.json"
+    dest = _history_file(lib, c["id"])
     dump_json(dest, c)
     (inbox_dir(lib) / f"{c['id']}.json").unlink()
     return dest

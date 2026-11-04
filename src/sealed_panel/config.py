@@ -156,6 +156,11 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     elif not 0 <= share <= MAX_BAD_SHARE_CEILING:
         errors.append(f"quotes.max_bad_share must be between 0 and {MAX_BAD_SHARE_CEILING}")
     errors += _text_errors(data["text"])
+    library = data.get("library") or {}
+    if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:
+        errors.append("library.control_min_candidate must be between 1 and 5")
+    if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
+        errors.append("library.control_gap must be between 0 and 4")
     errors += _injection_errors(data["injection"])
     transcript = data["transcript"]
     for key, value in transcript.items():
@@ -405,18 +410,20 @@ def _git_ignored(top: Path, path: Path) -> bool:
 
 def guard_library(path: Path) -> Path:
     """Refuse a library inside the installed package, or inside a git working tree that does
-    not ignore it: candidates quote the judged texts and must never be committed by accident."""
-    path = path.absolute()
+    not ignore it: candidates quote the judged texts and must never be committed by accident.
+    The path is resolved first (symlinks and `..` followed), so the checks see where candidates
+    would really be written; the resolved path is returned."""
+    real = path.expanduser().resolve(strict=False)
     package = Path(__file__).resolve().parent
-    if path.resolve() == package or package in path.resolve().parents:
-        raise ConfigError(f"the rubric library may not live inside the package: {path}")
-    top = _git_top(path)
-    if top is not None and not _git_ignored(top, path):
+    if real == package or package in real.parents:
+        raise ConfigError(f"the rubric library may not live inside the package: {real}")
+    top = _git_top(real)
+    if top is not None and not _git_ignored(top, real):
         raise ConfigError(
-            f"the rubric library {path} is inside the git working tree {top} and not ignored "
+            f"the rubric library {real} is inside the git working tree {top} and not ignored "
             "there: candidates quote the judged texts. Choose a path outside it, or ignore it."
         )
-    return path
+    return real
 
 
 def library_dir(flag: str | Path | None = None, cfg: Config | None = None) -> Path:

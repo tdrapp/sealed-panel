@@ -43,6 +43,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config", type=Path, help="TOML file overriding defaults.toml, frozen into the run"
     )
+    p.add_argument("--library", type=Path, help=LIBRARY_HELP)
 
     p = sub.add_parser("brief", help="write one blind brief per judge")
     _round_args(p)
@@ -239,7 +240,7 @@ def _record(a: argparse.Namespace) -> str:
 def _run(a: argparse.Namespace) -> None:
     if a.cmd == "init":
         cfg = load_config(a.config) if a.config else None
-        print(f"frozen: rubric sha256 {init_run(a.run, a.spec, cfg)}")
+        print(f"frozen: rubric sha256 {init_run(a.run, a.spec, cfg, a.library)}")
     elif a.cmd == "brief":
         for path in write_briefs(a.run, _round(a), a.artefact, a.control, a.good, a.sealed):
             print(path)
