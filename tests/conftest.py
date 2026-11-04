@@ -203,10 +203,16 @@ def private_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def no_inherited_git(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A git hook exports GIT_DIR and friends; the tests' own `git init` must not obey them."""
+def no_inherited_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A git hook exports GIT_DIR and friends; the tests' own `git init` must not obey them.
+    Git also reads an empty global configuration and no system one, so the user's own
+    excludes files never decide a test; a test that needs a user configuration sets its own."""
     for key in [k for k in os.environ if k.startswith("GIT_")]:
         monkeypatch.delenv(key)
+    empty = tmp_path / "empty.gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 @pytest.fixture

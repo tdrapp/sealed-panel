@@ -637,8 +637,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
     "inherited GIT_DIR obeyed": (
         CFG,
-        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
+        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
         "",
+    ),
+    "all GIT_ variables stripped": (
+        CFG,
+        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
+        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
     ),
     "feedback library unresolved": (
         f"{PKG}/cli.py",

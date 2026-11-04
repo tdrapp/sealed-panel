@@ -11,16 +11,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- The configuration docs no longer say a punctuation mapping cannot add an ellipsis joint:
-  three characters mapped to `.` in a row read as an ellipsis, which a judge could write
-  anyway. A test pins the behaviour, and the docs say why the built-in ellipsis entry stays
-  (NFKC turns the character into `...` first; runs frozen with the entry stay valid).
+- The configuration docs no longer say a punctuation mapping cannot add an ellipsis joint: any
+  run of mapped and literal dots that normalises to an ellipsis reads as one, which a judge
+  could write as `...` anyway. A test pins the behaviour, and the docs say why the built-in
+  ellipsis entry stays (NFKC turns the character into `...` first; runs frozen with the entry
+  stay valid).
 - Every check but quote matching is pinned to the built-in normalisation by a test and a
   mutation: the re-roll hash, the previous version and the baseline riding along, and the
   one-quote flag.
-- The library guard and the tests no longer obey an inherited `GIT_DIR`: inside a git hook,
-  `git check-ignore` answered for the repository running the hook, not the one holding the
-  library.
+- The library guard drops only the repository-local git variables, as
+  `git rev-parse --local-env-vars` lists them, before asking git whether the library is
+  ignored. It used to drop every
+  `GIT_` variable, so a `GIT_CONFIG_GLOBAL` the user's own git obeys was ignored: the guard
+  could refuse a library that git ignores, or accept one that git would let be committed.
 
 ## [0.2.0] - 2026-11-04
 

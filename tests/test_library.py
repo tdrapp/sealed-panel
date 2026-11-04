@@ -648,6 +648,41 @@ class TestResolvedLibrary:
         with pytest.raises(EvalError, match="inside the git working tree"):
             library_dir(repo / "rubrics")
 
+    @staticmethod
+    def user_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_ignores: bool) -> Path:
+        """A throwaway user: HOME and XDG_CONFIG_HOME in tmp_path, never the real ones. When
+        `home_ignores`, ~/.gitconfig names an excludes file that ignores `rubrics/`."""
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+        excludes = tmp_path / "excludes"
+        excludes.write_text("rubrics/\n")
+        if home_ignores:
+            (home / ".gitconfig").write_text(f"[core]\n\texcludesFile = {excludes}\n")
+        return excludes
+
+    def test_the_users_git_config_global_is_obeyed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        excludes = self.user_git(tmp_path, monkeypatch, home_ignores=False)
+        repo = self.repo(tmp_path)
+        effective = tmp_path / "global.gitconfig"
+        effective.write_text(f"[core]\n\texcludesFile = {excludes}\n")
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(effective))
+        assert library_dir(repo / "rubrics") == (repo / "rubrics").resolve()
+
+    def test_a_home_config_overridden_by_git_config_global_does_not_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.user_git(tmp_path, monkeypatch, home_ignores=True)
+        repo = self.repo(tmp_path)
+        effective = tmp_path / "global.gitconfig"
+        effective.write_text("[user]\n\tname = nobody\n")  # no excludes file
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(effective))
+        with pytest.raises(EvalError, match="inside the git working tree"):
+            library_dir(repo / "rubrics")
+
     def test_dot_dot_out_of_a_repository_is_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

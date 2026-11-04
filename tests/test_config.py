@@ -409,6 +409,9 @@ class TestPunctuationAndStripping:
         assert not quote_found(dashes, source)
         assert quote_found(dashes, source, dotted)
         assert quote_found("The pilot ran on three services... enabled for all.", source)
+        for joint in ("- - -", ".--", "-.-"):  # spaced, or mixed with a literal dot
+            quote = f"The pilot ran on three services{joint} enabled for all."
+            assert not quote_found(quote, source) and quote_found(quote, source, dotted), joint
 
     def test_a_value_that_folds_to_a_letter_is_refused(self, tmp_path: Path) -> None:
         assert "\u0345".casefold() != "\u0345" and not "\u0345".isalnum()
