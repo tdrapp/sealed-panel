@@ -618,6 +618,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "promote without a terminal": (f"{PKG}/cli.py", "if not sys.stdin.isatty():", "if False:"),
     "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
+    "inherited GIT_DIR obeyed": (
+        CFG,
+        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
+        "",
+    ),
     "feedback library unresolved": (
         f"{PKG}/cli.py",
         "lib = library_dir(a.library) if a.library else None",

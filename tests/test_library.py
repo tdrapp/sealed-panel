@@ -635,6 +635,19 @@ class TestResolvedLibrary:
         with pytest.raises(EvalError, match=f"{repo.resolve() / 'rubrics'}"):
             library_dir(link)
 
+    def test_an_inherited_git_dir_does_not_answer_for_the_repository(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self.repo(tmp_path)
+        other = tmp_path / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q", str(other)], check=True)
+        (other / ".git" / "info").mkdir(exist_ok=True)
+        (other / ".git" / "info" / "exclude").write_text("*\n")  # the other repo ignores all
+        monkeypatch.setenv("GIT_DIR", str(other / ".git"))  # as inside a git hook
+        with pytest.raises(EvalError, match="inside the git working tree"):
+            library_dir(repo / "rubrics")
+
     def test_dot_dot_out_of_a_repository_is_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

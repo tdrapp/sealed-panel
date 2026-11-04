@@ -402,6 +402,9 @@ def _git_ignored(top: Path, path: Path) -> bool:
             ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],
             capture_output=True,
             check=False,
+            # An inherited GIT_DIR (a git hook, a wrapper) would make git answer for another
+            # repository than `top`.
+            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
         )
     except OSError:
         return False  # no git: the library cannot be shown to be ignored

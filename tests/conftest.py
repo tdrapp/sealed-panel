@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from pathlib import Path
 from typing import Any
@@ -199,6 +200,13 @@ def private_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     lib = tmp_path / "library"
     monkeypatch.setenv("SEALED_PANEL_RUBRICS", str(lib))
     return lib
+
+
+@pytest.fixture(autouse=True)
+def no_inherited_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A git hook exports GIT_DIR and friends; the tests' own `git init` must not obey them."""
+    for key in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(key)
 
 
 @pytest.fixture
