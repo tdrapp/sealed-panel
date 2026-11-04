@@ -169,7 +169,7 @@ cannot be voided.
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `path` | `"./rubrics/"` | not empty | The user rubric library, read from the current directory when relative. The `SEALED_PANEL_RUBRICS` environment variable overrides it, and `--library DIR` overrides both on the `rubrics` and `feedback` commands. See [rubrics.md](rubrics.md). |
+| `path` | `""` | | The user rubric library. Empty means the user-level default (`~/.local/share/sealed-panel/rubrics`, or the platform equivalent), never the current directory. `SEALED_PANEL_RUBRICS` overrides it, `~` is expanded, and `init` freezes the resolved path into the run; it is not listed among the settings that differ from the defaults. See [rubrics.md](rubrics.md). |
 | `learn` | `true` | | After a sealed panel aggregates, write learned candidates to the library inbox. |
 
 ## What stays in code

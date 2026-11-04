@@ -22,34 +22,39 @@ sealed-panel ships eight generic templates as package data in `src/sealed_panel/
 
 ## Template format
 
-A template is one JSON object with exactly these keys:
+A template is one JSON object with these keys:
 
 | Key | Meaning |
 |---|---|
 | `id` | Lowercase letters, digits and dashes. A user template with the same id overrides the built-in. |
 | `version` | An integer from 1, bumped by every promotion. |
 | `title` | A readable name. |
-| `kinds` | The kinds of text it is for, such as `email` or `chat`. Used by `suggest`. |
-| `keywords` | Words that suggest the template when they appear in the text. |
+| `kinds` | The kinds of text it is for, such as `email` or `chat`. |
+| `aliases` | Optional. Other names for those kinds, such as `cover letter` or `e-mail`. |
+| `keywords` | Words that break ties between templates of the same kind. |
 | `when_to_use` | One sentence. |
+| `facts_hint` | Optional. What to paste as facts, shown in the skeleton. |
 | `personas` | Placeholder personas (`id`, `description`) to adapt for each run. |
 | `dimensions` | 3 to 6 dimensions, each with exactly `id`, `name`, `question` and `anchors` at `"1"`, `"3"` and `"5"`, written as observable evidence on the page. |
 | `measured` | Suggested instrument criteria, in the spec's `measured` format. |
 | `provenance` | A list of `{date, source, change}`, one entry per version. |
+| `based_on` | Optional, written by promotion: `{version}` of the built-in a user template was copied from. |
 
 A template never holds a TODO marker. The format is checked by code every time a template is
-loaded; an invalid user template is refused with the list of problems.
+loaded. A user template that cannot be read or is invalid is skipped with a warning, and the
+built-in of the same id is served instead.
 
 ## Suggest
 
 ```
-sealed-panel rubrics suggest --kind email --text draft.md --top 3
+sealed-panel rubrics suggest --kind "cover letter" [--text draft.md] [--top 3]
 ```
 
-The ranking is deterministic. Each template scores 100 when the kind is one of its `kinds`
-(case is ignored), plus one point per distinct keyword found as a whole word in the text. Rows
-are sorted by score, then by id. Each row prints its score and a one-line reason naming the
-kind match and the keywords found.
+The kind is compared after folding case and turning spaces and underscores into dashes, so
+`Cover Letter`, `cover_letter` and `cover-letter` are the same kind. Only templates whose kinds
+or aliases match are returned, each with its `when_to_use` and its table of dimensions.
+Keywords found as whole words in the text only order templates of the same kind; ties go by
+id. With no match, the command says so and lists every template with its `when_to_use`.
 
 ## Use
 
@@ -57,50 +62,65 @@ kind match and the keywords found.
 sealed-panel rubrics use message --out spec.json [--persona-file personas.json]
 ```
 
-Writes a spec skeleton: the template's dimensions and suggested instruments, `template: {id,
-version}`, and TODO markers for the title, the purpose, the facts and, without
-`--persona-file`, the persona descriptions. `init` refuses the spec until every marker is
-replaced. A `facts_file` you put in its place is read relative to the spec file's folder. The template reference is part of the rubric hash, so a run records which version of
-which template it started from. A persona file is a JSON list of `{id, description}`.
+Writes a spec skeleton: the template's dimensions, its suggested instruments, and
+`template: {id, version, sha256}`, where `sha256` is a hash of the dimensions. TODO markers
+stand for the title, the purpose, the facts (with the template's `facts_hint`), every
+suggested instrument threshold and, without `--persona-file`, the persona descriptions. `init`
+refuses the spec until every marker is replaced. A `facts_file` put in place of `facts` is read
+relative to the spec file's folder.
 
-A run holds a copy of the dimensions, not a link to the template. A later promotion changes
-the template, never a frozen run.
+At `init`, `template.modified` records whether the dimensions still match the template they
+came from; it is part of the rubric hash and the report header shows it. A run holds a copy of
+the dimensions, not a link to the template: a later promotion never changes a frozen run.
 
 ## The user library
 
-The user library is a directory: the `[library] path` setting (default `./rubrics/`, read from
-the current directory), overridden by the `SEALED_PANEL_RUBRICS` environment variable, and by
-`--library DIR` on the `rubrics` and `feedback` commands.
+The user library is a user-level directory, never relative to the current directory:
+`~/.local/share/sealed-panel/rubrics` on Linux (or `$XDG_DATA_HOME/sealed-panel/rubrics`),
+`~/Library/Application Support/sealed-panel/rubrics` on macOS, `%APPDATA%\sealed-panel\rubrics`
+on Windows. The `SEALED_PANEL_RUBRICS` environment variable or the `[library] path` setting
+replaces it, and `--library DIR` replaces it for one command. `~` is expanded everywhere.
+
+`init` freezes the resolved library into the run. `aggregate` writes the run's candidates
+there and prints the path. `rubrics ... --run RUN` reads the library frozen into that run. A
+run frozen by 0.1.0 has no library in its configuration and uses the one resolved at the time
+of the command.
 
 ```
-rubrics/
+<library>/
   message.json        a user template (overrides the built-in message)
   inbox/c-....json    open candidates
   history/c-....json  promoted or rejected candidates
 ```
 
 **The user library is private by nature.** Candidates quote the texts that were judged, word
-for word, and the user's own notes. Keep the library out of any public repository; this
-repository ignores `/rubrics/`. Learned candidates never go into the package.
+for word, the user's own notes, and the run directory. Keep the library out of any public
+repository. Learned candidates never go into the package.
 
 ## Candidates
 
-After a sealed panel aggregates, sealed-panel looks at the whole run and writes candidates to
-the inbox, unless `[library] learn` is false. Each candidate is a JSON file with `id`,
-`created`, `kind`, `status` (`open`), `template` (the run's template reference, if any),
-`dimension`, `run` (rubric hash and template), `evidence` (round, judge numbers, verbatim
-quotes, notes), `count`, and `proposed_change`.
+After a sealed panel aggregates, sealed-panel reads the run and writes candidates to the inbox,
+unless `[library] learn` is false. Learning never fails a seal: an error is reported as
+"learning skipped" in aggregate's output, and `sealed-panel learn RUN` tries again. Learning a
+run again adds nothing that is already recorded.
 
 | Kind | Written when |
 |---|---|
-| `new_dimension` | A judge's weakest point names a dimension the rubric lacks: one judge of the sealed panel, or two or more judges across the loop. |
-| `sharpen_anchor` | Two or more judges of one round give the same dimension a blocking or material finding. |
-| `non_discriminating` | Over two or more loop rounds, a dimension's median never moved while another dimension's did. |
+| `judges_disagree` | In the sealed panel, a dimension's valid judges' scores spread by 2 or more, or a judge's severity contradicts its score (blocking with a 4 or 5 before capping, or none with a 1). |
+| `control_too_close` | The control's median on a dimension is within 1 point of the candidate's, in the sealed panel or in two or more loop rounds. |
 | `user_disagreement` | The user records their own read with `sealed-panel feedback RUN --note TEXT [--dimension ID]`, after the seal. |
 
-Candidates are de-duplicated: the same kind, template and dimension append their evidence to
-the open candidate, and `count` says how many pieces of evidence it holds. A candidate that
-was promoted or rejected is not reopened; new evidence starts a new candidate.
+Each candidate is a JSON file named by its id, with `kind`, `status` (`open`), `template` (the
+run's template reference), `dimension`, `run` (rubric hash, template, run directory),
+`evidence` (round, judge numbers, each judge's quote with whether code verified it, notes),
+`count`, and `proposed_change`. The id is the file name, checked against a fixed pattern; an
+`id` field inside the file is never used.
+
+Candidates are de-duplicated by kind, template id and version (or, without a template, the
+run's rubric hash) and dimension, ignoring case: the same signal adds its new evidence to the
+open candidate. A signal rejected for a template version is not reopened for that version. If
+it recurs on a newer version, the new candidate shows "rejected before" with the earlier
+reason. A promoted signal may return as a new candidate.
 
 ## Promotion
 
@@ -110,19 +130,26 @@ A proposed change is one of:
 - `rewrite_anchors` with the `dimension` id and the new `anchors` (merged over the old ones);
 - `remove_dimension` with the `dimension` id.
 
-Learned changes hold TODO markers where a person must write the new question or anchors. To
-promote:
+Learned changes hold TODO markers where a person must write the new question or anchors.
+Promotion only checks the fields its action uses, so changing a rewrite into
+`remove_dimension` does not require filling the unused anchors.
+
+To promote:
 
 1. read the candidate in `inbox/`, and its evidence;
-2. edit its `proposed_change` and replace every marker (you may change the action, for example
-   to `remove_dimension` for a dimension that does not discriminate);
-3. run `sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID]`.
+2. write or edit its `proposed_change` (an agent drafts one only when the user asks);
+3. run `sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID]` yourself.
 
-Promotion refuses a change that still holds a marker, or that would break the template format.
-It copies a built-in into the user library first if needed, applies the change, bumps the
-version above both the user and the built-in version, appends a provenance entry naming the
-candidate, and moves the candidate to `history/` as `promoted`. Built-in templates never
-change.
+`promote` prints the current and the proposed text side by side and the file it will write. In
+a terminal it asks you to type the candidate id; without a terminal it refuses unless `--yes`
+is given. It refuses a change that still holds markers in the fields it uses, a change that
+would break the template format, and a user file for that id that cannot be read (fix or
+remove it first). It writes the file that serves the template (a user file of that id, or a
+new `<id>.json`), copying a built-in first and recording it in `based_on`; bumps the version
+above both the user and the built-in version; appends a provenance entry naming the candidate;
+and moves the candidate to `history/`. Both files are staged and then moved into place, so a
+failure leaves the template and the inbox as they were. Built-in templates never change.
+`rubrics list` flags a user template whose built-in is newer than the version it was based on.
 
 To close a candidate without a change: `sealed-panel rubrics reject CANDIDATE_ID --reason
-TEXT`. The candidate moves to `history/` with the reason.
+TEXT`.

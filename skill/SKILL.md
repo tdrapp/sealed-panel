@@ -32,10 +32,12 @@ not already say.
 Always start from the library. Run:
 
 ```
-sealed-panel rubrics suggest --kind <kind of text> --text draft.md --top 3
+sealed-panel rubrics suggest --kind <kind of text> --text draft.md
 ```
 
-and show the user the three templates with their scores and reasons. Then write the spec from
+and show the user the matching template's `when_to_use` and its table of dimensions (id and
+question), so they can say whether it fits. When no template matches, the command lists every
+template with its `when_to_use`; say so and write the spec by hand. Then write the spec from
 the chosen one (`sealed-panel rubrics use ID --out spec.json [--persona-file personas.json]`)
 and replace every `TODO(sealed-panel)` marker; `init` refuses the spec until they are gone.
 When no template fits, write the spec by hand as below.
@@ -163,13 +165,15 @@ differs from the defaults, and how many judge contexts ran. Say whether replies 
 transcripts or were pasted. A text changed after the seal
 is unjudged: say so, or start a new run.
 
-Then point the user to the library inbox (`sealed-panel rubrics list`): after the seal,
-candidates for improving the rubric are written there (a missing dimension, an anchor several
-judges flagged, a dimension that never moved). If the user's own read disagrees with the grade,
-record it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never promote a
-candidate yourself: the user reads it, edits its `proposed_change` to replace the markers, and
-runs `sealed-panel rubrics promote ID` or `sealed-panel rubrics reject ID --reason "..."`.
-Candidates quote the judged texts: the user library is private.
+Then point the user to the library inbox (`sealed-panel rubrics list --run RUN`): after
+the seal, rubric-level candidates are written there (a dimension the sealed judges disagree on,
+a dimension where the control scores close to the text). If aggregate printed "learning
+skipped", run `sealed-panel learn RUN`. If the user's own read disagrees with the grade, record
+it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never promote a candidate:
+draft a `proposed_change` only when the user asks for one, and let the user run
+`sealed-panel rubrics promote ID` themselves (it shows the change side by side and asks them
+to confirm) or `sealed-panel rubrics reject ID --reason "..."`. Candidates quote the judged
+texts: the user library is private.
 
 ## Refusals
 

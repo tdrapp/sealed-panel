@@ -177,29 +177,42 @@ sealed-panel feedback RUN --note TEXT [--dimension ID] [--library DIR]
 ```
 
 Records the user's own read disagreeing with the sealed grade as a `user_disagreement`
-candidate in the library inbox. With `--dimension`, the candidate proposes to rewrite that
-dimension's anchors; without, to add a dimension. Refused before the run is sealed, for an
-unknown dimension, or with an empty note.
+candidate in the library frozen into the run. With `--dimension`, the candidate proposes to
+rewrite that dimension's anchors and carries the sealed judges' quotes on it; without, to add
+a dimension. Refused before the run is sealed, for an unknown dimension, with an empty note,
+or when the same disagreement was rejected before for this template version.
+
+## learn
+
+```
+sealed-panel learn RUN
+```
+
+Writes the candidates of a sealed run to its library's inbox, as `aggregate --sealed` does.
+Use it when aggregate printed "learning skipped". Evidence already recorded is not added again.
+Refused before the run is sealed, or when learning fails again.
 
 ## rubrics
 
 ```
-sealed-panel rubrics list    [--library DIR]
-sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR]
-sealed-panel rubrics show    ID [--library DIR]
-sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR]
-sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--library DIR]
-sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR]
+sealed-panel rubrics list    [--library DIR | --run RUN]
+sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR | --run RUN]
+sealed-panel rubrics show    ID [--library DIR | --run RUN]
+sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR | --run RUN]
+sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--yes] [--library DIR | --run RUN]
+sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR | --run RUN]
 ```
 
-The library is `--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the `[library] path`
-setting (default `./rubrics/`). See [rubrics.md](rubrics.md) for the formats.
+The library is `--library DIR`; else, with `--run`, the library frozen into that run; else
+`$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default. Unreadable
+or invalid user templates and inbox files are skipped with a warning on stderr. See
+[rubrics.md](rubrics.md) for the formats.
 
 | Command | Does |
 |---|---|
-| `list` | Every template (built-in and user) with its version and source, then the open candidates with kind, template, dimension and count. |
-| `suggest` | Ranks templates: 100 for an exact kind match, plus one per keyword of the template found in the text; ties by id. Prints score, id, version, source and a one-line reason. Refused: `--top` below 1. |
-| `show` | Prints a template (the user one when it overrides a built-in). Refused: unknown id. |
-| `use` | Writes a spec skeleton with `template: {id, version}` and TODO markers for title, purpose, facts and, without `--persona-file` (a JSON list of `{id, description}`), the persona descriptions. Refused: an existing `--out`, a persona file that is not a list of personas. |
-| `promote` | Applies an open candidate's proposed change to a user template (copying a built-in first), bumps the version, appends provenance, and moves the candidate to `history/`. Refused: a candidate not open, a change that still holds TODO markers, an unknown action, a change that breaks the template format, no template without `--into`. |
-| `reject` | Moves an open candidate to `history/` with the reason. Refused: an empty reason. |
+| `list` | Every template (built-in and user) with its version and source, flagging a user template whose built-in is newer than its base; then the open candidates with kind, template version, dimension, count, and any earlier rejection with its reason. |
+| `suggest` | The templates whose kinds or aliases match the kind (case, spaces and underscores ignored), each with `when_to_use` and its dimensions; keywords found as whole words in `--text` only order them. With no match: "no template for kind K" and every template's `when_to_use`. Refused: `--top` below 1. |
+| `show` | Prints the served template (the user one when it overrides a built-in). Refused: unknown id. |
+| `use` | Writes a spec skeleton with `template: {id, version, sha256}` and TODO markers for title, purpose, facts (with the template's hint), each suggested instrument threshold and, without `--persona-file` (a JSON list of `{id, description}`), the persona descriptions. Refused: an existing `--out`, a persona file that is not a list of personas. |
+| `promote` | Prints the current and proposed text side by side and the file it writes, then asks for the candidate id to be typed (with no terminal it refuses unless `--yes`). Applies the change to the file serving the template (copying a built-in first), bumps the version above the user and built-in versions, appends provenance, and moves the candidate to `history/`, all or nothing. `--into` takes precedence over the candidate's template. Refused: an id that is not a candidate id, a candidate not open, TODO markers in the fields the action uses, an unknown action, a change that breaks the template format, an unreadable user file for that id, no template without `--into`. |
+| `reject` | Moves an open candidate to `history/` with the reason; the same signal is not reopened for that template version. Refused: an empty reason. |

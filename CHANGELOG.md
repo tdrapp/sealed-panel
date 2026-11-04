@@ -7,21 +7,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.0] - unreleased
-
 ### Added
 
 - A rubric library: eight built-in templates (cv, cover-letter, pitch, message, essay,
-  interview-answer, plan-doc, prompt-output) checked against a template format, and a user
-  library (`[library] path`, `SEALED_PANEL_RUBRICS`) whose templates override built-ins.
-- `sealed-panel rubrics list`, `suggest` (deterministic ranking), `show`, `use` (a spec
-  skeleton with TODO markers that `init` refuses until filled), `promote` and `reject`.
-- A spec may record `template: {id, version}`, frozen by the rubric hash. A spec without it
-  keeps its 0.1.0 hash.
-- Learning after a sealed panel: `new_dimension`, `sharpen_anchor` and `non_discriminating`
-  candidates in the library inbox, de-duplicated by kind, template and dimension, and
-  `sealed-panel feedback` for the user's own disagreement. Nothing changes a template without
+  interview-answer, plan-doc, prompt-output) with aliases and facts hints, checked against a
+  template format, and a user-level library (`SEALED_PANEL_RUBRICS`, `[library] path`, or the
+  platform's user data directory) whose templates override built-ins.
+- `sealed-panel rubrics list`, `suggest` (by kind and alias, keywords only break ties),
+  `show`, `use` (a spec skeleton with TODO markers that `init` refuses until filled),
+  `promote` (side by side, typed confirmation or `--yes`, all or nothing) and `reject`;
+  `sealed-panel learn RUN` and `sealed-panel feedback RUN`.
+- A spec may record `template: {id, version, sha256}`, frozen by the rubric hash, and `init`
+  records whether the dimensions were modified. A spec without it keeps its 0.1.0 hash.
+- Learning after a sealed panel: `judges_disagree` and `control_too_close` candidates, and
+  `user_disagreement` from `feedback`, de-duplicated by kind, template version and dimension,
+  with rejections remembered. Learning never fails a seal. Nothing changes a template without
   a person running `rubrics promote`, and a frozen run never changes.
+- The control's median per dimension is stored in each round.
+
+### Changed
+
+- A run frozen by 0.1.0 keeps working: its configuration has no `[library]` section, and the
+  library is resolved when a command needs it.
 
 ## [0.1.0] - 2026-11-04
 
