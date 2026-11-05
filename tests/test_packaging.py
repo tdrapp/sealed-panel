@@ -50,7 +50,14 @@ def test_the_judge_agent_carries_the_judge_instructions() -> None:
     instructions = (SOURCE / "judge.md").read_text(encoding="utf-8").split("\n---\n", 1)[1]
     assert body.strip() == instructions.strip()
     assert "name: eval-judge" in front
-    assert re.search(r"^tools: Read$", front, re.MULTILINE)  # never a tool that writes or runs
+    # The host documents no empty allowlist: `tools` omitted inherits every tool, so every
+    # built-in tool is denied instead, MCP tools too (a judge must not read keys.json).
+    assert not re.search(r"^tools:", front, re.MULTILINE)
+    [line] = re.findall(r"^disallowedTools: (.*)$", front, re.MULTILINE)
+    denied = {name.strip() for name in line.split(",")}
+    must = {"Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "LSP"}
+    must |= {"WebFetch", "WebSearch", "Agent", "Skill", "Monitor", "Workflow", "mcp__*"}
+    assert must <= denied, must - denied
 
 
 def test_the_plugin_files_install_one_version() -> None:

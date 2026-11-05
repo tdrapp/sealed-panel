@@ -99,9 +99,10 @@ Validates one judge's reply and stores it as `out_j<J>_<id>_<hash>.json`. Prints
 A reply is rejected (stored, but not counted) when it is not JSON, misses an item or a
 dimension, has a score that is not an integer from 1 to 5 (`true` included), a severity outside
 the configured list, an empty reasoning, more than a third of quotes not found in the items, a
-control mean above `control_max`, or a known-good mean below `good_min`. Scores above the
-severity cap are lowered to the cap. A quote that is not found voids that score. A judge that
-quoted the same words on every dimension of the candidate is noted for the report.
+control mean above `control_max`, a known-good mean below `good_min`, or, from a transcript, any
+tool call by the judge other than the configured handback tool (a judge gets no tools). Scores
+above the severity cap are lowered to the cap. A quote that is not found voids that score. A
+judge that quoted the same words on every dimension of the candidate is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
 used in the run, a reply already recorded, a judge slot that already has a valid reply, any

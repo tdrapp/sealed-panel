@@ -59,9 +59,12 @@ Install it from your host's prompt:
 /plugin install sealed-panel@sealed-panel
 ```
 
-The plugin needs `uvx` on the path. The judge agent may only read files, and its
-instructions forbid using any tool: give it one brief's text as its whole prompt. A judge that
-can read files could open the run directory, so never pass it a path.
+The plugin needs `uvx` on the path. The judge agent gets no tool: the host's agent format
+has no empty tool list (leaving the list out grants every tool), so the agent file denies every
+built-in tool by name, and MCP tools with `mcp__*`. Its instructions forbid tools too. A judge
+that can read files could open the run directory and learn which label is the candidate, so a
+reply whose transcript shows any tool call (the handback tool aside) is rejected by `record`.
+Give the judge one brief's text as its whole prompt, never a path.
 
 To work on the plugin from a clone, point the server at the clone instead of the published
 package, in your host's MCP configuration:

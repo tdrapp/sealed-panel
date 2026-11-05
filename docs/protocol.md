@@ -154,7 +154,9 @@ three kinds of proof, and the report says which one each round used.
   ones the user allowed, and no path into the run directory.
 - **Transcript (`record --transcript`).** The judge's own transcript must contain the whole
   brief in its prompt; text added around it is counted and reported, and an agent that holds a
-  brief id but was never recorded blocks the aggregation.
+  brief id but was never recorded blocks the aggregation. A transcript showing that the judge
+  called any tool other than the configured handback tool is rejected: a judge with a tool
+  could have read the run's keys and known which item is the candidate.
 - **Pasted (`record --output`).** Nothing shows that the judge received the brief verbatim,
   or that no other judge was asked and discarded. The report flags such rounds.
 

@@ -1022,6 +1022,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if failure:\n            raise\n",
         "        raise\n",
     ),
+    "a judge that used a tool is read": (REC, "    if tools_used:\n", "    if False:\n"),
+    "the handback tool counted as a tool use": (
+        REC,
+        'if name != t["handback_tool"] or not t["handback_tool"]:',
+        "if True:",
+    ),
 }
 
 

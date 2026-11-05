@@ -149,6 +149,24 @@ def handback_messages(
     return messages
 
 
+def judge_tools(transcript: Path, cfg: Config | None = None) -> list[str]:
+    """The tools the judge called in its transcript, sorted, the configured handback tool
+    excepted (the way some runtimes return a reply). A judge gets no tools: a call to any other
+    tool means it could have read the run directory, labels and roles included."""
+    t = resolve(cfg).transcript
+    used = set()
+    for e in _entries(transcript):
+        if e.get(t["role_key"]) != t["assistant_role"]:
+            continue
+        content = _content(e, t)
+        for b in content if isinstance(content, list) else []:
+            if isinstance(b, dict) and b.get(t["block_type_key"]) == t["tool_block_type"]:
+                name = str(b.get(t["tool_name_key"]))
+                if name != t["handback_tool"] or not t["handback_tool"]:
+                    used.add(name)
+    return sorted(used)
+
+
 def last_reply(transcript: Path, cfg: Config | None = None) -> str:
     """A transcript's reply: its last delivered handback message, since that is what its
     caller received; else its last non-empty assistant text; else, when nothing was delivered
@@ -521,12 +539,23 @@ def _record_reply(
     check_seat(judge, prior, source, cfg)
     dim_ids = [d["id"] for d in dims_for(spec, meta["persona"])]
     texts = {role: read_text(rdir / f"{role}.md") for role in set(meta["key"].values())}
-    try:
-        if malformed:
-            raise EvalError(malformed)
-        result = check_output(extract_json(raw), meta["key"], texts, dim_ids, cfg)
-    except (json.JSONDecodeError, EvalError) as exc:
-        result = {"ok": False, "errors": [f"unparseable: {exc}"], "items": {}}
+    tools_used = judge_tools(transcript, cfg) if transcript is not None else []
+    if tools_used:
+        result = {
+            "ok": False,
+            "errors": [
+                f"the judge used a tool ({', '.join(tools_used)}): a judge gets no tools, so it "
+                "could have read the run; brief a fresh judge on the same brief"
+            ],
+            "items": {},
+        }
+    else:
+        try:
+            if malformed:
+                raise EvalError(malformed)
+            result = check_output(extract_json(raw), meta["key"], texts, dim_ids, cfg)
+        except (json.JSONDecodeError, EvalError) as exc:
+            result = {"ok": False, "errors": [f"unparseable: {exc}"], "items": {}}
     if result["ok"]:
         _calibrate(result, meta, spec)
     result.update(

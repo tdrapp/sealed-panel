@@ -8,11 +8,13 @@ from typing import Any
 
 import pytest
 
-from conftest import BAD, FLAT, Harness, judge_json
+from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
+from sealed_panel.config import load_config
 from sealed_panel.errors import EvalError
-from sealed_panel.record import last_reply, record_reply
+from sealed_panel.record import judge_tools, last_reply, record_reply
+from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import round_dir
 
 
@@ -95,3 +97,44 @@ class TestTranscriptRefusals:
         fake_transcript(folder, "hidden", (rdir / "brief_j1.md").read_text())  # a 4th, kept quiet
         with pytest.raises(EvalError, match="never recorded"):
             aggregate_round(h.run, 1, False)
+
+
+class TestJudgeTools:
+    def tool_row(self, name: str, agent: str) -> dict[str, Any]:
+        block = {"type": "tool_use", "id": "t1", "name": name, "input": {"file_path": "keys.json"}}
+        return {"type": "assistant", "agentId": agent, "message": {"content": [block]}}
+
+    def reply_with(self, h: Harness, tools: list[str], cfg_tool: str = "") -> dict[str, Any]:
+        if cfg_tool:
+            c = h.tmp / "c.toml"
+            c.write_text(f'[transcript]\nhandback_tool = "{cfg_tool}"\n')
+            sp = h.tmp / "spec.json"
+            sp.write_text(json.dumps(make_spec()))
+            init_run(h.run, sp, load_config(c))
+        else:
+            h.init()
+        h.brief(1, "cand")
+        meta = h.keys(1)["judges"][0]
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+        raw = judge_json(meta, h.texts(1, meta), sc)
+        brief = (round_dir(h.run, 1) / "brief_j1.md").read_text()
+        rows = [entry("user", brief, "j1"), *[self.tool_row(n, "j1") for n in tools]]
+        rows.append(entry("assistant", raw, "j1"))
+        t = write_jsonl(h.tmp / "tasks" / "j1.output", rows)
+        return record_reply(h.run, 1, 1, "j1", raw, False, "transcript", t)
+
+    def test_a_judge_that_used_a_tool_is_rejected(self, h: Harness) -> None:
+        r = self.reply_with(h, ["Read", "Bash"])
+        assert not r["ok"]
+        assert r["errors"][0].startswith("the judge used a tool (Bash, Read): a judge gets no")
+
+    def test_a_judge_without_tools_is_read(self, h: Harness) -> None:
+        assert self.reply_with(h, [])["ok"]
+
+    def test_the_handback_tool_is_not_a_tool_use(self, h: Harness) -> None:
+        assert self.reply_with(h, ["ReturnToCaller"], cfg_tool="ReturnToCaller")["ok"]
+        assert judge_tools(h.tmp / "tasks" / "j1.output", run_config(h.run)) == []
+
+    def test_any_other_tool_beside_the_handback_is_a_tool_use(self, h: Harness) -> None:
+        r = self.reply_with(h, ["ReturnToCaller", "Read"], cfg_tool="ReturnToCaller")
+        assert not r["ok"] and "(Read)" in r["errors"][0]
