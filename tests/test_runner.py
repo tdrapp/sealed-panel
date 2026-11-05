@@ -345,3 +345,12 @@ class TestCommandLine:
         h.brief(1, "cand")
         assert main(["judge", str(h.run), "--round", "1"]) == 2
         assert "no judge command" in capsys.readouterr().err
+
+
+class TestMcpCommand:
+    def test_mcp_without_the_extra_says_how_to_install_it(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "sealed_panel.mcp_server", None)
+        assert main(["mcp"]) == 2
+        assert "pip install 'sealed-panel[mcp]'" in capsys.readouterr().err

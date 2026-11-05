@@ -102,6 +102,12 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("learn", help="write a sealed run's rubric candidates to the inbox again")
     p.add_argument("run", type=Path)
 
+    p = sub.add_parser("mcp", help="serve the commands as MCP tools over stdio (the mcp extra)")
+    p.add_argument(
+        "--root", type=Path, help="directory relative paths resolve against (default: here)"
+    )
+    p.add_argument("--config", type=Path, help="configuration init freezes when a call names none")
+
     p = sub.add_parser("rubrics", help="the rubric library: templates and learned candidates")
     rsub = p.add_subparsers(dest="rcmd", required=True)
 
@@ -206,6 +212,16 @@ def _rubrics(a: argparse.Namespace) -> None:
         print(f"rejected {a.candidate}: moved to {path}")
 
 
+def _mcp(a: argparse.Namespace) -> None:
+    try:
+        from .mcp_server import serve
+    except ImportError as exc:
+        raise EvalError(
+            f"the MCP server needs the mcp extra ({exc}): pip install 'sealed-panel[mcp]'"
+        ) from exc
+    serve(a.root, a.config)
+
+
 def _round(a: argparse.Namespace) -> int:
     return resolve_round(a.round, a.sealed)
 
@@ -265,6 +281,8 @@ def _run(a: argparse.Namespace) -> None:
             raise EvalError(learning)
     elif a.cmd == "rubrics":
         _rubrics(a)
+    elif a.cmd == "mcp":
+        _mcp(a)
 
 
 def main(argv: list[str] | None = None) -> int:

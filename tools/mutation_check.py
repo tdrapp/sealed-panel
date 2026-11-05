@@ -26,7 +26,7 @@ REC, AGG, SPEC, CFG, BRIEF = (
 DEFAULTS = f"{PKG}/defaults.toml"
 CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
 LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
-RUN = f"{PKG}/runner.py"
+RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -951,6 +951,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/report.py",
         '            if v.get("source") == RUNNER:',
         "            if False:",
+    ),
+    # The MCP server.
+    "a record call with two sources accepted": (MCP, "if len(given) != 1:", "if False:"),
+    "internal errors unmasked": (
+        MCP,
+        "        if message is None:\n            raise\n        raise ToolError(message)",
+        "        raise ToolError(message or str(exc))",
+    ),
+    "relative paths resolved against the process directory": (
+        MCP,
+        "return (given if given.is_absolute() else base / given).resolve()",
+        "return given.resolve()",
     ),
 }
 

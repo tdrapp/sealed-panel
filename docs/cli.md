@@ -225,6 +225,32 @@ Writes the candidates of a sealed run to its library's inbox, as `aggregate --se
 Use it when aggregate printed "learning skipped". Evidence already recorded is not added again.
 Refused before the run is sealed, or when learning fails again.
 
+## mcp
+
+```
+sealed-panel mcp [--root DIR] [--config CONFIG.toml]
+```
+
+Serves the commands as MCP tools over stdio, for an agent host, and exits when stdin closes.
+Needs the `mcp` extra (`pip install 'sealed-panel[mcp]'`); without it, the command says so and
+exits with status 2. stdout carries the protocol only; logs go to stderr. Relative paths in tool
+calls resolve against `--root` (default: the directory the server starts in). `--config` is the
+configuration `init` freezes when a call names none, such as one with a `[judge] command`.
+
+The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
+(`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,
+`rubrics_suggest`, `rubrics_show`, `feedback`. Each calls the same function as the command, so
+every refusal is the same; a refusal, a missing file or a file of the wrong shape comes back as
+a tool error with its reason, and any other error is masked. Each returns a structured result
+(and the same object as text). `record` takes exactly one of `transcript`, `reply_file` or
+`reply` (the reply text, flagged as pasted). `judge` reports progress after each judge and
+stops after an hour; a judge already started then still finishes and is recorded.
+
+`rubrics promote` and `rubrics reject` are not tools: a host can answer a confirmation by
+itself, so a tool call proves no person decided. `rubrics_show`, `rubrics_list` and `feedback`
+return the command a person runs instead. `rubrics use` and `learn` stay on the command line.
+See [integrations.md](integrations.md) for host configuration.
+
 ## rubrics
 
 ```

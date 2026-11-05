@@ -15,6 +15,7 @@ repos:
       - id: mypy
         files: ^(src|tools|examples)/
         args: [--config-file=pyproject.toml]
+        additional_dependencies: ["fastmcp>=4.1.6,<4.2"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
