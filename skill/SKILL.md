@@ -17,6 +17,13 @@ give.
 Set `RUN` to a new directory per evaluation (for example `runs/<slug>`). Give the run a neutral
 title: judges see it.
 
+**Tools or commands.** When the sealed-panel MCP tools are available, use them: each carries
+the name of the command below (`init`, `brief`, `record`, `measure`, `aggregate`, `status`,
+`report`, `feedback`, `rubrics_list`, `rubrics_suggest`, `rubrics_show`), with `seal` for
+`brief --sealed`, `void` for `record --void`, and `judge` for `sealed-panel judge`. Otherwise
+run the `sealed-panel` command. Never promote or reject a rubric candidate yourself, through
+any tool or command: show the user the command and let them run it.
+
 ## 0. Scope
 
 One line each: the text and its kind; the persona or personas who will read it and what they
@@ -77,11 +84,22 @@ only.
 sealed-panel brief RUN --round N --artefact draft.md --control control.md [--good good.md]
 ```
 
-Launch all judges at once. Each judge is a **fresh** agent context, with no tools, whose whole
-prompt is the brief file's text pasted verbatim, preceded by the instructions in `judge.md`
-when your tool supports a system prompt or an agent definition. Never reuse a judge, never add
-your reasoning, an earlier score, or which item is which. Never use an agent that can read the
-run directory.
+When the run has a judge command (`status` lists `judge.command` among its settings), run
+
+```
+sealed-panel judge RUN --round N
+```
+
+instead of launching judges: each brief goes to one fresh process, and its reply is recorded
+with its proof. Run it again to replace a rejected or void judge, then go to step 5's
+instruments and aggregation.
+
+Otherwise launch all judges at once. Each judge is a **fresh** agent context, with no tools,
+whose whole prompt is the brief file's text pasted verbatim, preceded by the instructions in
+`judge.md` when your tool supports a system prompt or an agent definition (an `eval-judge`
+agent, when your host provides one, carries them). Never reuse a judge, never add your
+reasoning, an earlier score, or which item is which. Never use an agent that can read the run
+directory.
 
 ## 5. Record and aggregate
 
@@ -148,7 +166,8 @@ sealed-panel status RUN
 sealed-panel brief RUN --sealed --artefact final.md --control control.md [--good good.md]
 ```
 
-With `--sealed`, `--round` defaults to 1. Fresh judges, then `record ... --sealed`,
+With `--sealed`, `--round` defaults to 1. Fresh judges (or `judge RUN --sealed`), then
+`record ... --sealed`,
 `measure ... --sealed` (every measured criterion, before aggregating), `aggregate ... --sealed`,
 and:
 

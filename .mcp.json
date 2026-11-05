@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sealed-panel": {
+      "command": "uvx",
+      "args": ["--from", "sealed-panel[mcp]==0.3.0", "sealed-panel", "mcp"]
+    }
+  }
+}

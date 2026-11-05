@@ -1,0 +1,59 @@
+{
+  "title": "Build cache announcement email",
+  "purpose": "the reader enables the remote build cache on one service before 22 November",
+  "personas": [
+    {
+      "id": "em",
+      "description": "Engineering manager of a twelve-person product team. Reads internal email between meetings, gets several tooling announcements a month, and decides what the team spends its next sprint on. Cares about CI time and about not breaking the release train."
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "ask",
+      "name": "The ask",
+      "question": "After one read, can the persona say what is asked of them, by when, and how small the first step is?",
+      "anchors": {
+        "1": "no request, or a request with no action and no date",
+        "3": "the action is named, but the date or the size of the first step is missing",
+        "5": "one concrete action, a date, and the effort of the first step are stated in the first lines"
+      }
+    },
+    {
+      "id": "relevance",
+      "name": "Relevance to the persona",
+      "question": "Is the gain stated in a metric this persona already tracks?",
+      "anchors": {
+        "1": "generic: the text would read the same for any tool or any team",
+        "3": "the gain is named, but not in the persona's own metric (CI time, CI minutes, release risk)",
+        "5": "the gain is stated in the persona's metric with one number they can check, and the risk to the release train is addressed"
+      },
+      "weight": 2
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence",
+      "question": "Is every claim backed by a number or a named case consistent with the facts?",
+      "anchors": {
+        "1": "no number and no named case",
+        "3": "one number or case, the rest asserted",
+        "5": "every claim carries a number or a named case consistent with the facts section"
+      }
+    }
+  ],
+  "facts": "The remote build cache became available to every service in the monorepo on 4 November. It was piloted on three services. On the pilot services, median pull request CI time went from 14 minutes to 6, and weekly CI minutes fell by 38 percent. Enabling it is one line in the service build config: cache: remote. The flag --no-remote-cache turns it off for a single build. The platform team needs one opted-in service per team by 22 November to size the cache for the rest of the quarter.",
+  "measured": [
+    {
+      "id": "length",
+      "description": "word count of the email, 150 or fewer",
+      "max": 150
+    }
+  ],
+  "judges_per_persona": 3,
+  "max_rounds": 6,
+  "declared_choices": [
+    {
+      "choice": "the email is signed by the team, not a person",
+      "user_said": "sign it as Platform tooling"
+    }
+  ]
+}

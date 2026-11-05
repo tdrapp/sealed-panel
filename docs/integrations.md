@@ -36,3 +36,46 @@ The tools are listed in [cli.md](cli.md#mcp). Relative paths resolve against the
 server starts in, or `--root DIR`. To let the server run the judges, pass a configuration with
 a `[judge] command`, either to the `init` tool (`config`) or to the server
 (`sealed-panel mcp --config judge.toml`), which `init` then uses when a call names none.
+
+## Agent host plugin
+
+The repository is also a plugin, and its own marketplace, for agent hosts that install plugins
+from a git repository. The plugin manifest and the marketplace file sit in the plugin folder
+at the repository root; the plugin brings three things:
+
+| Part | File | What it does |
+|---|---|---|
+| MCP server | `.mcp.json` | starts `uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp` |
+| Skill | `skills/sealed-panel/` | the procedure the agent follows, a copy of `skill/` |
+| Judge agent | `agents/eval-judge.md` | the judge instructions of `skill/judge.md`, one fresh instance per brief |
+
+Install it from your host's prompt:
+
+```
+/plugin marketplace add tdrapp/sealed-panel
+/plugin install sealed-panel@sealed-panel
+```
+
+The plugin needs `uvx` on the path. The judge agent may only read files, and its
+instructions forbid using any tool: give it one brief's text as its whole prompt. A judge that
+can read files could open the run directory, so never pass it a path.
+
+To work on the plugin from a clone, point the server at the clone instead of the published
+package, in your host's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "sealed-panel": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/sealed-panel", "--extra", "mcp", "sealed-panel", "mcp"]
+    }
+  }
+}
+```
+
+Then start your host with its option for a local plugin directory pointing at the clone.
+
+`skill/` is the one source of the skill. `skills/sealed-panel/` and
+`.agents/skills/sealed-panel/` are copies that hosts read, and `tests/test_packaging.py` fails
+when a copy drifts: after editing `skill/`, copy it over both.
