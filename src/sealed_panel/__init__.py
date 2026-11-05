@@ -17,7 +17,7 @@ from .runner import judge_round, judge_seat, open_seats
 from .spec import init_run, load_frozen, validate_spec
 from .text import normalise, quote_found
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     "Config",

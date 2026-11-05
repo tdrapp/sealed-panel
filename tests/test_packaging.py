@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from sealed_panel import __version__
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "skill"
 COPIES = [ROOT / "skills" / "sealed-panel", ROOT / ".agents" / "skills" / "sealed-panel"]
@@ -59,7 +61,7 @@ def test_the_plugin_files_install_one_version() -> None:
     assert plugin["name"] == "sealed-panel"
     [entry] = market["plugins"]
     assert entry["name"] == plugin["name"] and entry["source"] == "./"
-    assert entry["version"] == plugin["version"]
+    assert entry["version"] == plugin["version"] == __version__
     launch = server["sealed-panel"]
     assert launch["command"] == "uvx"
     assert launch["args"] == [

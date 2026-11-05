@@ -7,6 +7,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A judge runner: `sealed-panel judge RUN --round N` starts one fresh process per open judge
+  slot from the `[judge] command` argument list (never a shell), writes the brief file's bytes
+  to its stdin and records its stdout as the reply, with source `runner` and its proof: the
+  sha256 of the brief bytes and of the reply, the argument list, the exit status, the duration
+  and the names of the variables passed. stderr goes to a log file beside the brief. The
+  process starts in an empty directory with `PATH`, `HOME`, `LANG` and the names in
+  `[judge] env_allow` only. A non-zero exit, a timeout (`[judge] timeout_s`, 1 to 3600 s) or
+  no output is recorded as a void, under the void cap; every seat refusal is checked before a
+  process starts. A slot the runner attempted cannot take a pasted reply in the same round.
+  The library exposes `judge_round`, `judge_seat`, `open_seats` and `record_from`.
+- An MCP server, `sealed-panel mcp`, in the optional `mcp` extra: stdio only, tools `init`,
+  `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
+  `rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`, each calling the same
+  function as the command. Structured results, strict input validation, refusals as tool
+  errors and other errors masked. Promoting and rejecting candidates stay with a person.
+- The repository is a plugin and its own marketplace for agent hosts that install plugins
+  from git: an MCP server started with `uvx`, the skill under `skills/sealed-panel/`, and an
+  `eval-judge` agent. The skill is also under `.agents/skills/sealed-panel/`. `skill/` stays
+  the one source, and a test fails when a copy drifts.
+- `docs/integrations.md`: MCP hosts, the plugin, TOML host configuration, API pipelines.
+  `examples/runner/`: a provider-neutral judge command template, its configuration and a
+  library example.
+- CI runs the tests on Python 3.11 to 3.13 without the `mcp` extra as well, where the MCP
+  tests skip.
+
+### Changed
+
+- The report labels a void by the runner with its reason, and notes rounds whose replies the
+  runner read. `record` and `judge` share one copy of the seat refusals.
+- A run frozen before 0.3.0 has no `[judge]` section and stays in host mode.
+
 ## [0.2.1] - 2026-11-04
 
 ### Fixed
