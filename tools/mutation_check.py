@@ -640,6 +640,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "            env={k: v for k, v in os.environ.items() if k not in local},\n",
         "",
     ),
+    "no usable git trusted": (
+        CFG,
+        "        return False  # no usable git: the library cannot be shown to be ignored\n",
+        "        return True\n",
+    ),
     "all GIT_ variables stripped": (
         CFG,
         "            env={k: v for k, v in os.environ.items() if k not in local},\n",

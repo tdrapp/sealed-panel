@@ -205,13 +205,21 @@ def private_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture(autouse=True)
 def no_inherited_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A git hook exports GIT_DIR and friends; the tests' own `git init` must not obey them.
-    Git also reads an empty global configuration and no system one, so the user's own
-    excludes files never decide a test; a test that needs a user configuration sets its own."""
+    Git also runs as a throwaway user: HOME and XDG_CONFIG_HOME in tmp_path, a global
+    configuration whose only setting is an empty excludes file (git otherwise reads
+    $XDG_CONFIG_HOME/git/ignore even with GIT_CONFIG_GLOBAL set), and no system one. So the
+    user's own excludes files never decide a test; a test that needs a user sets its own."""
     for key in [k for k in os.environ if k.startswith("GIT_")]:
         monkeypatch.delenv(key)
-    empty = tmp_path / "empty.gitconfig"
-    empty.write_text("")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    home = tmp_path / "git-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    no_excludes = home / "no-excludes"
+    no_excludes.write_text("")
+    config = home / "global.gitconfig"
+    config.write_text(f"[core]\n\texcludesFile = {no_excludes}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 

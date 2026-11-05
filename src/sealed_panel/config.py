@@ -417,7 +417,9 @@ def _git_ignored(top: Path, path: Path) -> bool:
     """Whether the user's git ignores `path` in the repository at `top`. An inherited
     repository-local variable (a git hook, a wrapper) would make git answer for another
     repository, so those are dropped; the user's configuration (GIT_CONFIG_GLOBAL and the like)
-    is kept, so the answer is the one their own git gives."""
+    is kept, so the answer is the one their own git gives. Git classes `-c` settings
+    (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT) as local too, so a wrapper's one-off
+    `-c core.excludesFile` is dropped with them: the user's durable configuration decides."""
     try:
         local = _git_local_env_vars()
         done = subprocess.run(
