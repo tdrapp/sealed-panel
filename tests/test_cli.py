@@ -106,7 +106,7 @@ class TestCli:
         with pytest.raises(SystemExit) as exc:
             main(["--version"])
         assert exc.value.code == 0
-        assert "sealed-panel 0.2.0" in capsys.readouterr().out
+        assert "sealed-panel 0.2.1" in capsys.readouterr().out
         monkeypatch.setattr(sys, "argv", ["sealed-panel", "status", "/nonexistent/run"])
         with pytest.raises(SystemExit) as exc:
             runpy.run_module("sealed_panel", run_name="__main__")

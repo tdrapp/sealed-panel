@@ -238,6 +238,23 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if text_hash(cand) in {r.get("candidate_hash") for r in loop}:',
         "if False:",
     ),
+    "re-roll hash with run config": (
+        BRIEF,
+        'if text_hash(cand) in {r.get("candidate_hash") for r in loop}:',
+        f'if __import__("hashlib").sha256({CFG_NORM}(cand, cfg).encode("utf-8")).hexdigest()'
+        '[:16] in {r.get("candidate_hash") for r in loop}:',
+    ),
+    "baseline inclusion with run config": (
+        BRIEF,
+        "if first.exists() and fixed_normalise(read_text(first)) != fixed_normalise(cand):",
+        f"if first.exists() and {CFG_NORM}(read_text(first), cfg) != {CFG_NORM}(cand, cfg):",
+    ),
+    "previous inclusion with run config": (
+        BRIEF,
+        "if prev_path.exists() and fixed_normalise(read_text(prev_path)) != fixed_normalise(cand):",
+        f"if prev_path.exists() and {CFG_NORM}(read_text(prev_path), cfg)"
+        f" != {CFG_NORM}(cand, cfg):",
+    ),
     # The spec and its freeze.
     "rubric lock off": (SPEC, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
@@ -620,8 +637,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
     "inherited GIT_DIR obeyed": (
         CFG,
-        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
+        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
         "",
+    ),
+    "no usable git trusted": (
+        CFG,
+        "        return False  # no usable git: the library cannot be shown to be ignored\n",
+        "        return True\n",
+    ),
+    "all GIT_ variables stripped": (
+        CFG,
+        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
+        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
     ),
     "feedback library unresolved": (
         f"{PKG}/cli.py",
@@ -816,6 +843,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         BRIEF,
         "if fixed_normalise(cand) == fixed_normalise(ctrl):",
         f"if {CFG_NORM}(cand, cfg) == {CFG_NORM}(ctrl, cfg):",
+    ),
+    "one-quote flag with run config": (
+        REC,
+        "quotes.append(fixed_normalise(quote))",
+        f"quotes.append({CFG_NORM}(quote, cfg))",
     ),
     "whole-brief check uses the configured normalisation": (
         REC,

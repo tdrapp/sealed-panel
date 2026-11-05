@@ -57,6 +57,7 @@ strip_chars = "*_`#>"
 "\u00bb" = "\""
 "\u2013" = "-"
 "\u2014" = "-"
+# NFKC already turns the ellipsis character into "..."; the entry stays for runs frozen with it.
 "\u2026" = "..."
 
 [injection]

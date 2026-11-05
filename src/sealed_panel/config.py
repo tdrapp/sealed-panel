@@ -169,8 +169,9 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     return errors
 
 
-# The one value that is not a single character: the built-in entry that writes an ellipsis as
-# "...", a quote joint by design. No other key may map to it.
+# The one value that is not a single character: the built-in entry for the ellipsis character.
+# NFKC already turns it into "..." before the map runs, so the entry has no effect; it stays so
+# that runs frozen with it remain valid. No other key may map to "...".
 ELLIPSIS = "\u2026"
 
 
@@ -183,8 +184,10 @@ def _text_errors(text: Mapping[str, Any]) -> list[str]:
     """The quote check's normalisation. A key is one character, not a letter, digit or
     whitespace. A value is exactly one character: not whitespace, not a letter or digit (after
     case folding too) and not stripped; the only exception is the built-in ELLIPSIS entry. So a
-    mapping can turn one punctuation character into another, never delete one, split a word,
-    join two words or add an ellipsis joint. No other check uses these settings."""
+    mapping can turn one punctuation character into another, never delete one, split a word or
+    join two words. A run of mapped and literal dots that normalises to an ellipsis reads as
+    one, which a judge could write as "..." anyway, so no reach is gained. No other check
+    uses these settings."""
     errors = []
     if any(c.isalnum() or c.isspace() for c in text["strip_chars"]):
         errors.append("text.strip_chars may hold punctuation only, no letter, digit or space")
@@ -395,19 +398,39 @@ def _git_top(path: Path) -> Path | None:
     return None
 
 
+@cache
+def _git_local_env_vars() -> frozenset[str]:
+    """The repository-local variables, as git lists them: the ones git itself clears when it
+    moves to another repository (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and the like)."""
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    done = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=clean,
+    )
+    return frozenset(done.stdout.split())
+
+
 def _git_ignored(top: Path, path: Path) -> bool:
+    """Whether the user's git ignores `path` in the repository at `top`. An inherited
+    repository-local variable (a git hook, a wrapper) would make git answer for another
+    repository, so those are dropped; the user's configuration (GIT_CONFIG_GLOBAL and the like)
+    is kept, so the answer is the one their own git gives. Git classes `-c` settings
+    (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT) as local too, so a wrapper's one-off
+    `-c core.excludesFile` is dropped with them: the user's durable configuration decides."""
     try:
+        local = _git_local_env_vars()
         done = subprocess.run(
             # A trailing slash: the library is a directory, even before it exists.
             ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],
             capture_output=True,
             check=False,
-            # An inherited GIT_DIR (a git hook, a wrapper) would make git answer for another
-            # repository than `top`.
-            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            env={k: v for k, v in os.environ.items() if k not in local},
         )
-    except OSError:
-        return False  # no git: the library cannot be shown to be ignored
+    except (OSError, subprocess.CalledProcessError):
+        return False  # no usable git: the library cannot be shown to be ignored
     return done.returncode == 0
 
 

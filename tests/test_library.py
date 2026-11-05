@@ -5,14 +5,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from conftest import FLAT, Harness, make_spec
-from sealed_panel import library
+from sealed_panel import config, library
 from sealed_panel.brief import write_briefs
 from sealed_panel.cli import main
 from sealed_panel.config import default_library_dir, library_dir, load_config
@@ -647,6 +649,95 @@ class TestResolvedLibrary:
         monkeypatch.setenv("GIT_DIR", str(other / ".git"))  # as inside a git hook
         with pytest.raises(EvalError, match="inside the git working tree"):
             library_dir(repo / "rubrics")
+
+    @staticmethod
+    def user_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_ignores: bool) -> Path:
+        """A throwaway user: HOME and XDG_CONFIG_HOME in tmp_path, never the real ones. When
+        `home_ignores`, ~/.gitconfig names an excludes file that ignores `rubrics/`."""
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+        excludes = tmp_path / "excludes"
+        excludes.write_text("rubrics/\n")
+        if home_ignores:
+            (home / ".gitconfig").write_text(f"[core]\n\texcludesFile = {excludes}\n")
+        return excludes
+
+    def test_the_users_git_config_global_is_obeyed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        excludes = self.user_git(tmp_path, monkeypatch, home_ignores=False)
+        repo = self.repo(tmp_path)
+        effective = tmp_path / "global.gitconfig"
+        effective.write_text(f"[core]\n\texcludesFile = {excludes}\n")
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(effective))
+        assert library_dir(repo / "rubrics") == (repo / "rubrics").resolve()
+
+    def test_a_home_config_overridden_by_git_config_global_does_not_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.user_git(tmp_path, monkeypatch, home_ignores=True)
+        repo = self.repo(tmp_path)
+        effective = tmp_path / "global.gitconfig"
+        effective.write_text("[user]\n\tname = nobody\n")  # no excludes file
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(effective))
+        with pytest.raises(EvalError, match="inside the git working tree"):
+            library_dir(repo / "rubrics")
+
+    def test_the_users_default_ignore_file_never_decides_a_test(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        user_ignore = Path(os.environ["XDG_CONFIG_HOME"]) / "git" / "ignore"
+        user_ignore.parent.mkdir(parents=True)
+        user_ignore.write_text("*\n")  # where git looks by default: it ignores everything
+        repo = self.repo(tmp_path)
+        with pytest.raises(EvalError, match="not ignored"):
+            library_dir(repo / "rubrics")
+
+    @staticmethod
+    def ignoring_repo(tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / ".gitignore").write_text("rubrics/\n")  # git would say: ignored
+        return repo
+
+    @pytest.fixture
+    def fresh_git_vars(self) -> Iterator[None]:
+        config._git_local_env_vars.cache_clear()
+        yield
+        config._git_local_env_vars.cache_clear()
+
+    @pytest.mark.usefixtures("fresh_git_vars")
+    def test_no_git_on_the_path_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self.ignoring_repo(tmp_path)
+        empty = tmp_path / "no-git"
+        empty.mkdir()
+        monkeypatch.setenv("PATH", str(empty))
+        with pytest.raises(EvalError, match="not ignored"):
+            library_dir(repo / "rubrics")
+
+    @pytest.mark.skipif(os.name == "nt", reason="the stub git is a shell script")
+    @pytest.mark.usefixtures("fresh_git_vars")
+    def test_a_failing_local_env_vars_query_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self.ignoring_repo(tmp_path)
+        real = shutil.which("git")
+        assert real
+        stub = tmp_path / "stub" / "git"
+        stub.parent.mkdir()
+        stub.write_text(f'#!/bin/sh\n[ "$1" = rev-parse ] && exit 1\nexec "{real}" "$@"\n')
+        stub.chmod(0o755)
+        monkeypatch.setenv("PATH", str(stub.parent))
+        with pytest.raises(EvalError, match="not ignored"):
+            library_dir(repo / "rubrics")
+        config._git_local_env_vars.cache_clear()
+        monkeypatch.setenv("PATH", str(Path(real).parent))
+        assert library_dir(repo / "rubrics") == (repo / "rubrics").resolve()  # git: ignored
 
     def test_dot_dot_out_of_a_repository_is_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

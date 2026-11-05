@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,7 +12,7 @@ from conftest import FLAT, Harness, make_spec
 from sealed_panel.brief import write_briefs
 from sealed_panel.config import Config, default_config, default_data, load_config, merge
 from sealed_panel.errors import ConfigError, EvalError
-from sealed_panel.record import record_reply
+from sealed_panel.record import check_output, record_reply
 from sealed_panel.report import render_report, status
 from sealed_panel.spec import init_run, run_config, validate_spec
 from sealed_panel.store import round_dir
@@ -399,6 +400,19 @@ class TestPunctuationAndStripping:
         assert kept.punctuation["\u2026"] == "..."
         assert load_config(write(tmp_path / "d.toml", '[text.punctuation]\n"\u2026" = "."\n'))
 
+    def test_three_dots_by_mapping_read_as_an_ellipsis(self, tmp_path: Path) -> None:
+        """Documented: with a legal "-" = ".", three dashes become an ellipsis joint. A judge
+        could write the ellipsis anyway, so the mapping gains no reach."""
+        source = "The pilot ran on three services. Weeks later, the cache was enabled for all."
+        dashes = "The pilot ran on three services--- enabled for all."
+        dotted = load_config(write(tmp_path / "m.toml", '[text.punctuation]\n"-" = "."\n'))
+        assert not quote_found(dashes, source)
+        assert quote_found(dashes, source, dotted)
+        assert quote_found("The pilot ran on three services... enabled for all.", source)
+        for joint in ("- - -", ".--", "-.-"):  # spaced, or mixed with a literal dot
+            quote = f"The pilot ran on three services{joint} enabled for all."
+            assert not quote_found(quote, source) and quote_found(quote, source, dotted), joint
+
     def test_a_value_that_folds_to_a_letter_is_refused(self, tmp_path: Path) -> None:
         assert "\u0345".casefold() != "\u0345" and not "\u0345".isalnum()
         refused(tmp_path, '[text.punctuation]\n"-" = "\u0345"\n', "may not hold a letter or digit")
@@ -446,11 +460,11 @@ class TestOnlyQuotesUseTheTextSettings:
     key to itself, would otherwise loosen each of them."""
 
     @staticmethod
-    def init(h: Harness, toml: str) -> None:
+    def init(h: Harness, toml: str, **over: Any) -> None:
         cfg = h.tmp / "c.toml"
         cfg.write_text(toml, encoding="utf-8")
         sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()), encoding="utf-8")
+        sp.write_text(json.dumps(make_spec(**over)), encoding="utf-8")
         init_run(h.run, sp, load_config(cfg))
 
     @staticmethod
@@ -497,3 +511,35 @@ class TestOnlyQuotesUseTheTextSettings:
         h.files["cand"].write_text(first.replace("'", "\u2019"), encoding="utf-8")
         with pytest.raises(EvalError, match="re-roll"):
             h.brief(2, "cand")
+
+    def test_merged_punctuation_does_not_drop_the_previous_version(self, h: Harness) -> None:
+        self.init(h, '[text.punctuation]\n"." = ","\n')
+        first = h.files["cand"].read_text(encoding="utf-8")
+        assert "." in first
+        h.full(1, "cand", FLAT)
+        h.files["cand"].write_text(first.replace(".", ","), encoding="utf-8")
+        h.brief(2, "cand")  # a different text, built-in: the previous version rides along
+        roles = {r for j in h.keys(2)["judges"] for r in j["key"].values()}
+        assert "previous" in roles
+
+    def test_an_undone_mapping_does_not_add_a_baseline(self, h: Harness) -> None:
+        self.init(h, '[text.punctuation]\n"\u2019" = "\u2019"\n', max_rounds=1)
+        first = h.files["cand"].read_text(encoding="utf-8") + " It's done."
+        h.files["cand"].write_text(first, encoding="utf-8")
+        h.full(1, "cand", FLAT)
+        h.files["cand"].write_text(first.replace("'", "\u2019"), encoding="utf-8")
+        h.brief(1, "cand", sealed=True)  # the same text as round 1, built-in: no baseline
+        roles = {r for j in h.keys(1, True)["judges"] for r in j["key"].values()}
+        assert roles == {"candidate", "control"}
+
+    def test_an_undone_mapping_does_not_hide_one_quote_for_all(self) -> None:
+        cfg = load_config()
+        cfg = Config(merge(cfg.data, {"text": {"punctuation": {"\u2019": "\u2019"}}}))
+        dim = {"reasoning": "because", "severity": "none", "score": 4}
+        out = {"items": {"A": {"dimensions": {
+            "clarity": {**dim, "quote": "It's the plan, and it's short."},
+            "evidence": {**dim, "quote": "It\u2019s the plan, and it\u2019s short."},
+        }}}}  # fmt: skip
+        texts = {"candidate": "It's the plan, and it's short."}
+        r = check_output(out, {"A": "candidate"}, texts, ["clarity", "evidence"], cfg)
+        assert r["items"]["candidate"]["one_quote"] is True
