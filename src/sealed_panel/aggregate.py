@@ -199,7 +199,13 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
             {"judge": r["judge"], "errors": r["errors"]} for r in rejected if not r.get("void")
         ],
         "voided": [
-            {"judge": r["judge"], "agent_id": r["agent_id"], "replied": bool(r.get("replied"))}
+            {
+                "judge": r["judge"],
+                "agent_id": r["agent_id"],
+                "replied": bool(r.get("replied")),
+                "source": r.get("source", "void"),
+                "reason": (r.get("errors") or [""])[0],
+            }
             for r in rejected
             if r.get("void")
         ],

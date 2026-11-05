@@ -42,6 +42,10 @@ SEVERITY_CEILINGS = {"blocking": 3, "material": 4}
 MAX_JUDGES_PER_PERSONA = 9
 # Transcript keys that may be empty: an empty handback tool means none is read.
 OPTIONAL_TRANSCRIPT_KEYS = frozenset({"handback_tool"})
+# Seconds a judge process may run, at least and at most.
+JUDGE_TIMEOUT_BOUNDS = (1, 3600)
+# An environment variable name, as passed to a judge process.
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _type_ok(default: Any, value: Any) -> bool:
@@ -162,6 +166,7 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
         errors.append("library.control_gap must be between 0 and 4")
     errors += _injection_errors(data["injection"])
+    errors += _judge_errors(data.get("judge") or default_data()["judge"])
     transcript = data["transcript"]
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
@@ -262,6 +267,22 @@ def _injection_errors(injection: Mapping[str, Any]) -> list[str]:
     return errors
 
 
+def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
+    """The judge runner: an argument list of non-empty strings (empty: host mode), a bounded
+    timeout, and environment variable names."""
+    errors = []
+    command = judge["command"]
+    if not all(isinstance(arg, str) and arg for arg in command):
+        errors.append("judge.command must be a list of non-empty strings (empty: host mode)")
+    low, high = JUDGE_TIMEOUT_BOUNDS
+    if not low <= judge["timeout_s"] <= high:
+        errors.append(f"judge.timeout_s must be between {low} and {high} seconds")
+    names = judge["env_allow"]
+    if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
+        errors.append("judge.env_allow must hold environment variable names only")
+    return errors
+
+
 def default_data() -> dict[str, Any]:
     text = resources.files("sealed_panel").joinpath("defaults.toml").read_text("utf-8")
     return tomllib.loads(text)
@@ -348,6 +369,12 @@ class Config:
     @property
     def transcript(self) -> dict[str, Any]:
         return self.section("transcript")
+
+    @property
+    def judge(self) -> dict[str, Any]:
+        """The [judge] section; a run frozen before 0.3.0 has none, and gets host mode."""
+        value: dict[str, Any] = self.data.get("judge") or default_data()["judge"]
+        return value
 
     @property
     def library(self) -> dict[str, Any]:

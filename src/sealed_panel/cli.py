@@ -11,12 +11,13 @@ from . import __version__, library
 from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import LIBRARY_ENV, library_dir, load_config
-from .errors import EvalError, MalformedReply
+from .errors import EvalError, user_message
 from .learn import learn_safely, user_disagreement
-from .record import last_reply, record_measurement, record_reply, transcript_agent_id
+from .record import outcome_line, record_from, record_measurement
 from .report import feedback_path, render_report, status
-from .spec import TODO_MARKER, init_run, run_config, run_library
-from .store import load_json
+from .runner import judge_seat, open_seats
+from .spec import TODO_MARKER, init_run, library_for
+from .store import load_json, resolve_round
 
 DESCRIPTION = "Grade a text with blind panels of LLM judges and a sealed final panel."
 ROUND_HELP = "round number; optional with --sealed, where it defaults to 1"
@@ -66,6 +67,14 @@ def _parser() -> argparse.ArgumentParser:
         "--void",
         action="store_true",
         help="the agent received the brief but never replied (needs --transcript)",
+    )
+
+    p = sub.add_parser(
+        "judge", help="run the configured judge command once for each open seat of a round"
+    )
+    _round_args(p)
+    p.add_argument(
+        "--judge", type=int, action="append", help="only this judge slot (repeat for several)"
     )
 
     p = sub.add_parser("measure", help="record an instrument reading")
@@ -149,7 +158,7 @@ def _confirm(a: argparse.Namespace, plan: dict[str, object]) -> None:
 
 
 def _rubrics(a: argparse.Namespace) -> None:
-    lib = library_dir(a.library) if a.library or not a.run else run_library(a.run)
+    lib = library_for(a.library, a.run)
     if a.rcmd == "list":
         print(f"library: {lib}")
         served, warnings = library.all_templates(lib)
@@ -198,43 +207,16 @@ def _rubrics(a: argparse.Namespace) -> None:
 
 
 def _round(a: argparse.Namespace) -> int:
-    if a.round is not None:
-        return int(a.round)
-    if a.sealed:
-        return 1
-    raise EvalError("--round is required for a loop round (it defaults to 1 only with --sealed)")
+    return resolve_round(a.round, a.sealed)
 
 
 def _record(a: argparse.Namespace) -> str:
     rnd = _round(a)
-    if a.void and not a.transcript:
-        raise EvalError("--void needs --transcript")
-    if a.transcript:
-        frozen = run_config(a.run)
-        found = transcript_agent_id(a.transcript, frozen)
-        if found and found != a.agent_id:
-            raise EvalError(
-                f"--agent-id {a.agent_id} does not match the transcript's agent {found}"
-            )
-        raw, source, malformed = "", ("void" if a.void else "transcript"), ""
-        if not a.void:
-            try:
-                raw = last_reply(a.transcript, frozen)
-            except MalformedReply as exc:
-                malformed = str(exc)
-    else:
-        raw = sys.stdin.read() if a.output == "-" else Path(a.output).read_text("utf-8")
-        source, malformed = "output", ""
-    r = record_reply(
-        a.run, rnd, a.judge, a.agent_id, raw, a.sealed, source, a.transcript, a.void, malformed
-    )
-    if r.get("void"):
-        return f"VOID judge {a.judge}: recorded as an attempt without a reply"
-    return (
-        ("VALID" if r["ok"] else "REJECTED")
-        + f" judge {a.judge}"
-        + ("" if r["ok"] else ": " + "; ".join(r["errors"][:3]))
-    )
+    output = None
+    if a.output is not None:
+        output = sys.stdin.read() if a.output == "-" else Path(a.output).read_text("utf-8")
+    r = record_from(a.run, rnd, a.judge, a.agent_id, a.sealed, a.transcript, output, a.void)
+    return outcome_line(r)
 
 
 def _run(a: argparse.Namespace) -> None:
@@ -246,6 +228,12 @@ def _run(a: argparse.Namespace) -> None:
             print(path)
     elif a.cmd == "record":
         print(_record(a))
+    elif a.cmd == "judge":
+        rnd = _round(a)
+        for seat in open_seats(a.run, rnd, a.sealed, a.judge):
+            r = judge_seat(a.run, rnd, seat, a.sealed)
+            proof = r["runner"]
+            print(f"{outcome_line(r)} ({proof['duration_s']:g} s, stderr in {proof['stderr_log']})")
     elif a.cmd == "measure":
         ok = record_measurement(a.run, _round(a), a.id, a.value, a.passed, a.sealed)
         print(f"measured {a.id} = {a.value} ({'pass' if ok else 'fail'})")
@@ -283,14 +271,10 @@ def main(argv: list[str] | None = None) -> int:
     a = _parser().parse_args(argv)
     try:
         _run(a)
-    except (EvalError, OSError) as exc:
-        print(f"sealed-panel: {exc}", file=sys.stderr)
-        return 2
-    except (ValueError, KeyError, TypeError) as exc:
-        print(
-            f"sealed-panel: unusable input ({type(exc).__name__}: {exc}); "
-            "check the files given to this command",
-            file=sys.stderr,
-        )
+    except Exception as exc:
+        message = user_message(exc)
+        if message is None:
+            raise
+        print(f"sealed-panel: {message}", file=sys.stderr)
         return 2
     return 0

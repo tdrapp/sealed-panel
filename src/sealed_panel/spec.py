@@ -365,6 +365,12 @@ def run_library(run: Path) -> Path:
     return guard_library(Path(frozen["path"])) if frozen.get("path") else library_dir()
 
 
+def library_for(flag: Path | None, run: Path | None) -> Path:
+    """The library a rubrics command reads: the flag, else the one frozen into the run, else
+    the user library (environment, setting, or user-level default)."""
+    return library_dir(flag) if flag or not run else run_library(run)
+
+
 def run_config(run: Path) -> Config:
     """The configuration frozen at init."""
     lock = run / "config.lock"

@@ -26,6 +26,7 @@ REC, AGG, SPEC, CFG, BRIEF = (
 DEFAULTS = f"{PKG}/defaults.toml"
 CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
 LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
+RUN = f"{PKG}/runner.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -354,8 +355,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "an injection pattern dropped": (DEFAULTS, "    '\\bsystem prompt\\b',\n", ""),
     "agent id and transcript mismatch accepted": (
-        f"{PKG}/cli.py",
-        "if found and found != a.agent_id:",
+        REC,
+        "if found and found != agent_id:",
         "if False:",
     ),
     "previous round not aggregated": (
@@ -882,6 +883,75 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    if True:\n        return text[:57]",
     ),
     "overrides hidden": (CFG, "if current.get(key) != defaults.get(key):", "if False:"),
+    # The judge runner.
+    "runner without a command": (RUN, "if not command:", "if False:"),
+    "runner after aggregation": (RUN, 'if (rdir / "result.json").exists():', "if False:"),
+    "a failed judge read as a reply": (RUN, "elif code != 0:", "elif False:"),
+    "a timed-out judge read as a reply": (RUN, "if timed_out:", "if False:"),
+    "an empty output read as a reply": (RUN, "elif not reply.strip():", "elif False:"),
+    "parent environment passed to a judge": (
+        RUN,
+        "return {n: source[n] for n in names if n in source}",
+        "return dict(source)",
+    ),
+    "judge started in the current directory": (RUN, "cwd=cwd,", "cwd=None,"),
+    "stderr mixed into the reply": (RUN, "stderr=err,", "stderr=subprocess.STDOUT,"),
+    "brief altered on stdin": (
+        RUN,
+        "proc.communicate(brief, timeout=timeout)",
+        'proc.communicate(brief + b"\\n", timeout=timeout)',
+    ),
+    "seat refusals checked after the call": (
+        RUN,
+        "    _runnable(judge, results_by_judge(rdir).get(judge, []), cfg)\n",
+        "",
+    ),
+    "open seats unchecked": (RUN, "        _runnable(s, prior, cfg)\n", ""),
+    "void cap skipped by the runner": (RUN, "    check_void_cap(judge, prior)\n", ""),
+    "a valid seat run again": (
+        RUN,
+        '        if any(r["ok"] for r in prior):\n            continue\n',
+        "",
+    ),
+    "unknown seat in a selection accepted": (RUN, "        if unknown:\n", "        if False:\n"),
+    "unknown seat run": (
+        RUN,
+        'if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):',
+        "if False:",
+    ),
+    "pasted reply on a runner seat": (
+        REC,
+        'if source == "output" and any(r.get("source") == RUNNER for r in prior):',
+        "if False:",
+    ),
+    "runner proof unchecked": (REC, "if (runner is None) != (source != RUNNER):", "if False:"),
+    "runner proof dropped": (REC, '        result["runner"] = runner\n', "        pass\n"),
+    "judge timeout unbounded": (CFG, 'if not low <= judge["timeout_s"] <= high:', "if False:"),
+    "judge timeout bound exclusive": (
+        CFG,
+        'if not low <= judge["timeout_s"] <= high:',
+        'if not low < judge["timeout_s"] < high:',
+    ),
+    "judge command unchecked": (
+        CFG,
+        "if not all(isinstance(arg, str) and arg for arg in command):",
+        "if False:",
+    ),
+    "judge environment names unchecked": (
+        CFG,
+        "if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):",
+        "if False:",
+    ),
+    "runner replies not reported": (
+        f"{PKG}/report.py",
+        'if RUNNER in r.get("sources", []):',
+        "if False:",
+    ),
+    "runner void label hidden": (
+        f"{PKG}/report.py",
+        '            if v.get("source") == RUNNER:',
+        "            if False:",
+    ),
 }
 
 

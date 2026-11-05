@@ -109,6 +109,18 @@ tool_result_type = "tool_result"
 tool_result_id_key = "tool_use_id"
 tool_error_key = "is_error"
 
+[judge]
+# The judge runner. `sealed-panel judge` starts one process per brief with this argument list
+# (never through a shell), writes the brief file's bytes to its stdin and reads its stdout as
+# the reply. Empty means host mode: your agent host runs the judges and `record` stores their
+# replies. The argument list is stored with every reply: keep credentials out of it.
+command = []
+# Seconds a judge process may run; past it, the process is stopped and the brief gets no reply.
+timeout_s = 300
+# Names of environment variables passed to the judge process, besides PATH, HOME and LANG.
+# Nothing else from the environment reaches it.
+env_allow = []
+
 [library]
 # The user rubric library: user templates, inbox/ and history/. Empty means the user-level
 # default (~/.local/share/sealed-panel/rubrics, or the platform equivalent); the environment

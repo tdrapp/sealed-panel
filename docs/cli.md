@@ -16,8 +16,8 @@ malformed input (a file that is not JSON, a spec or run file of the wrong shape)
 names the problem, never a traceback. A rejected judge reply is not a refusal: `record` stores
 it, prints `REJECTED`, and exits 0.
 
-`record` calls for one round must run one after the other, not in parallel: each call reads
-the files the previous one wrote.
+`record` and `judge` calls for one round must run one after the other, not in parallel: each
+call reads the files the previous one wrote.
 
 ## init
 
@@ -104,10 +104,41 @@ severity cap are lowered to the cap. A quote that is not found voids that score.
 quoted the same words on every dimension of the candidate is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
-used in the run, a reply already recorded, a judge slot that already has a valid reply, a slot
+used in the run, a reply already recorded, a judge slot that already has a valid reply, a
+pasted reply on a slot the judge runner attempted in this round, a slot
 with `max_replacements + 1` attempts, a round already aggregated, a transcript whose prompt
 does not contain the whole brief, `--void` without `--transcript` or on a transcript without
 the brief id.
+
+## judge
+
+```
+sealed-panel judge RUN --round N [--judge J ...] [--sealed]
+```
+
+Runs the judge command frozen into the run (`[judge] command`, set with `init --config`; see
+[configuration.md](configuration.md)) once for every judge slot of the round that has no
+valid reply, one after the other, or only for the slots given with `--judge`. For each slot it
+starts one fresh process from the argument list (never through a shell), in an empty
+temporary directory, with an environment holding only `PATH`, `HOME`, `LANG` and the names in
+`[judge] env_allow`. It writes the brief file's exact bytes to the process's stdin, closes it,
+and reads stdout as the reply; stderr goes to `runner_j<J>_<id>.log` beside the brief, never
+into the reply. The reply is recorded as `record` would, with source `runner`, under an agent
+id the runner draws (`runner-<12 hex>`), with its proof (see [protocol.md](protocol.md)).
+Prints one line per slot: `VALID judge J`, `REJECTED judge J: <reasons>` or
+`VOID judge J: <why>`, then the duration and the log file.
+
+A process that exits with a non-zero status, runs past `[judge] timeout_s` (it is stopped,
+with every process it started), or writes nothing gives no reply: the attempt is recorded as
+void, under the cap of 3 voids per slot and round, and never fills a seat. What it wrote is
+stored for a human and never read as a reply. Run `judge` again to fill a void or rejected
+slot with a fresh process.
+
+Refused before any process starts: a run without a judge command (host mode), a round not
+briefed or already aggregated, a slot not in the round, every asked slot already holding a
+valid reply, a slot at its replacement cap or at its void cap. Refused after a process ran: a
+reply identical to one already recorded. A command that cannot be started records nothing.
+A slot the runner attempted cannot take a pasted reply (`record --output`) in the same round.
 
 ## measure
 

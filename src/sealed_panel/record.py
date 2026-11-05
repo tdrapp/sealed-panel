@@ -31,6 +31,8 @@ SAFE_NAME_CHARS = 40
 # Void attempts allowed per judge slot and round. A void never fills a seat, so voids have
 # their own cap and do not count toward max_replacements.
 MAX_VOIDS = 3
+# The source of a reply read by the judge runner: sealed-panel wrote the brief and read the reply.
+RUNNER = "runner"
 
 
 def transcript_agent_id(transcript: Path, cfg: Config | None = None) -> str | None:
@@ -331,12 +333,7 @@ def _void(
         raise EvalError(
             "this judge got the brief and replied: record its reply, it cannot be voided"
         )
-    voids = [r for r in prior if r.get("void")]
-    if len(voids) >= MAX_VOIDS:
-        raise EvalError(
-            f"judge {judge} already has {len(voids)} voided attempts: find why its agents stop "
-            "before voiding more"
-        )
+    check_void_cap(judge, prior)
     result: dict[str, Any] = {
         "ok": False,
         "void": True,
@@ -355,6 +352,71 @@ def _void(
         "reply_sha256": hashlib.sha256(f"void:{agent_id}".encode()).hexdigest(),
     }
     _store(rdir, judge, agent_id, "", result)
+    return result
+
+
+def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
+    """Refuse a further void on a slot that already has MAX_VOIDS of them."""
+    voids = [r for r in prior if r.get("void")]
+    if len(voids) >= MAX_VOIDS:
+        raise EvalError(
+            f"judge {judge} already has {len(voids)} voided attempts: find why its agents stop "
+            "before voiding more"
+        )
+
+
+def check_seat(judge: int, prior: list[dict[str, Any]], source: str, cfg: Config) -> None:
+    """Refuse a reply the slot cannot take: a second valid one, a pasted one where the brief
+    may have been seen or where the judge runner answered, or one past the replacement cap."""
+    if any(r["ok"] for r in prior):
+        raise EvalError(
+            f"judge {judge} already has a valid reply in this round: "
+            "a second one would be a re-roll"
+        )
+    if source == "output" and any(r.get("source") == RUNNER for r in prior):
+        raise EvalError(
+            f"judge {judge} was run by the judge runner in this round: its next reply comes from "
+            "the runner too, never pasted by hand"
+        )
+    if source == "output" and any(r.get("void") and r.get("replied") for r in prior):
+        raise EvalError(
+            f"judge {judge} already had a reply voided (brief not verbatim): its next reply must "
+            "come from a transcript holding the pasted brief, never pasted by hand"
+        )
+    real = [r for r in prior if not r.get("void")]
+    if len(real) > cfg.max_replacements:
+        raise EvalError(
+            f"judge {judge} was rejected {len(real)} times: stop and fix the brief or the rubric"
+        )
+
+
+def _runner_void(
+    rdir: Path,
+    judge: int,
+    agent_id: str,
+    meta: dict[str, Any],
+    raw: str,
+    proof: dict[str, Any],
+    prior: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """A judge process that failed or timed out: the brief was delivered, no reply came back.
+    Recorded as void, under the void cap; whatever it wrote is kept for a human, never read."""
+    check_void_cap(judge, prior)
+    result: dict[str, Any] = {
+        "ok": False,
+        "void": True,
+        "replied": bool(raw.strip()),
+        "errors": [str(proof["failure"])],
+        "items": {},
+        "judge": judge,
+        "agent_id": agent_id,
+        "persona": meta["persona"],
+        "source": RUNNER,
+        "transcript": None,
+        "runner": proof,
+        "reply_sha256": hashlib.sha256(f"void:{agent_id}".encode()).hexdigest(),
+    }
+    _store(rdir, judge, agent_id, raw, result)
     return result
 
 
@@ -388,9 +450,11 @@ def record_reply(
     transcript: Path | None = None,
     void: bool = False,
     malformed: str = "",
+    runner: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate and store one judge's reply, or a void attempt. Returns the result. A
-    non-empty `malformed` records the attempt as rejected with that reason."""
+    non-empty `malformed` records the attempt as rejected with that reason. `runner` is the
+    judge runner's proof (source "runner"): with `void`, the process gave no reply."""
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
@@ -405,7 +469,9 @@ def record_reply(
     if (rdir / "result.json").exists():
         raise EvalError("this round is already aggregated: a late judge would be panel shopping")
     extra_chars = 0
-    if void:
+    if (runner is None) != (source != RUNNER):
+        raise EvalError("a runner reply needs the runner's proof, and only a runner reply has one")
+    if void and runner is None:
         if transcript is None:
             raise EvalError("--void needs the agent's --transcript, to show it never replied")
         if not meta.get("nonce"):
@@ -424,26 +490,14 @@ def record_reply(
     prior = results_by_judge(rdir).get(judge, [])
     if void and transcript is not None:
         return _void(rdir, judge, agent_id, meta, transcript, prior, cfg)
+    if void and runner is not None:
+        return _runner_void(rdir, judge, agent_id, meta, raw, runner, prior)
     digest = hashlib.sha256(
         (f"malformed:{agent_id}" if malformed else raw).encode("utf-8")
     ).hexdigest()
     if digest in used_reply_hashes(run):
         raise EvalError("this exact reply is already recorded: one reply counts once")
-    if any(r["ok"] for r in prior):
-        raise EvalError(
-            f"judge {judge} already has a valid reply in this round: "
-            "a second one would be a re-roll"
-        )
-    if source == "output" and any(r.get("void") and r.get("replied") for r in prior):
-        raise EvalError(
-            f"judge {judge} already had a reply voided (brief not verbatim): its next reply must "
-            "come from a transcript holding the pasted brief, never pasted by hand"
-        )
-    real = [r for r in prior if not r.get("void")]
-    if len(real) > cfg.max_replacements:
-        raise EvalError(
-            f"judge {judge} was rejected {len(real)} times: stop and fix the brief or the rubric"
-        )
+    check_seat(judge, prior, source, cfg)
     dim_ids = [d["id"] for d in dims_for(spec, meta["persona"])]
     texts = {role: read_text(rdir / f"{role}.md") for role in set(meta["key"].values())}
     try:
@@ -465,8 +519,56 @@ def record_reply(
             "prompt_extra_chars": extra_chars,
         }
     )
+    if runner is not None:
+        result["runner"] = runner
     _store(rdir, judge, agent_id, raw, result)
     return result
+
+
+def outcome_line(r: dict[str, Any]) -> str:
+    """What `record` and `judge` print for one recorded attempt."""
+    if r.get("void"):
+        return f"VOID judge {r['judge']}: " + (
+            "; ".join(r["errors"][:1])
+            if r.get("source") == RUNNER
+            else "recorded as an attempt without a reply"
+        )
+    return (
+        ("VALID" if r["ok"] else "REJECTED")
+        + f" judge {r['judge']}"
+        + ("" if r["ok"] else ": " + "; ".join(r["errors"][:3]))
+    )
+
+
+def record_from(
+    run: Path,
+    rnd: int,
+    judge: int,
+    agent_id: str,
+    sealed: bool,
+    transcript: Path | None = None,
+    output: str | None = None,
+    void: bool = False,
+) -> dict[str, Any]:
+    """Record one judge as the `record` command does: from its transcript (or as a void on
+    it), or from a pasted reply. The command line and the MCP server both call this."""
+    if void and transcript is None:
+        raise EvalError("--void needs --transcript")
+    if (transcript is None) == (output is None):
+        raise EvalError("give the judge's transcript or its pasted reply, not both")
+    if transcript is None:
+        return record_reply(run, rnd, judge, agent_id, str(output), sealed, "output")
+    frozen = run_config(run)
+    found = transcript_agent_id(transcript, frozen)
+    if found and found != agent_id:
+        raise EvalError(f"--agent-id {agent_id} does not match the transcript's agent {found}")
+    raw, source, malformed = "", ("void" if void else "transcript"), ""
+    if not void:
+        try:
+            raw = last_reply(transcript, frozen)
+        except MalformedReply as exc:
+            malformed = str(exc)
+    return record_reply(run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed)
 
 
 def record_measurement(

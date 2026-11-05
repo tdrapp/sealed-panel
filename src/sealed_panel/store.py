@@ -25,5 +25,14 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def resolve_round(rnd: int | None, sealed: bool) -> int:
+    """The round asked for; with no number, the sealed panel's round 1, never a loop round."""
+    if rnd is not None:
+        return int(rnd)
+    if sealed:
+        return 1
+    raise EvalError("--round is required for a loop round (it defaults to 1 only with --sealed)")
+
+
 def round_dir(run: Path, rnd: int, sealed: bool = False) -> Path:
     return run / ("sealed" if sealed else "rounds") / f"r{rnd}"

@@ -165,6 +165,37 @@ cannot be voided.
 - `[injection]`: texts in other languages need more patterns; the defaults always stay.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.
+- `[judge]`: which program judges, how long it may take, and which credentials it may see,
+  depend on the machine and the model; they are frozen so a run keeps one judge.
+
+## `[judge]`
+
+The judge runner (`sealed-panel judge`, see [cli.md](cli.md)). Set it in the file given to
+`init --config`; it is frozen into the run like every other setting, so the judges cannot
+change in the middle of a run, and a command that differs from the default (empty) is listed
+next to the grade.
+
+```toml
+[judge]
+command = ["python", "/path/to/my_judge.py"]
+timeout_s = 300
+env_allow = ["MY_MODEL_API_KEY"]
+```
+
+| Key | Default | Bounds | Meaning |
+|---|---|---|---|
+| `command` | `[]` | a list of non-empty strings | The judge command as an argument list, started once per brief without a shell. It reads the brief on stdin and prints the reply on stdout. Empty means host mode: your agent host runs the judges and `record` stores their replies. The list is stored with every reply and shown in the report: never put a credential in it. |
+| `timeout_s` | `300` | 1 to 3600 | Seconds a judge process may run. Past it, the process and every process it started are stopped, and the attempt is recorded as void. |
+| `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). |
+
+The judge process never inherits the environment of the process that runs sealed-panel. That
+environment often holds credentials (cloud tokens, repository tokens, other API keys) that a
+judge has no use for, and a judge is a program that reads text written by someone else. So it
+gets `PATH`, `HOME` and `LANG`, the names you list in `env_allow`, and nothing else: a key
+reaches a judge only when you named it. The names passed are stored with each reply; their
+values never are.
+
+A run frozen before 0.3.0 has no `[judge]` section and is in host mode.
 
 ## `[library]`
 
@@ -185,6 +216,8 @@ as named constants:
   every run with the same version of sealed-panel asks the judges the same thing;
 - the size of the brief id (6 random bytes) and of the shuffle seed (64 bits) (`brief.py`);
 - the cap of 3 void attempts per judge slot and round (`record.py`);
+- the judge runner's base environment (`PATH`, `HOME`, `LANG`), the size of its agent ids (6
+  random bytes) and the grace period after it stops a process (5 seconds) (`runner.py`);
 - the length above which the report shows a value by hash (80 characters) (`config.py`);
 - the score scale, integers 1 to 5, with 5 as the convergence target, and the required anchors
   1, 3 and 5 (`decide.py`, `spec.py`);
