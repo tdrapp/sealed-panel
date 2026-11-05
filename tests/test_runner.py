@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
+import signal
+import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
+from sealed_panel import runner
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
 from sealed_panel.config import Config, ConfigError, default_data, load_config, merge, overrides
@@ -18,11 +25,12 @@ from sealed_panel.errors import EvalError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import MAX_VOIDS, _record_reply, record_from, record_reply
 from sealed_panel.report import render_report, status
-from sealed_panel.runner import child_env, judge_round, judge_seat, open_seats
+from sealed_panel.runner import SeatTaken, child_env, judge_round, judge_seat, open_seats
 from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import round_dir
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
+ORPHAN = Path(__file__).resolve().parent / "orphan_judge.py"
 
 
 def toml_list(items: list[str]) -> str:
@@ -286,7 +294,7 @@ class TestRefusals:
         assert [r["judge"] for r in judge_round(h.run, 1, False, [1])] == [1]
         assert open_seats(h.run, 1, False) == [2]
         assert [r["judge"] for r in judge_round(h.run, 1, False)] == [2]
-        with pytest.raises(EvalError, match="already has a valid reply: aggregate"):
+        with pytest.raises(EvalError, match="already has a valid reply or is being judged"):
             open_seats(h.run, 1, False)
         with pytest.raises(EvalError, match="already has a valid reply in this round"):
             judge_seat(h.run, 1, 1, False)
@@ -334,12 +342,14 @@ class TestRefusals:
             judge_round(h.run, 1, False)
         assert logs(h) == before
 
-    def test_an_identical_reply_counts_once(self, h: Harness) -> None:
+    def test_an_identical_reply_counts_once_and_its_process_ends_recorded(self, h: Harness) -> None:
         init_runner(h, "--low", "absent-word", "--fixed")
         h.brief(1, "cand")
         assert not judge_seat(h.run, 1, 1, False)["ok"]
-        with pytest.raises(EvalError, match="already recorded"):
-            judge_seat(h.run, 1, 1, False)
+        r = judge_seat(h.run, 1, 1, False)
+        assert r["void"] and r["errors"][0].startswith("the reply was refused: this exact reply")
+        assert len(results_by_judge(round_dir(h.run, 1))[1]) == 2
+        assert not list(round_dir(h.run, 1).glob("running_j*"))
 
 
 class TestSettings:
@@ -397,3 +407,149 @@ class TestMcpCommand:
         monkeypatch.setitem(sys.modules, "sealed_panel.mcp_server", None)
         assert main(["mcp"]) == 2
         assert "pip install 'sealed-panel[mcp]'" in capsys.readouterr().err
+
+
+class TestOneJudgePerSeat:
+    def test_concurrent_calls_judge_a_seat_once(self, h: Harness) -> None:
+        init_runner(h, "--sleep", "1")
+        h.brief(1, "cand", sealed=True)
+        outcomes: list[str] = []
+
+        def go() -> None:
+            try:
+                outcomes.append("ok" if judge_seat(h.run, 1, 1, True)["ok"] else "rejected")
+            except SeatTaken:
+                outcomes.append("taken")
+
+        threads = [threading.Thread(target=go) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert sorted(outcomes) == ["ok", "taken", "taken", "taken"]
+        rows = results_by_judge(round_dir(h.run, 1, True))[1]
+        assert len(rows) == 1 and rows[0]["ok"]
+        assert len(list(round_dir(h.run, 1, True).glob("runner_j1_*.log"))) == 1
+
+    def test_a_round_skips_a_seat_another_call_holds(self, h: Harness) -> None:
+        init_runner(h)
+        h.brief(1, "cand")
+        marker = round_dir(h.run, 1) / "running_j1.json"
+        marker.write_text(json.dumps({"pid": os.getpid(), "started": time.time()}))
+        assert [r["judge"] for r in judge_round(h.run, 1, False)] == [2]
+        with pytest.raises(SeatTaken, match="being judged by another call"):
+            judge_seat(h.run, 1, 1, False)
+        with pytest.raises(EvalError, match=r"being judged by another call \(\[1\]\)"):
+            open_seats(h.run, 1, False)
+        with pytest.raises(EvalError, match="still being judged"):
+            aggregate_round(h.run, 1, False)
+
+    @pytest.mark.parametrize("why", ["dead holder", "too old"])
+    def test_a_stale_marker_becomes_a_void_never_a_free_seat(self, h: Harness, why: str) -> None:
+        init_runner(h)
+        h.brief(1, "cand")
+        if why == "dead holder":
+            done = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+                                  capture_output=True, text=True, check=True)  # fmt: skip
+            held = {"pid": int(done.stdout), "started": time.time(), "agent_id": "runner-gone"}
+        else:
+            held = {"pid": os.getpid(), "started": time.time() - 300 - 61, "agent_id": "runner-old"}
+        (round_dir(h.run, 1) / "running_j1.json").write_text(json.dumps(held))
+        assert open_seats(h.run, 1, False) == [1, 2]
+        [void] = results_by_judge(round_dir(h.run, 1))[1]
+        assert void["void"] and void["agent_id"] == held["agent_id"]
+        assert "stopped before recording it" in void["errors"][0]
+        assert not list(round_dir(h.run, 1).glob("running_j*"))
+        assert judge_seat(h.run, 1, 1, False)["ok"]
+
+    def test_an_interrupted_judge_ends_recorded(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        init_runner(h)
+        h.brief(1, "cand")
+
+        def interrupted(*args: Any) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(runner, "_launch", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            judge_seat(h.run, 1, 1, False)
+        [void] = results_by_judge(round_dir(h.run, 1))[1]
+        assert void["void"] and void["errors"] == ["the runner was interrupted (KeyboardInterrupt)"]
+        assert not list(round_dir(h.run, 1).glob("running_j*"))
+
+
+class TestResources:
+    def test_output_past_the_cap_is_a_void(self, h: Harness) -> None:
+        init_runner(h, "--flood", "8", extra="max_reply_bytes = 1024\n")
+        h.brief(1, "cand")
+        r = judge_seat(h.run, 1, 1, False)
+        assert r["void"] and r["errors"] == ["the judge command wrote more than 1024 bytes"]
+        assert len(stored(h, 1)[0]["raw"]) <= 1024
+
+    def test_a_process_left_holding_stdout_cannot_hang_the_runner(self, h: Harness) -> None:
+        init_runner(h, command=[sys.executable, str(ORPHAN)], extra="timeout_s = 1\n")
+        h.brief(1, "cand")
+        start = time.monotonic()
+        r = judge_seat(h.run, 1, 1, False)
+        try:
+            assert r["void"] and r["errors"] == ["the judge command timed out after 1 s"]
+            assert time.monotonic() - start < 1 + 2 * runner.STOP_GRACE_S + 5
+        finally:
+            log = (round_dir(h.run, 1) / r["runner"]["stderr_log"]).read_text()
+            for line in log.splitlines():
+                if line.startswith("GRANDCHILD "):
+                    with contextlib.suppress(OSError):
+                        os.kill(int(line.split()[1]), signal.SIGKILL)
+
+    def test_a_group_that_refuses_the_signal_is_still_stopped(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def refused(pid: int, sig: int) -> None:
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr(runner.os, "killpg", refused)
+        init_runner(h, "--sleep", "30", extra="timeout_s = 1\n")
+        h.brief(1, "cand")
+        start = time.monotonic()
+        r = judge_seat(h.run, 1, 1, False)
+        assert r["void"] and r["errors"] == ["the judge command timed out after 1 s"]
+        assert time.monotonic() - start < 15
+
+
+def test_the_marker_is_taken_only_when_absent(h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two calls can both pass the stale check before either writes its marker: the exclusive
+    create is what keeps the second one out."""
+    init_runner(h)
+    h.brief(1, "cand")
+    marker = round_dir(h.run, 1) / "running_j1.json"
+    marker.write_text(json.dumps({"pid": os.getpid(), "started": time.time()}))
+    monkeypatch.setattr(runner, "_settle", lambda *args: None)
+    with pytest.raises(SeatTaken, match="being judged by another call"):
+        judge_seat(h.run, 1, 1, False)
+    assert results_by_judge(round_dir(h.run, 1)) == {}
+
+
+def test_a_live_marker_moved_by_a_late_settle_is_put_back(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two calls see the same stale marker; the first records it and takes the seat. The
+    second must not move the first one's live marker away."""
+    init_runner(h)
+    h.brief(1, "cand")
+    marker = round_dir(h.run, 1) / "running_j1.json"
+    marker.write_text(json.dumps({"pid": 0, "started": 0, "agent_id": "runner-gone"}))
+    live = json.dumps({"pid": os.getpid(), "started": time.time(), "agent_id": "runner-live"})
+    real_rename = Path.rename
+
+    def rename_after_takeover(self: Path, target: Path) -> Path:
+        self.write_text(live)  # the first call took the seat between our read and our rename
+        monkeypatch.setattr(Path, "rename", real_rename)
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename_after_takeover)
+    with pytest.raises(SeatTaken):
+        judge_seat(h.run, 1, 1, False)
+    assert marker.read_text() == live
+    assert results_by_judge(round_dir(h.run, 1)) == {}
+    assert not list(round_dir(h.run, 1).glob("running_j1.json.*"))

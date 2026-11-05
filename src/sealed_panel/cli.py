@@ -15,7 +15,7 @@ from .errors import EvalError, user_message
 from .learn import learn_safely, user_disagreement
 from .record import outcome_line, record_from, record_measurement
 from .report import feedback_path, render_report, status
-from .runner import judge_seat, open_seats
+from .runner import SeatTaken, judge_seat, open_seats
 from .spec import TODO_MARKER, init_run, library_for
 from .store import load_json, resolve_round
 
@@ -247,7 +247,11 @@ def _run(a: argparse.Namespace) -> None:
     elif a.cmd == "judge":
         rnd = _round(a)
         for seat in open_seats(a.run, rnd, a.sealed, a.judge):
-            r = judge_seat(a.run, rnd, seat, a.sealed)
+            try:
+                r = judge_seat(a.run, rnd, seat, a.sealed)
+            except SeatTaken as exc:
+                print(f"SKIPPED judge {seat}: {exc}")
+                continue
             proof = r["runner"]
             print(f"{outcome_line(r)} ({proof['duration_s']:g} s, stderr in {proof['stderr_log']})")
     elif a.cmd == "measure":

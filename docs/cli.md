@@ -125,19 +125,29 @@ temporary directory, with an environment holding only `PATH`, `HOME`, `LANG` and
 and reads stdout as the reply; stderr goes to `runner_j<J>_<id>.log` beside the brief, never
 into the reply. The reply is recorded as `record` would, with source `runner`, under an agent
 id the runner draws (`runner-<12 hex>`), with its proof (see [protocol.md](protocol.md)).
-Prints one line per slot: `VALID judge J`, `REJECTED judge J: <reasons>` or
-`VOID judge J: <why>`, then the duration and the log file.
+Prints one line per slot: `VALID judge J`, `REJECTED judge J: <reasons>`,
+`VOID judge J: <why>` (then the duration and the log file), or `SKIPPED judge J` for a slot
+another call took meanwhile.
 
 A process that exits with a non-zero status, runs past `[judge] timeout_s` (it is stopped,
-with every process it started), or writes nothing gives no reply: the attempt is recorded as
-void, under the cap of 3 voids per slot and round, and never fills a seat. What it wrote is
-stored for a human and never read as a reply. Run `judge` again to fill a void or rejected
-slot with a fresh process.
+with every process it started in its session), writes nothing, or writes more than
+`[judge] max_reply_bytes` gives no reply: the attempt is recorded as void, under the cap of 3
+voids per slot and round, and never fills a seat. What it wrote (up to the cap) is stored for a
+human and never read as a reply. A process that leaves another process holding its output is
+stopped at the timeout. Run `judge` again to fill a void or rejected slot with a fresh process.
+
+One process per slot at a time: from the slot's check to its record, the runner holds the
+slot with `running_j<J>.json` beside the brief, created only when absent. A second call skips
+a held slot, `judge --judge J` on it is refused, and `aggregate` refuses the round while a slot
+is held. A marker whose runner stopped (its process is gone, or it is older than the timeout
+plus 60 seconds) is recorded as a void by the next `judge`, never reused silently. Every process
+started ends recorded: a reply the record refuses (one already recorded) and an interrupted run
+are recorded as voids.
 
 Refused before any process starts: a run without a judge command (host mode), a round not
 briefed or already aggregated, a slot not in the round, every asked slot already holding a
-valid reply, a slot at its replacement cap or at its void cap. Refused after a process ran: a
-reply identical to one already recorded. A command that cannot be started records nothing.
+valid reply or held by another call, a slot at its replacement cap or at its void cap. A command
+that cannot be started records nothing.
 A run with a judge command takes runner replies only: `record`, pasted, from a transcript or
 as a void, is refused on every slot. A run without one stays in host mode.
 

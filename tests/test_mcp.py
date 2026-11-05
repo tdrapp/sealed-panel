@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import datetime
 import json
 import os
 import subprocess
@@ -18,6 +21,7 @@ from fastmcp import Client
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import mcp_server
 from sealed_panel.config import load_config
+from sealed_panel.ledger import results_by_judge
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
 from sealed_panel.spec import init_run
 from sealed_panel.spec import run_config as run_config_of
@@ -308,3 +312,40 @@ class TestJudgeAuthority:
             assert "differ from the configuration" in await error(
                 c, "judge", run="run", sealed=True
             )
+
+
+class TestConcurrentJudges:
+    async def test_concurrent_judge_calls_give_one_reply_per_seat(
+        self, h: Harness, mode: str
+    ) -> None:
+        cfg = runner_config(h, "--sleep", "1")
+        write_spec(h, judges_per_persona=3)
+        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            calls = [c.call_tool_mcp("judge", {"run": "run", "sealed": True}) for _ in range(3)]
+            await asyncio.gather(*calls)
+        by = results_by_judge(h.run / "sealed" / "r1")
+        assert {j: sum(r["ok"] for r in rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}
+        assert {j: len(rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}
+
+    async def test_a_retry_after_a_cancelled_call_never_judges_the_seat_twice(
+        self, h: Harness, mode: str
+    ) -> None:
+        cfg = runner_config(h, "--sleep", "2")
+        write_spec(h)
+        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+            args = {"run": "run", "round": 1, "judges": [1]}
+            with contextlib.suppress(Exception):
+                await c.call_tool_mcp("judge", args, timeout=datetime.timedelta(seconds=0.5))
+            retry = await c.call_tool_mcp("judge", args)
+            assert retry.is_error and "being judged by another call" in retry.content[0].text  # type: ignore[union-attr]
+            marker = h.run / "rounds" / "r1" / "running_j1.json"
+            for _ in range(100):
+                if not marker.exists():
+                    break
+                await asyncio.sleep(0.1)
+        rows = results_by_judge(h.run / "rounds" / "r1")[1]
+        assert [r["ok"] for r in rows] == [True]

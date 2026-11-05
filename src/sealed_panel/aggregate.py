@@ -116,6 +116,12 @@ def _check_complete(
             raise EvalError(
                 f"measure {missing} before aggregating the sealed panel: it happens once"
             )
+    running = sorted(p.name for p in rdir.glob("running_j*.json"))
+    if running:
+        raise EvalError(
+            f"a judge is still being judged in this round ({', '.join(running)}): wait for it, "
+            "or, if its runner stopped, run `sealed-panel judge` again to record it as a void"
+        )
     silent = [
         j["judge"]
         for j in keys["judges"]

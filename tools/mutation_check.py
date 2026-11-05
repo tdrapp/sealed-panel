@@ -898,20 +898,20 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "stderr mixed into the reply": (RUN, "stderr=err,", "stderr=subprocess.STDOUT,"),
     "brief altered on stdin": (
         RUN,
-        "proc.communicate(brief, timeout=timeout)",
-        'proc.communicate(brief + b"\\n", timeout=timeout)',
+        "stdin.write(brief)",
+        'stdin.write(brief + b"\\n")',
     ),
     "seat refusals checked after the call": (
         RUN,
-        "    _runnable(judge, results_by_judge(rdir).get(judge, []), cfg)\n",
+        "        _runnable(judge, prior, cfg)\n",
         "",
     ),
     "open seats unchecked": (RUN, "        _runnable(s, prior, cfg)\n", ""),
     "void cap skipped by the runner": (RUN, "    check_void_cap(judge, prior)\n", ""),
     "a valid seat run again": (
         RUN,
-        '        if any(r["ok"] for r in prior):\n            continue\n',
-        "",
+        'if s in busy or any(r["ok"] for r in prior):',
+        "if s in busy:",
     ),
     "unknown seat in a selection accepted": (RUN, "        if unknown:\n", "        if False:\n"),
     "unknown seat run": (
@@ -983,6 +983,44 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         MCP,
         "return (given if given.is_absolute() else base / given).resolve()",
         "return given.resolve()",
+    ),
+    "seat marker not exclusive": (RUN, "os.link(draft, marker)", "os.replace(draft, marker)"),
+    "a late settle steals a live marker": (
+        RUN,
+        '    if taken.read_text(encoding="utf-8") != text:',
+        "    if False:",
+    ),
+    "live marker ignored": (
+        RUN,
+        "    if isinstance(pid, int) and _alive(pid) and fresh:",
+        "    if False:",
+    ),
+    "marker age ignored": (
+        RUN,
+        "fresh = isinstance(started, (int, float)) and time.time() - started < limit",
+        "fresh = True",
+    ),
+    "stale marker reused without a void": (
+        RUN,
+        '        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
+        "        pass\n",
+    ),
+    "running seat aggregated": (AGG, "    if running:\n", "    if False:\n"),
+    "output cap ignored": (RUN, "if size > cap:", "if False:"),
+    "a group refusing the signal crashes the runner": (
+        RUN,
+        "            return\n        except OSError:\n            pass\n",
+        "            return\n        except ProcessLookupError:\n            pass\n",
+    ),
+    "interrupted judge left unrecorded": (
+        RUN,
+        '        _record_reply(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)\n',
+        "        pass\n",
+    ),
+    "refused reply leaves its process unrecorded": (
+        RUN,
+        "        if failure:\n            raise\n",
+        "        raise\n",
     ),
 }
 

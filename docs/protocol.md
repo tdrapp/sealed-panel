@@ -140,8 +140,11 @@ three kinds of proof, and the report says which one each round used.
   reply's record stores the proof: the sha256 of the bytes written, the argument list, the exit
   status, the duration, the sha256 of the bytes read, the timeout, and the names of the
   environment variables passed. One process per brief, so every runner reply comes from a
-  fresh context. A process that fails, times out or writes nothing is a void: no reply is ever
-  made up from partial output. A run with a judge command takes runner replies only, on
+  fresh context, and one process per seat at a time: a marker created only when absent holds
+  the seat from its check to its record, so concurrent or retried calls cannot collect several
+  replies and keep the best. A process that fails, times out, writes nothing or writes past
+  the cap is a void: no reply is ever made up from partial output, and every process started
+  ends recorded, at worst as a void. A run with a judge command takes runner replies only, on
   every seat: no reply pasted, read from a transcript or voided by hand, so a rejected runner
   reply cannot be swapped for one from another judge. Only the runner records a runner reply:
   the library's `record_reply` refuses the source, so no proof can be written by hand. Through

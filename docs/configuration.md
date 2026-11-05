@@ -190,6 +190,7 @@ env_allow = ["MY_MODEL_API_KEY"]
 | `command` | `[]` | a list of non-empty strings | The judge command as an argument list, started once per brief without a shell. It reads the brief on stdin and prints the reply on stdout. Empty means host mode: your agent host runs the judges and `record` stores their replies. The list is stored with every reply and shown in the report: never put a credential in it. |
 | `timeout_s` | `300` | 1 to 3600 | Seconds a judge process may run. Past it, the process and every process it started are stopped, and the attempt is recorded as void. |
 | `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). |
+| `max_reply_bytes` | `1048576` | 1024 to 16777216 | Bytes a judge may write to stdout. Past it, the process is stopped and the attempt is recorded as void; only the bytes up to the cap are kept. |
 
 The judge process never inherits the environment of the process that runs sealed-panel. That
 environment often holds credentials (cloud tokens, repository tokens, other API keys) that a
@@ -220,7 +221,9 @@ as named constants:
 - the size of the brief id (6 random bytes) and of the shuffle seed (64 bits) (`brief.py`);
 - the cap of 3 void attempts per judge slot and round (`record.py`);
 - the judge runner's base environment (`PATH`, `HOME`, `LANG`), the size of its agent ids (6
-  random bytes) and the grace period after it stops a process (5 seconds) (`runner.py`);
+  random bytes), the grace period after it stops a process (5 seconds), the size of a read
+  (64 KiB), and the margin past the timeout after which an in-progress marker whose runner
+  still runs counts as stale (60 seconds) (`runner.py`);
 - the length above which the report shows a value by hash (80 characters) (`config.py`);
 - the score scale, integers 1 to 5, with 5 as the convergence target, and the required anchors
   1, 3 and 5 (`decide.py`, `spec.py`);

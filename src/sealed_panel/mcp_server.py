@@ -37,7 +37,7 @@ from .learn import user_disagreement
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
-from .runner import judge_seat, open_seats
+from .runner import SeatTaken, judge_seat, open_seats
 from .spec import init_run, library_for
 from .store import resolve_round
 
@@ -118,6 +118,9 @@ class JudgeResult(BaseModel):
     round: int
     sealed: bool
     seats: list[SeatResult]
+    skipped: list[int] = Field(
+        default_factory=list, description="seats another call took meanwhile (judged or filled)"
+    )
 
 
 class MeasureResult(BaseModel):
@@ -226,6 +229,17 @@ def _calling(fn: Callable[[], T]) -> T:
         if message is None:
             raise
         raise ToolError(message) from exc
+
+
+def _seat(
+    run: Path, rnd: int, seat: int, sealed: bool, expected: dict[str, Any]
+) -> dict[str, Any] | None:
+    """One seat judged by the runner, or None when another call took it meanwhile. A judge
+    started before a cancelled call ends still finishes and is recorded, in this thread."""
+    try:
+        return judge_seat(run, rnd, seat, sealed, expected)
+    except SeatTaken:
+        return None
 
 
 def _record_result(r: dict[str, Any]) -> RecordResult:
@@ -401,9 +415,14 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         expected = _calling(lambda: server_config().judge)
         seats = _calling(lambda: open_seats(where, rnd, sealed, judges, expected))
         done: list[SeatResult] = []
+        skipped: list[int] = []
         for i, seat in enumerate(seats, start=1):
-            call = functools.partial(judge_seat, where, rnd, seat, sealed, expected)
+            call = functools.partial(_seat, where, rnd, seat, sealed, expected)
             r = await anyio.to_thread.run_sync(_calling, call, abandon_on_cancel=True)
+            if r is None:
+                skipped.append(seat)
+                await ctx.report_progress(i, len(seats), f"judge {seat}: taken by another call")
+                continue
             proof = r["runner"]
             row = SeatResult(
                 **_record_result(r).model_dump(),
@@ -413,7 +432,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
             )
             done.append(row)
             await ctx.report_progress(i, len(seats), f"judge {seat}: {row.status}")
-        return JudgeResult(run=str(where), round=rnd, sealed=sealed, seats=done)
+        return JudgeResult(run=str(where), round=rnd, sealed=sealed, seats=done, skipped=skipped)
 
     @mcp.tool(annotations=ADDS)
     def measure(

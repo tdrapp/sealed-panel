@@ -5,7 +5,7 @@ The reply has fixed scores: 1 on an item holding the low word (the control of th
 bytes read, so a test can check the brief arrived unchanged. Options make it misbehave:
 
     stub_judge.py [--exit N] [--sleep S] [--silent] [--noise] [--show-env] [--show-cwd]
-                  [--low WORD] [--score N] [--fixed] [--fail-first PATH]
+                  [--low WORD] [--score N] [--fixed] [--fail-first PATH] [--flood MIB]
 
 Without --fixed, the retell also carries a random tag: real judges never reply identically.
 """
@@ -59,9 +59,12 @@ def main() -> int:
     ap.add_argument("--score", type=int, default=4)
     ap.add_argument("--fixed", action="store_true")
     ap.add_argument("--fail-first", help="exit 3 when PATH does not exist yet, creating it")
+    ap.add_argument("--flood", type=int, default=0, help="write this many MiB to stdout first")
     a = ap.parse_args()
     data = sys.stdin.buffer.read()
     digest = hashlib.sha256(data).hexdigest()
+    for _ in range(a.flood):
+        sys.stdout.buffer.write(b"A" * (1 << 20))
     if a.noise:
         print("stub noise {not json} on stderr", file=sys.stderr)
     if a.show_env:

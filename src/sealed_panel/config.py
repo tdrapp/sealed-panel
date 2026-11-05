@@ -44,6 +44,8 @@ MAX_JUDGES_PER_PERSONA = 9
 OPTIONAL_TRANSCRIPT_KEYS = frozenset({"handback_tool"})
 # Seconds a judge process may run, at least and at most.
 JUDGE_TIMEOUT_BOUNDS = (1, 3600)
+# Bytes a judge may write to stdout, at least and at most.
+REPLY_BYTES_BOUNDS = (1024, 16 << 20)
 # An environment variable name, as passed to a judge process.
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -277,6 +279,9 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     low, high = JUDGE_TIMEOUT_BOUNDS
     if not low <= judge["timeout_s"] <= high:
         errors.append(f"judge.timeout_s must be between {low} and {high} seconds")
+    low, high = REPLY_BYTES_BOUNDS
+    if not low <= judge.get("max_reply_bytes", low) <= high:
+        errors.append(f"judge.max_reply_bytes must be between {low} and {high}")
     names = judge["env_allow"]
     if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
         errors.append("judge.env_allow must hold environment variable names only")
