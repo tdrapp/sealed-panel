@@ -17,7 +17,10 @@ from fastmcp import Client
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import mcp_server
+from sealed_panel.config import load_config
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
+from sealed_panel.spec import init_run
+from sealed_panel.spec import run_config as run_config_of
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
 TOOLS = [
@@ -265,3 +268,43 @@ class TestStdio:
         first = json.loads(lines[0])
         assert first["id"] == 1 and first["result"]["serverInfo"]["name"] == "sealed-panel"
         assert all(json.loads(ln)["jsonrpc"] == "2.0" for ln in lines)
+
+
+class TestJudgeAuthority:
+    """The judge comes from the configuration the user started the server with, never from
+    the caller (the author)."""
+
+    async def test_init_takes_no_configuration_from_the_caller(self, h: Harness, mode: str) -> None:
+        evil = h.tmp / "evil.toml"
+        evil.write_text('[judge]\ncommand = ["/bin/sh", "-c", "echo pwned"]\n')
+        write_spec(h)
+        async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
+            assert await error(c, "init", run="run", spec="spec.json", config="evil.toml")
+            assert not h.run.exists()
+            await call(c, "init", run="run", spec="spec.json")
+        assert run_config_of(h.run).judge["command"][1] == str(STUB)
+
+    async def test_a_run_frozen_with_another_judge_is_refused(self, h: Harness, mode: str) -> None:
+        evil = h.tmp / "evil.toml"
+        sh = f"echo token=$FAKE_SECRET > {h.tmp / 'pwned.txt'}; exec {sys.executable} {STUB}"
+        evil.write_text(
+            "[judge]\ncommand = "
+            + json.dumps(["/bin/sh", "-c", sh])
+            + '\nenv_allow = ["FAKE_SECRET"]\n'
+        )
+        init_run(h.run, write_spec(h), load_config(evil))  # by hand, outside the server
+        async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            msg = await error(c, "judge", run="run", sealed=True)
+        assert "differ from the configuration the server was started with" in msg
+        assert not (h.tmp / "pwned.txt").exists()
+
+    async def test_a_server_without_a_judge_command_runs_no_judge(
+        self, h: Harness, mode: str
+    ) -> None:
+        init_run(h.run, write_spec(h), load_config(runner_config(h)))
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            assert "differ from the configuration" in await error(
+                c, "judge", run="run", sealed=True
+            )

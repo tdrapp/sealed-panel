@@ -31,7 +31,7 @@ from . import __version__
 from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import library_dir, load_config
+from .config import Config, library_dir, load_config
 from .errors import user_message
 from .learn import user_disagreement
 from .record import record_from, record_measurement
@@ -267,7 +267,8 @@ def _candidate_row(lib: Path, c: dict[str, Any]) -> CandidateRow:
 
 def build_server(root: Path | None = None, config: Path | None = None) -> FastMCP:
     """The sealed-panel MCP server. Relative paths resolve against `root` (default: the current
-    directory). `config` is the configuration `init` freezes when a call names none."""
+    directory). `config` is the user's configuration: `init` freezes it into every run, and
+    `judge` refuses a run whose judge settings differ from it."""
     base = (root or Path.cwd()).expanduser().resolve()
     default_config = config.expanduser().resolve() if config else None
 
@@ -286,21 +287,21 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         strict_input_validation=True,
     )
 
+    def server_config() -> Config:
+        """The configuration the user started the server with, read again at every call."""
+        return load_config(default_config)
+
     @mcp.tool(annotations=ADDS)
     def init(
         run: RunPath,
         spec: Annotated[str, Field(description="the spec JSON file")],
-        config: Annotated[
-            str | None, Field(description="TOML overriding the defaults, frozen into the run")
-        ] = None,
         library: LibraryPath = None,
     ) -> InitResult:
-        """Validate a spec and freeze it, with the configuration, into a new run directory."""
+        """Validate a spec and freeze it into a new run directory, with the configuration the
+        server was started with (its judge command included): a caller never picks its judge."""
 
         def call() -> InitResult:
-            cfg_path = opt(config) or default_config
-            cfg = load_config(cfg_path) if cfg_path else None
-            digest = init_run(path(run), path(spec), cfg, opt(library))
+            digest = init_run(path(run), path(spec), server_config(), opt(library))
             return InitResult(run=str(path(run)), rubric_sha256=digest)
 
         return _calling(call)
@@ -397,10 +398,11 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         on stdin, the reply on stdout. Split a large panel across calls with `judges`."""
         rnd = _calling(lambda: resolve_round(round, sealed))
         where = path(run)
-        seats = _calling(lambda: open_seats(where, rnd, sealed, judges))
+        expected = _calling(lambda: server_config().judge)
+        seats = _calling(lambda: open_seats(where, rnd, sealed, judges, expected))
         done: list[SeatResult] = []
         for i, seat in enumerate(seats, start=1):
-            call = functools.partial(judge_seat, where, rnd, seat, sealed)
+            call = functools.partial(judge_seat, where, rnd, seat, sealed, expected)
             r = await anyio.to_thread.run_sync(_calling, call, abandon_on_cancel=True)
             proof = r["runner"]
             row = SeatResult(

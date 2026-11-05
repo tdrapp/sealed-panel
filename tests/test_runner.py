@@ -16,7 +16,7 @@ from sealed_panel.cli import main
 from sealed_panel.config import Config, ConfigError, default_data, load_config, merge, overrides
 from sealed_panel.errors import EvalError
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import MAX_VOIDS, record_from, record_reply
+from sealed_panel.record import MAX_VOIDS, _record_reply, record_from, record_reply
 from sealed_panel.report import render_report, status
 from sealed_panel.runner import child_env, judge_round, judge_seat, open_seats
 from sealed_panel.spec import init_run, run_config
@@ -169,23 +169,11 @@ class TestFailures:
         assert results_by_judge(round_dir(h.run, 1)) == {}
 
     def test_the_report_labels_a_runner_void(self, h: Harness) -> None:
-        init_runner(h, "--exit", "3")
+        # The stub fails the first time it sees each marker file, then answers.
+        init_runner(h, "--fail-first", str(h.tmp / "first"))
         h.brief(1, "cand")
-        judge_round(h.run, 1, False)
-        # Fill the seats from transcripts so the round aggregates, then read the label.
-        for meta in h.keys(1)["judges"]:
-            j = meta["judge"]
-            sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
-            raw = judge_json(meta, h.texts(1, meta), sc)
-            brief = (round_dir(h.run, 1) / f"brief_j{j}.md").read_text()
-            rows = [
-                {"type": "user", "agentId": f"a{j}", "message": {"content": brief}},
-                {"type": "assistant", "agentId": f"a{j}",
-                 "message": {"content": [{"type": "text", "text": raw}]}},
-            ]  # fmt: skip
-            t = h.tmp / f"t{j}.jsonl"
-            t.write_text("\n".join(json.dumps(x) for x in rows))
-            assert record_from(h.run, 1, j, f"a{j}", False, t)["ok"]
+        assert judge_seat(h.run, 1, 1, False)["void"]
+        assert all(r["ok"] for r in judge_round(h.run, 1, False))
         aggregate_round(h.run, 1, False)
         report = render_report(h.run)
         assert "voided by the judge runner: the judge command exited with status 3" in report
@@ -211,23 +199,78 @@ class TestRefusals:
         assert run_config(h.run).judge["command"] == []
         assert not [o for o in overrides(run_config(h.run)) if o.startswith("judge.")]
 
-    @pytest.mark.parametrize("stub", [["--exit", "3"], ["--low", "absent-word"]])
-    def test_a_pasted_reply_never_replaces_a_runner_attempt(
-        self, h: Harness, stub: list[str]
-    ) -> None:
-        init_runner(h, *stub)  # a void that wrote output, then a rejected reply
+    def test_a_run_with_a_judge_command_takes_only_runner_replies(self, h: Harness) -> None:
+        init_runner(h, "--exit", "3")
         h.brief(1, "cand")
-        assert not judge_seat(h.run, 1, 1, False)["ok"]
-        with pytest.raises(EvalError, match="run by the judge runner"):
-            record_from(h.run, 1, 1, "pasted", False, output='{"items": {}}')
+        assert judge_seat(h.run, 1, 1, False)["void"]
+        meta = h.keys(1)["judges"][0]
+        raw = judge_json(meta, h.texts(1, meta), {r: BAD for r in meta["key"].values()})
+        brief = (round_dir(h.run, 1) / "brief_j1.md").read_text()
+        t = h.tmp / "t.jsonl"
+        rows = [
+            {"type": "user", "agentId": "host", "message": {"content": brief}},
+            {"type": "assistant", "agentId": "host",
+             "message": {"content": [{"type": "text", "text": raw}]}},
+        ]  # fmt: skip
+        t.write_text("\n".join(json.dumps(x) for x in rows))
+        for kwargs in ({"output": raw}, {"transcript": t}, {"transcript": t, "void": True}):
+            with pytest.raises(EvalError, match="every reply comes from the runner"):
+                record_from(h.run, 1, 2, "host", False, **kwargs)  # type: ignore[arg-type]
+        assert set(results_by_judge(round_dir(h.run, 1))) == {1}
+
+    def test_a_run_without_a_judge_command_keeps_host_mode(self, h: Harness) -> None:
+        h.init(judges_per_persona=2)
+        h.brief(1, "cand")
+        assert all(r["ok"] for r in h.answer(1, {"candidate": FLAT, "control": BAD}))
 
     def test_a_runner_reply_needs_its_proof_and_only_it_has_one(self, h: Harness) -> None:
         init_runner(h)
         h.brief(1, "cand")
         with pytest.raises(EvalError, match="runner's proof"):
-            record_reply(h.run, 1, 1, "x1", "{}", False, "runner")
+            _record_reply(h.run, 1, 1, "x1", "{}", False, "runner")
         with pytest.raises(EvalError, match="runner's proof"):
-            record_reply(h.run, 1, 1, "x2", "{}", False, "output", runner={"argv": []})
+            _record_reply(h.run, 1, 1, "x2", "{}", False, "output", runner={"argv": []})
+
+    def test_the_public_api_cannot_forge_a_runner_reply(self, h: Harness) -> None:
+        init_runner(h, command=["/bin/false"])
+        h.brief(1, "cand")
+        meta = h.keys(1)["judges"][0]
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": {"clarity": 5, "evidence": 5}}
+        raw = judge_json(meta, h.texts(1, meta), sc)
+        forged = {"argv": ["/bin/false"], "exit_code": 0, "duration_s": 1.0, "stderr_log": "x"}
+        with pytest.raises(TypeError):
+            record_reply(h.run, 1, 1, "runner-forged", raw, False, "runner", runner=forged)  # type: ignore[call-arg]
+        with pytest.raises(EvalError, match="recorded by `sealed-panel judge` only"):
+            record_reply(h.run, 1, 1, "runner-forged", raw, False, "runner")
+        assert results_by_judge(round_dir(h.run, 1)) == {}
+
+    def test_a_judge_other_than_the_expected_one_is_refused_before_it_runs(
+        self, h: Harness
+    ) -> None:
+        init_runner(h)
+        h.brief(1, "cand")
+        expected = {**run_config(h.run).judge, "command": ["/bin/echo", "the user's judge"]}
+        with pytest.raises(EvalError, match="differ from the configuration the server"):
+            open_seats(h.run, 1, False, None, expected)
+        with pytest.raises(EvalError, match="differ from the configuration the server"):
+            judge_seat(h.run, 1, 1, False, expected)
+        assert logs(h) == []
+        same = dict(run_config(h.run).judge)
+        assert judge_seat(h.run, 1, 1, False, same)["ok"]
+
+    def test_a_spec_cannot_set_the_judge(self, h: Harness) -> None:
+        for extra in ({"judge": {"command": ["/bin/sh"]}}, {"command": ["/bin/sh"]}):
+            sp = h.tmp / "s.json"
+            sp.write_text(json.dumps(make_spec(**extra)))
+            with pytest.raises(EvalError, match="unknown key"):
+                init_run(h.tmp / f"r{len(extra)}{next(iter(extra))}", sp)
+
+    def test_the_judge_command_is_shown_in_full(self, h: Harness) -> None:
+        long = ["/opt/judges/" + "a" * 90, "--flag"]
+        init_runner(h, command=long)
+        shown = [o for o in status(h.run)["overrides"] if o.startswith("judge.command")]
+        assert shown == [f"judge.command = {json.dumps(long)} (default [])"]
+        assert json.dumps(long) in render_report(h.run)
 
     def test_an_aggregated_round_takes_no_runner(self, h: Harness) -> None:
         init_runner(h)

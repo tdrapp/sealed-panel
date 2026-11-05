@@ -104,8 +104,8 @@ severity cap are lowered to the cap. A quote that is not found voids that score.
 quoted the same words on every dimension of the candidate is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
-used in the run, a reply already recorded, a judge slot that already has a valid reply, a
-pasted reply on a slot the judge runner attempted in this round, a slot
+used in the run, a reply already recorded, a judge slot that already has a valid reply, any
+reply or void in a run with a judge command (the runner records those), a slot
 with `max_replacements + 1` attempts, a round already aggregated, a transcript whose prompt
 does not contain the whole brief, `--void` without `--transcript` or on a transcript without
 the brief id.
@@ -138,7 +138,8 @@ Refused before any process starts: a run without a judge command (host mode), a 
 briefed or already aggregated, a slot not in the round, every asked slot already holding a
 valid reply, a slot at its replacement cap or at its void cap. Refused after a process ran: a
 reply identical to one already recorded. A command that cannot be started records nothing.
-A slot the runner attempted cannot take a pasted reply (`record --output`) in the same round.
+A run with a judge command takes runner replies only: `record`, pasted, from a transcript or
+as a void, is refused on every slot. A run without one stays in host mode.
 
 ## measure
 
@@ -235,7 +236,9 @@ Serves the commands as MCP tools over stdio, for an agent host, and exits when s
 Needs the `mcp` extra (`pip install 'sealed-panel[mcp]'`); without it, the command says so and
 exits with status 2. stdout carries the protocol only; logs go to stderr. Relative paths in tool
 calls resolve against `--root` (default: the directory the server starts in). `--config` is the
-configuration `init` freezes when a call names none, such as one with a `[judge] command`.
+configuration the `init` tool freezes into every run, and the only place a `[judge] command`
+comes from: the tool takes no configuration from the caller, and `judge` re-reads the file and
+refuses a run whose judge settings differ from it.
 
 The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
 (`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,

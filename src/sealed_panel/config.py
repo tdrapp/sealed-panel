@@ -514,10 +514,14 @@ def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
 SHOW_LIMIT = 80
 
 
-def _show(value: Any, where: str) -> str:
+# Settings always shown in full: what runs as the judge is never reduced to a hash.
+SHOW_IN_FULL = frozenset({"judge.command", "judge.env_allow"})
+
+
+def _show(value: Any, where: str, key: str = "") -> str:
     """A value in full, or, when it is long, its size and short hash and where to read it."""
     text = json.dumps(value, ensure_ascii=True)
-    if len(text) <= SHOW_LIMIT:
+    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:
         return text
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     return f"<{len(text)} characters, sha256 {digest}, see {where}>"
@@ -539,7 +543,8 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
         if key not in current:
             continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):
-            now, was = _show(current.get(key), "config.json"), _show(defaults.get(key), "defaults")
+            now = _show(current.get(key), "config.json", key)
+            was = _show(defaults.get(key), "defaults", key)
             out.append(f"{key} = {now} (default {was})")
     if spec is not None:
         for key, default in default_data()["run"].items():

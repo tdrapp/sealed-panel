@@ -171,9 +171,12 @@ cannot be voided.
 ## `[judge]`
 
 The judge runner (`sealed-panel judge`, see [cli.md](cli.md)). Set it in the file given to
-`init --config`; it is frozen into the run like every other setting, so the judges cannot
-change in the middle of a run, and a command that differs from the default (empty) is listed
-next to the grade.
+`init --config`, or, for the MCP server, in the file given to `sealed-panel mcp --config`: the
+server freezes that file into every run it starts and refuses to run a judge whose settings
+differ from it, so the caller of a tool never picks its judge. It is frozen into the run like
+every other setting, so the judges cannot change in the middle of a run, and a command that
+differs from the default (empty) is listed in full next to the grade. A run with a judge
+command takes runner replies only.
 
 ```toml
 [judge]

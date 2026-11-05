@@ -367,16 +367,11 @@ def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
 
 def check_seat(judge: int, prior: list[dict[str, Any]], source: str, cfg: Config) -> None:
     """Refuse a reply the slot cannot take: a second valid one, a pasted one where the brief
-    may have been seen or where the judge runner answered, or one past the replacement cap."""
+    may have been seen, or one past the replacement cap."""
     if any(r["ok"] for r in prior):
         raise EvalError(
             f"judge {judge} already has a valid reply in this round: "
             "a second one would be a re-roll"
-        )
-    if source == "output" and any(r.get("source") == RUNNER for r in prior):
-        raise EvalError(
-            f"judge {judge} was run by the judge runner in this round: its next reply comes from "
-            "the runner too, never pasted by hand"
         )
     if source == "output" and any(r.get("void") and r.get("replied") for r in prior):
         raise EvalError(
@@ -450,13 +445,41 @@ def record_reply(
     transcript: Path | None = None,
     void: bool = False,
     malformed: str = "",
-    runner: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate and store one judge's reply, or a void attempt. Returns the result. A
-    non-empty `malformed` records the attempt as rejected with that reason. `runner` is the
-    judge runner's proof (source "runner"): with `void`, the process gave no reply."""
+    non-empty `malformed` records the attempt as rejected with that reason. A runner reply is
+    recorded only by the runner itself, which wrote the brief and read the reply."""
+    if source == RUNNER:
+        raise EvalError("a runner reply is recorded by `sealed-panel judge` only, with its proof")
+    return _record_reply(
+        run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed
+    )
+
+
+def _record_reply(
+    run: Path,
+    rnd: int,
+    judge: int,
+    agent_id: str,
+    raw: str,
+    sealed: bool,
+    source: str = "output",
+    transcript: Path | None = None,
+    void: bool = False,
+    malformed: str = "",
+    runner: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """record_reply, plus the runner's path: `runner` is its proof (source "runner"), and with
+    `void` the process gave no reply. Only runner.judge_seat passes a proof."""
     spec = load_frozen(run)
     cfg = run_config(run)
+    if (runner is None) != (source != RUNNER):
+        raise EvalError("a runner reply needs the runner's proof, and only a runner reply has one")
+    if source != RUNNER and cfg.judge["command"]:
+        raise EvalError(
+            "this run has a judge command: every reply comes from the runner "
+            "(`sealed-panel judge`), never pasted, read from a transcript or voided by hand"
+        )
     rdir = round_dir(run, rnd, sealed)
     keys = round_keys(rdir, rnd)
     meta = _judge_meta(keys, judge, rdir)
@@ -469,8 +492,6 @@ def record_reply(
     if (rdir / "result.json").exists():
         raise EvalError("this round is already aggregated: a late judge would be panel shopping")
     extra_chars = 0
-    if (runner is None) != (source != RUNNER):
-        raise EvalError("a runner reply needs the runner's proof, and only a runner reply has one")
     if void and runner is None:
         if transcript is None:
             raise EvalError("--void needs the agent's --transcript, to show it never replied")

@@ -5,7 +5,7 @@ The reply has fixed scores: 1 on an item holding the low word (the control of th
 bytes read, so a test can check the brief arrived unchanged. Options make it misbehave:
 
     stub_judge.py [--exit N] [--sleep S] [--silent] [--noise] [--show-env] [--show-cwd]
-                  [--low WORD] [--score N] [--fixed]
+                  [--low WORD] [--score N] [--fixed] [--fail-first PATH]
 
 Without --fixed, the retell also carries a random tag: real judges never reply identically.
 """
@@ -58,6 +58,7 @@ def main() -> int:
     ap.add_argument("--low", default="synergies")
     ap.add_argument("--score", type=int, default=4)
     ap.add_argument("--fixed", action="store_true")
+    ap.add_argument("--fail-first", help="exit 3 when PATH does not exist yet, creating it")
     a = ap.parse_args()
     data = sys.stdin.buffer.read()
     digest = hashlib.sha256(data).hexdigest()
@@ -70,6 +71,9 @@ def main() -> int:
     if not a.silent:
         tag = digest if a.fixed else f"{digest} {secrets.token_hex(4)}"
         print(json.dumps(reply(data.decode("utf-8"), tag, a.low, a.score)), flush=True)
+    if a.fail_first and not os.path.exists(a.fail_first):
+        open(a.fail_first, "w").close()
+        return 3
     if a.sleep:
         time.sleep(a.sleep)
     return a.exit

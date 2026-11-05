@@ -14,6 +14,7 @@ gives no reply: the attempt is recorded as void, under the void cap, and never a
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import signal
@@ -27,7 +28,7 @@ from typing import Any
 from .config import Config
 from .errors import EvalError
 from .ledger import results_by_judge
-from .record import RUNNER, check_seat, check_void_cap, record_reply, round_keys
+from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys
 from .spec import load_frozen, run_config
 from .store import round_dir
 
@@ -64,10 +65,26 @@ def _runnable(judge: int, prior: list[dict[str, Any]], cfg: Config) -> None:
     check_void_cap(judge, prior)
 
 
-def _open_round(run: Path, rnd: int, sealed: bool) -> tuple[Config, Path, dict[str, Any]]:
+def check_judge(cfg: Config, expected: Mapping[str, Any] | None) -> None:
+    """Refuse a run whose frozen judge settings differ from `expected`, the [judge] section of
+    the configuration the user started the MCP server with: the caller never picks its judge."""
+    if expected is None:
+        return
+    frozen = {k: cfg.judge.get(k) for k in expected}
+    if frozen != dict(expected):
+        raise EvalError(
+            "this run's judge settings differ from the configuration the server was started "
+            f"with: run {json.dumps(frozen)}, server {json.dumps(dict(expected))}"
+        )
+
+
+def _open_round(
+    run: Path, rnd: int, sealed: bool, expected: Mapping[str, Any] | None = None
+) -> tuple[Config, Path, dict[str, Any]]:
     load_frozen(run)
     cfg = run_config(run)
     judge_command(cfg)
+    check_judge(cfg, expected)
     rdir = round_dir(run, rnd, sealed)
     keys = round_keys(rdir, rnd)
     if (rdir / "result.json").exists():
@@ -75,10 +92,17 @@ def _open_round(run: Path, rnd: int, sealed: bool) -> tuple[Config, Path, dict[s
     return cfg, rdir, keys
 
 
-def open_seats(run: Path, rnd: int, sealed: bool, only: list[int] | None = None) -> list[int]:
+def open_seats(
+    run: Path,
+    rnd: int,
+    sealed: bool,
+    only: list[int] | None = None,
+    expected: Mapping[str, Any] | None = None,
+) -> list[int]:
     """The judge slots of a round without a valid reply, in order (only those in `only` when
-    given). Every refusal is checked here, before any process starts."""
-    cfg, rdir, keys = _open_round(run, rnd, sealed)
+    given). Every refusal is checked here, before any process starts. `expected` is the judge
+    section the caller must match (see check_judge)."""
+    cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     slots = [j["judge"] for j in keys["judges"] if isinstance(j, dict)]
     if only:
         unknown = sorted(set(only) - set(slots))
@@ -140,10 +164,12 @@ def _launch(
         return proc.poll(), timed_out, time.monotonic() - start, out
 
 
-def judge_seat(run: Path, rnd: int, judge: int, sealed: bool) -> dict[str, Any]:
+def judge_seat(
+    run: Path, rnd: int, judge: int, sealed: bool, expected: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """Start one fresh judge process on one brief and record what it gave: a reply (valid or
     rejected), or a void when it failed, timed out or wrote nothing. Returns the result."""
-    cfg, rdir, keys = _open_round(run, rnd, sealed)
+    cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):
         raise EvalError(f"no judge {judge} in {rdir}/keys.json")
     _runnable(judge, results_by_judge(rdir).get(judge, []), cfg)
@@ -176,7 +202,7 @@ def judge_seat(run: Path, rnd: int, judge: int, sealed: bool) -> dict[str, Any]:
     }
     if failure:
         proof["failure"] = failure
-    return record_reply(
+    return _record_reply(
         run, rnd, judge, agent_id, reply, sealed, RUNNER, void=bool(failure), runner=proof
     )
 

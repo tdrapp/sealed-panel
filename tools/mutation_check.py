@@ -879,7 +879,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "long values cut in the report": (
         CFG,
-        "    if len(text) <= SHOW_LIMIT:\n        return text",
+        "    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:\n        return text",
         "    if True:\n        return text[:57]",
     ),
     "overrides hidden": (CFG, "if current.get(key) != defaults.get(key):", "if False:"),
@@ -919,10 +919,30 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):',
         "if False:",
     ),
-    "pasted reply on a runner seat": (
+    "host reply in a runner run": (
         REC,
-        'if source == "output" and any(r.get("source") == RUNNER for r in prior):',
+        'if source != RUNNER and cfg.judge["command"]:',
         "if False:",
+    ),
+    "runner reply forged through the public API": (
+        REC,
+        '    if source == RUNNER:\n        raise EvalError("a runner reply is recorded',
+        '    if False:\n        raise EvalError("a runner reply is recorded',
+    ),
+    "judge settings not checked against the server": (
+        RUN,
+        "    if frozen != dict(expected):",
+        "    if False:",
+    ),
+    "init takes the caller's configuration": (
+        MCP,
+        "digest = init_run(path(run), path(spec), server_config(), opt(library))",
+        "digest = init_run(path(run), path(spec), None, opt(library))",
+    ),
+    "judge command shown as a hash": (
+        CFG,
+        "if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:",
+        "if len(text) <= SHOW_LIMIT:",
     ),
     "runner proof unchecked": (REC, "if (runner is None) != (source != RUNNER):", "if False:"),
     "runner proof dropped": (REC, '        result["runner"] = runner\n', "        pass\n"),
