@@ -79,3 +79,27 @@ Then start your host with its option for a local plugin directory pointing at th
 `skill/` is the one source of the skill. `skills/sealed-panel/` and
 `.agents/skills/sealed-panel/` are copies that hosts read, and `tests/test_packaging.py` fails
 when a copy drifts: after editing `skill/`, copy it over both.
+
+## Agent hosts that read `.agents/skills`
+
+Some agent hosts read skills from `.agents/skills/` in the repository and MCP servers from a
+TOML configuration file. The skill is there already (`.agents/skills/sealed-panel/`, a copy of
+`skill/`, with its `name` and `description` front matter). Add the server to your host's
+`config.toml`:
+
+```toml
+[mcp_servers.sealed-panel]
+command = "uvx"
+args = ["--from", "sealed-panel[mcp]==0.3.0", "sealed-panel", "mcp"]
+tool_timeout_sec = 300
+env_vars = ["MY_MODEL_API_KEY"]
+```
+
+`tool_timeout_sec` is raised to 300 because a `judge` call runs one judge after another and a
+judge can take a minute, while such hosts commonly stop a tool call after 60 seconds. Split a
+large panel across calls with the tool's `judges` parameter so that each call fits.
+
+`env_vars` is the host's allow-list of variables passed to the server: list only what the judge
+command needs (your model's key, if the runner calls a model), or drop the line in host mode.
+The judge command still sees only `PATH`, `HOME`, `LANG` and the names in `[judge] env_allow`,
+so a key reaches a judge only when both lists name it.

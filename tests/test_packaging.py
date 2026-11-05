@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -67,3 +68,20 @@ def test_the_plugin_files_install_one_version() -> None:
         "sealed-panel",
         "mcp",
     ]
+
+
+def test_the_documented_host_configuration_starts_the_same_server() -> None:
+    doc = (ROOT / "docs" / "integrations.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"```toml\n(.*?)```", doc, re.DOTALL)
+    servers = [
+        tomllib.loads(b)["mcp_servers"]["sealed-panel"] for b in blocks if "mcp_servers" in b
+    ]
+    assert len(servers) == 1
+    [block] = servers
+    launch = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert [block["command"], *block["args"]] == [
+        launch["sealed-panel"]["command"],
+        *launch["sealed-panel"]["args"],
+    ]
+    assert block["tool_timeout_sec"] == 300
+    assert isinstance(block["env_vars"], list)
