@@ -1,0 +1,7 @@
+# Give this file to `sealed-panel init RUN --spec SPEC.json --config judge.toml`.
+# The runner starts the command in an empty directory: use absolute paths.
+[judge]
+command = ["python3", "/path/to/sealed-panel/examples/runner/judge_template.py"]
+timeout_s = 300
+# The template reads these; the runner passes nothing else but PATH, HOME and LANG.
+env_allow = ["JUDGE_MODEL_COMMAND", "JUDGE_MODEL_URL", "JUDGE_MODEL_KEY"]
