@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +19,11 @@ def load_json(path: Path) -> Any:
 
 
 def dump_json(path: Path, data: Any) -> None:
+    """Write whole or not at all: a reader in another call never sees half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    draft = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    draft.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(draft, path)
 
 
 def read_text(path: Path) -> str:

@@ -326,8 +326,13 @@ class TestConcurrentJudges:
             calls = [c.call_tool_mcp("judge", {"run": "run", "sealed": True}) for _ in range(3)]
             await asyncio.gather(*calls)
         by = results_by_judge(h.run / "sealed" / "r1")
-        assert {j: sum(r["ok"] for r in rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}
-        assert {j: len(rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}
+        detail = {
+            j: [(r["ok"], r.get("void"), r["errors"][:1]) for r in rows] for j, rows in by.items()
+        }
+        assert {j: sum(r["ok"] for r in rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}, (
+            detail
+        )
+        assert {j: len(rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}, detail
 
     async def test_a_retry_after_a_cancelled_call_never_judges_the_seat_twice(
         self, h: Harness, mode: str
