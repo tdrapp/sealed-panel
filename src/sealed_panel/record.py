@@ -452,6 +452,15 @@ def _judge_meta(keys: dict[str, Any], judge: int, rdir: Path) -> dict[str, Any]:
     return meta
 
 
+def _refuse_in_a_runner_run(cfg: Config) -> None:
+    """A run with a judge command takes runner replies only, on every seat."""
+    if cfg.judge["command"]:
+        raise EvalError(
+            "this run has a judge command: every reply comes from the runner "
+            "(`sealed-panel judge`), never pasted, read from a transcript or voided by hand"
+        )
+
+
 def record_reply(
     run: Path,
     rnd: int,
@@ -493,11 +502,8 @@ def _record_reply(
     cfg = run_config(run)
     if (runner is None) != (source != RUNNER):
         raise EvalError("a runner reply needs the runner's proof, and only a runner reply has one")
-    if source != RUNNER and cfg.judge["command"]:
-        raise EvalError(
-            "this run has a judge command: every reply comes from the runner "
-            "(`sealed-panel judge`), never pasted, read from a transcript or voided by hand"
-        )
+    if source != RUNNER:
+        _refuse_in_a_runner_run(cfg)
     rdir = round_dir(run, rnd, sealed)
     keys = round_keys(rdir, rnd)
     meta = _judge_meta(keys, judge, rdir)
@@ -602,6 +608,7 @@ def record_from(
 ) -> dict[str, Any]:
     """Record one judge as the `record` command does: from its transcript (or as a void on
     it), or from a pasted reply. The command line and the MCP server both call this."""
+    _refuse_in_a_runner_run(run_config(run))
     if void and transcript is None:
         raise EvalError("--void needs --transcript")
     if (transcript is None) == (output is None):

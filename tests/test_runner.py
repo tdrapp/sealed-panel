@@ -224,6 +224,8 @@ class TestRefusals:
         for kwargs in ({"output": raw}, {"transcript": t}, {"transcript": t, "void": True}):
             with pytest.raises(EvalError, match="every reply comes from the runner"):
                 record_from(h.run, 1, 2, "host", False, **kwargs)  # type: ignore[arg-type]
+        with pytest.raises(EvalError, match="every reply comes from the runner"):
+            record_reply(h.run, 1, 2, "host", raw, False, "output")
         assert set(results_by_judge(round_dir(h.run, 1))) == {1}
 
     def test_a_run_without_a_judge_command_keeps_host_mode(self, h: Harness) -> None:
@@ -267,7 +269,12 @@ class TestRefusals:
         assert judge_seat(h.run, 1, 1, False, same)["ok"]
 
     def test_a_spec_cannot_set_the_judge(self, h: Harness) -> None:
-        for extra in ({"judge": {"command": ["/bin/sh"]}}, {"command": ["/bin/sh"]}):
+        attempts: list[dict[str, Any]] = [
+            {"judge": {"command": ["/bin/sh"]}},
+            {"command": ["/bin/sh"]},
+            {"config": {"judge": {"command": ["/bin/sh"]}}},
+        ]
+        for extra in attempts:
             sp = h.tmp / "s.json"
             sp.write_text(json.dumps(make_spec(**extra)))
             with pytest.raises(EvalError, match="unknown key"):

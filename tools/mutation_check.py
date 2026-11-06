@@ -921,8 +921,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "host reply in a runner run": (
         REC,
-        'if source != RUNNER and cfg.judge["command"]:',
-        "if False:",
+        '    if cfg.judge["command"]:\n        raise EvalError(\n',
+        "    if False:\n        raise EvalError(\n",
+    ),
+    "host reply checked only in the private record": (
+        REC,
+        "    if source != RUNNER:\n        _refuse_in_a_runner_run(cfg)\n",
+        "",
     ),
     "runner reply forged through the public API": (
         REC,

@@ -435,3 +435,49 @@ class TestPaths:
         async with Client(build_server(h.tmp, cfg)) as c:  # the flag wins
             await call(c, "init", run="run", spec=spec)
         assert not any(o.startswith("mcp.") for o in run_status_of(h.run)["overrides"])
+
+
+class TestRunnerRefusalsThroughTools:
+    """Every refusal of the runner holds through the tools (tests from the refusal probe)."""
+
+    async def setup_run(self, c: Client, h: Harness) -> None:
+        write_spec(h)
+        await call(c, "init", run="run", spec="spec.json")
+        await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+
+    async def test_voids_are_capped_and_no_other_reply_gets_in(self, h: Harness, mode: str) -> None:
+        async with Client(build_server(h.tmp, runner_config(h, "--exit", "3")), mode=mode) as c:
+            await self.setup_run(c, h)
+            args = {"run": "run", "round": 1, "judges": [1]}
+            for _ in range(3):
+                [seat] = (await call(c, "judge", **args))["seats"]
+                assert seat["status"] == "VOID" and seat["exit_code"] == 3
+            assert "voided attempts" in await error(c, "judge", **args)
+            msg = await error(c, "record", run="run", round=1, judge=1, agent_id="x", reply="{}")
+            assert "every reply comes from the runner" in msg
+            t = h.tmp / "t.jsonl"
+            t.write_text('{"type": "user", "agentId": "y", "message": {"content": "brief"}}\n')
+            for tool in ("record", "void"):
+                msg = await error(
+                    c, tool, run="run", round=1, judge=1, agent_id="y", transcript="t.jsonl"
+                )
+                assert "every reply comes from the runner" in msg
+            assert "never fills a seat" in await error(c, "aggregate", run="run", round=1)
+
+    async def test_a_filled_seat_takes_no_second_reply(self, h: Harness, mode: str) -> None:
+        async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
+            await self.setup_run(c, h)
+            args = {"run": "run", "round": 1, "judges": [1]}
+            [seat] = (await call(c, "judge", **args))["seats"]
+            assert seat["status"] == "VALID"
+            assert "already has a valid reply" in await error(c, "judge", **args)
+
+    async def test_replacements_are_capped(self, h: Harness, mode: str) -> None:
+        cfg = runner_config(h, "--low", "absent-word")
+        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+            await self.setup_run(c, h)
+            args = {"run": "run", "round": 1, "judges": [1]}
+            for _ in range(3):  # one attempt and two replacements
+                [seat] = (await call(c, "judge", **args))["seats"]
+                assert seat["status"] == "REJECTED" and "control scored" in seat["errors"][0]
+            assert "rejected 3 times" in await error(c, "judge", **args)
