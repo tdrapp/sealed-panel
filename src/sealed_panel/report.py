@@ -10,7 +10,7 @@ from .decide import SUSPECT_JUMP, TOP_SCORE, decide, measured_ok
 from .ledger import other_runs, used_agent_ids
 from .record import RUNNER
 from .spec import dims_for, load_frozen, run_config
-from .store import load_json
+from .store import load_json, refuse_links
 
 # Hex characters of the rubric hash shown in the report.
 HASH_CHARS = 12
@@ -46,6 +46,7 @@ def feedback_path(run: Path, rnd: int) -> Path:
 
 def write_feedback(run: Path, entry: dict[str, Any]) -> Path:
     path = feedback_path(run, entry["round"])
+    refuse_links(path.parent, path)
     path.parent.mkdir(exist_ok=True)
     path.write_text(feedback_for_author(entry), encoding="utf-8")
     return path

@@ -981,8 +981,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "relative paths resolved against the process directory": (
         MCP,
-        "return (given if given.is_absolute() else base / given).resolve()",
-        "return given.resolve()",
+        "resolved = (given if given.is_absolute() else base / given).resolve()",
+        "resolved = given.resolve()",
     ),
     "seat marker not exclusive": (RUN, "os.link(draft, marker)", "os.replace(draft, marker)"),
     "a late settle steals a live marker": (
@@ -1027,6 +1027,44 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         REC,
         'if name != t["handback_tool"] or not t["handback_tool"]:',
         "if True:",
+    ),
+    # Paths and files of a run.
+    "paths outside the root accepted": (
+        MCP,
+        "        if not resolved.is_relative_to(base):\n",
+        "        if False:\n",
+    ),
+    "home paths accepted": (MCP, '        if p.startswith("~"):\n', "        if False:\n"),
+    "root setting ignored": (
+        MCP,
+        "base = (root or (Path(configured) if configured else Path.cwd())).expanduser().resolve()",
+        "base = (root or Path.cwd()).expanduser().resolve()",
+    ),
+    "init over a foreign directory": (
+        SPEC,
+        "if run.is_symlink() or (run.is_dir() and any(run.iterdir())):",
+        "if False:",
+    ),
+    "links followed in a run": (
+        f"{PKG}/store.py",
+        "        if p.is_symlink():\n",
+        "        if False:\n",
+    ),
+    "links inside a round directory followed": (
+        BRIEF,
+        "        refuse_links(*rdir.iterdir())\n",
+        "        pass\n",
+    ),
+    "a link stops no findings file": (
+        f"{PKG}/report.py",
+        "    refuse_links(path.parent, path)\n",
+        "",
+    ),
+    "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
+    "root listed with the grading settings": (
+        CFG,
+        'NOT_GRADING = frozenset({"library.path", "mcp.root"})',
+        'NOT_GRADING = frozenset({"library.path"})',
     ),
 }
 

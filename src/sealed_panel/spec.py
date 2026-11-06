@@ -316,6 +316,11 @@ def init_run(
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
+    if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
+        raise EvalError(
+            f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
+            "directory, so it never writes over another program's files"
+        )
     spec = load_json(spec_path)
     errors = validate_spec(spec, cfg)
     if errors:

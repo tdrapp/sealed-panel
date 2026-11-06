@@ -32,13 +32,14 @@ Or let `uvx` fetch it on demand:
 uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp
 ```
 
-The tools are listed in [cli.md](cli.md#mcp). Relative paths resolve against the directory the
-server starts in, or `--root DIR`. To let the server run the judges, start it with a
-configuration that holds a `[judge] command` (`sealed-panel mcp --config judge.toml`). That file
-is the only source of the judge settings: the `init` tool freezes it into every run and takes
-no configuration from the caller, and the `judge` tool refuses a run whose judge settings
-differ from it. The caller is the author of the text; letting it choose the judge would let it
-grade itself.
+The tools are listed in [cli.md](cli.md#mcp). Every path a tool takes must resolve under the
+root, symbolic links followed: `--root DIR`, else `[mcp] root` in the configuration, else the
+directory the server starts in. To let the server run the judges, start it with a configuration
+that holds a `[judge] command` (`sealed-panel mcp --config judge.toml`). That file is the only
+source of the judge settings: the `init` tool freezes it into every run and takes no
+configuration from the caller, and the `judge` tool refuses a run whose judge settings differ
+from it. The caller is the author of the text; letting it choose the judge would let it grade
+itself.
 
 ## Agent host plugin
 

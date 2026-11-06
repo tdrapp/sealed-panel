@@ -280,15 +280,23 @@ def _candidate_row(lib: Path, c: dict[str, Any]) -> CandidateRow:
 
 
 def build_server(root: Path | None = None, config: Path | None = None) -> FastMCP:
-    """The sealed-panel MCP server. Relative paths resolve against `root` (default: the current
-    directory). `config` is the user's configuration: `init` freezes it into every run, and
-    `judge` refuses a run whose judge settings differ from it."""
-    base = (root or Path.cwd()).expanduser().resolve()
+    """The sealed-panel MCP server. Every path a tool takes resolves under the root: `root`,
+    else `[mcp] root` in `config`, else the current directory. `config` is the user's
+    configuration: `init` freezes it into every run, and `judge` refuses a run whose judge
+    settings differ from it."""
     default_config = config.expanduser().resolve() if config else None
+    configured = str(load_config(default_config).section("mcp")["root"]).strip()
+    base = (root or (Path(configured) if configured else Path.cwd())).expanduser().resolve()
 
     def path(p: str) -> Path:
-        given = Path(p).expanduser()
-        return (given if given.is_absolute() else base / given).resolve()
+        """A path a caller gave, resolved (links followed) and confined to the root."""
+        if p.startswith("~"):
+            raise ToolError(f"{p!r}: paths are relative to the root {base}, never under ~")
+        given = Path(p)
+        resolved = (given if given.is_absolute() else base / given).resolve()
+        if not resolved.is_relative_to(base):
+            raise ToolError(f"{p!r} is outside the root {base}: every path stays under it")
+        return resolved
 
     def opt(p: str | None) -> Path | None:
         return path(p) if p else None

@@ -123,6 +123,12 @@ max_reply_bytes = 1048576
 # Nothing else from the environment reaches it.
 env_allow = []
 
+[mcp]
+# The MCP server's root: every path a tool takes must resolve under it (symlinks followed).
+# Empty means the directory the server starts in; `sealed-panel mcp --root` overrides it.
+# Absolute or starting with ~. Not a grading setting: it is not listed with the overrides.
+root = ""
+
 [library]
 # The user rubric library: user templates, inbox/ and history/. Empty means the user-level
 # default (~/.local/share/sealed-panel/rubrics, or the platform equivalent); the environment

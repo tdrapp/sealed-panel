@@ -169,6 +169,9 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
         errors.append("library.control_gap must be between 0 and 4")
     errors += _injection_errors(data["injection"])
     errors += _judge_errors(data.get("judge") or default_data()["judge"])
+    root = str((data.get("mcp") or {}).get("root", ""))
+    if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
+        errors.append(f"mcp.root must be an absolute path or start with ~, got {root!r}")
     transcript = data["transcript"]
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
@@ -475,6 +478,12 @@ def guard_library(path: Path) -> Path:
     package = Path(__file__).resolve().parent
     if real == package or package in real.parents:
         raise ConfigError(f"the rubric library may not live inside the package: {real}")
+    run = next((p for p in (real, *real.parents) if (p / "rubric.lock").is_file()), None)
+    if run is not None:
+        raise ConfigError(
+            f"the rubric library may not live inside the run {run}: its files would be read "
+            "as templates and candidates"
+        )
     top = _git_top(real)
     if top is not None and not _git_ignored(top, real):
         raise ConfigError(
@@ -517,6 +526,8 @@ def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 SHOW_LIMIT = 80
+# Settings that place files and do not change a grade: never listed as overrides.
+NOT_GRADING = frozenset({"library.path", "mcp.root"})
 
 
 # Settings always shown in full: what runs as the judge is never reduced to a hash.
@@ -543,8 +554,8 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
     for key in sorted(set(defaults) | set(current)):
         if key.startswith("run.") and spec is not None:
             continue
-        if key == "library.path":
-            continue  # where candidates are written, not a grading setting
+        if key in NOT_GRADING:
+            continue  # where files are, not how a text is graded
         if key not in current:
             continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):

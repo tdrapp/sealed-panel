@@ -23,6 +23,7 @@ from sealed_panel import mcp_server
 from sealed_panel.config import load_config
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
+from sealed_panel.report import status as run_status_of
 from sealed_panel.spec import init_run
 from sealed_panel.spec import run_config as run_config_of
 
@@ -354,3 +355,83 @@ class TestConcurrentJudges:
                 await asyncio.sleep(0.1)
         rows = results_by_judge(h.run / "rounds" / "r1")[1]
         assert [r["ok"] for r in rows] == [True]
+
+
+class TestPaths:
+    """Every path a tool takes stays under the root (tests from the path probe)."""
+
+    @pytest.fixture
+    def outside(self, h: Harness, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        return tmp_path_factory.mktemp("outside")
+
+    async def test_paths_outside_the_root_are_refused(
+        self, h: Harness, outside: Path, mode: str
+    ) -> None:
+        write_spec(h)
+        secret = outside / "secret.txt"
+        secret.write_text("TOP-SECRET-LINE with enough words in it\n")
+        link = h.tmp / "link"
+        link.symlink_to(outside)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            for run in ("../elsewhere", str(outside / "run"), "link/run"):
+                msg = await error(c, "init", run=run, spec="spec.json")
+                assert "outside the root" in msg, run
+            assert "never under ~" in await error(c, "init", run="~/run", spec="spec.json")
+            assert not (outside / "run").exists() and not (h.tmp.parent / "elsewhere").exists()
+            await call(c, "init", run="run", spec="spec.json")
+            msg = await error(
+                c, "brief", run="run", round=1, artefact=str(secret), control="ctrl.md"
+            )
+            assert "outside the root" in msg
+            assert "outside the root" in await error(c, "init", run="r2", spec=str(secret))
+            msg = await error(c, "rubrics_suggest", kind="email", text=str(secret))
+            assert "outside the root" in msg
+            msg = await error(c, "rubrics_list", library=str(outside))
+            assert "outside the root" in msg
+            await call(c, "status", run=str(h.run))  # an absolute path inside the root is fine
+
+    async def test_a_foreign_directory_is_not_overwritten(self, h: Harness, mode: str) -> None:
+        write_spec(h)
+        victim = h.tmp / "someapp"
+        victim.mkdir()
+        (victim / "config.json").write_text('{"app": "precious"}')
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            assert "not empty" in await error(c, "init", run="someapp", spec="spec.json")
+        assert (victim / "config.json").read_text() == '{"app": "precious"}'
+        assert sorted(p.name for p in victim.iterdir()) == ["config.json"]
+
+    async def test_a_link_inside_a_run_is_refused(
+        self, h: Harness, outside: Path, mode: str
+    ) -> None:
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            (h.run / "rounds").mkdir()
+            (h.run / "rounds" / "r1").symlink_to(outside)
+            msg = await error(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+        assert "symbolic link" in msg
+        assert list(outside.iterdir()) == []
+
+    async def test_a_library_inside_a_run_is_refused(self, h: Harness, mode: str) -> None:
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+            msg = await error(c, "rubrics_list", library="run/rounds/r1")
+        assert "inside the run" in msg
+
+    async def test_the_root_comes_from_the_flag_or_the_configuration(self, h: Harness) -> None:
+        write_spec(h)
+        inner = h.tmp / "inner"
+        inner.mkdir()
+        cfg = h.tmp / "root.toml"
+        cfg.write_text(f'[mcp]\nroot = "{inner}"\n')
+        spec = str(h.tmp / "spec.json")
+        (inner / "spec.json").write_text((h.tmp / "spec.json").read_text())
+        async with Client(build_server(None, cfg)) as c:
+            assert "outside the root" in await error(c, "init", run="run", spec=spec)
+            await call(c, "init", run="inside", spec="spec.json")
+        assert (inner / "inside" / "rubric.lock").exists()
+        async with Client(build_server(h.tmp, cfg)) as c:  # the flag wins
+            await call(c, "init", run="run", spec=spec)
+        assert not any(o.startswith("mcp.") for o in run_status_of(h.run)["overrides"])

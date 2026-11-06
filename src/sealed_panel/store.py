@@ -30,6 +30,14 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def refuse_links(*paths: Path) -> None:
+    """Refuse a symbolic link where a run writes: a link planted in a run would send its files
+    elsewhere."""
+    for p in paths:
+        if p.is_symlink():
+            raise EvalError(f"{p} is a symbolic link: a run writes only inside its own directory")
+
+
 def resolve_round(rnd: int | None, sealed: bool) -> int:
     """The round asked for; with no number, the sealed panel's round 1, never a loop round."""
     if rnd is not None:
@@ -40,4 +48,8 @@ def resolve_round(rnd: int | None, sealed: bool) -> int:
 
 
 def round_dir(run: Path, rnd: int, sealed: bool = False) -> Path:
-    return run / ("sealed" if sealed else "rounds") / f"r{rnd}"
+    """A round's directory, refused when it or its parent is a symbolic link."""
+    parent = run / ("sealed" if sealed else "rounds")
+    rdir = parent / f"r{rnd}"
+    refuse_links(parent, rdir)
+    return rdir

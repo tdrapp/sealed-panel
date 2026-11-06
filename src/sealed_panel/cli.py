@@ -104,7 +104,9 @@ def _parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("mcp", help="serve the commands as MCP tools over stdio (the mcp extra)")
     p.add_argument(
-        "--root", type=Path, help="directory relative paths resolve against (default: here)"
+        "--root",
+        type=Path,
+        help="every tool path must resolve under it (default: [mcp] root, else here)",
     )
     p.add_argument("--config", type=Path, help="configuration init freezes when a call names none")
 

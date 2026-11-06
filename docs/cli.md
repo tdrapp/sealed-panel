@@ -28,7 +28,8 @@ sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
 content, and refuses a spec whose own text addresses the judges. Writes `spec.json`,
 `rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and an empty `ledger.json`.
-Refuses if `RUN` is already initialised: a new rubric is a new run.
+Refuses if `RUN` is already initialised (a new rubric is a new run), or if it holds other files:
+`init` takes a new or empty directory, so it never writes over another program's files.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,
@@ -76,7 +77,8 @@ panel, the round-1 text rides along as a blind baseline when it differs from the
 
 Refused: a round number below 1, a round already briefed, a text already judged in this run, a
 round past `max_rounds`, a loop round after the loop stopped or after a seal, a second sealed
-panel, a control identical to the candidate, a text containing the item tag.
+panel, a control identical to the candidate, a text containing the item tag, a symbolic link
+where the round writes (the round directory, its parent, or an entry inside it).
 
 ## record
 
@@ -245,11 +247,13 @@ sealed-panel mcp [--root DIR] [--config CONFIG.toml]
 
 Serves the commands as MCP tools over stdio, for an agent host, and exits when stdin closes.
 Needs the `mcp` extra (`pip install 'sealed-panel[mcp]'`); without it, the command says so and
-exits with status 2. stdout carries the protocol only; logs go to stderr. Relative paths in tool
-calls resolve against `--root` (default: the directory the server starts in). `--config` is the
-configuration the `init` tool freezes into every run, and the only place a `[judge] command`
-comes from: the tool takes no configuration from the caller, and `judge` re-reads the file and
-refuses a run whose judge settings differ from it.
+exits with status 2. stdout carries the protocol only; logs go to stderr. Every path a tool
+takes must resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in the
+configuration, else the directory the server starts in. A path outside it, or one starting with
+`~`, is refused, whether given absolute or relative. `--config` is the configuration the `init`
+tool freezes into every run, and the only place a `[judge] command` comes from: the tool takes
+no configuration from the caller, and `judge` re-reads the file and refuses a run whose judge
+settings differ from it.
 
 The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
 (`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,
