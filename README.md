@@ -418,6 +418,7 @@ sealed-panel/
   .github/
     workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
                          extra, mutation check
+    workflows/release.yml  a tag v* publishes through trusted publishing
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
   pyproject.toml, .pre-commit-config.yaml, .editorconfig

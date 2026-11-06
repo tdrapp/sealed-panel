@@ -263,7 +263,7 @@ def _run(a: argparse.Namespace) -> None:
         e = aggregate_round(a.run, _round(a), a.sealed)
         line = (
             f"aggregated round {e['round']}{' (sealed)' if e['sealed'] else ''}: "
-            f"{len(e['rejected_judges'])} rejected or void attempt(s)"
+            f"{len(e['rejected_judges']) + len(e['voided'])} rejected or void attempt(s)"
         )
         if not e["sealed"]:
             line += f"; findings in {feedback_path(a.run, e['round'])}"

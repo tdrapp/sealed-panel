@@ -66,8 +66,9 @@ sealed-panel init RUN --spec spec.json
 ```
 
 Every later command refuses if the rubric or the configuration changed. A new rubric is a new
-run. A configuration file, if any, is given here (`init --config FILE`) and nowhere else; the
-report lists every setting that differs from the defaults.
+run. A configuration file, if any, is given here (`init --config FILE`) and nowhere else (the
+MCP `init` tool takes none: it freezes the file the server was started with); the report lists
+every setting that differs from the defaults.
 
 ## 3. The control, and a known-good if one exists
 
@@ -92,7 +93,10 @@ sealed-panel judge RUN --round N
 
 instead of launching judges: each brief goes to one fresh process, and its reply is recorded
 with its proof. Run it again to replace a rejected or void judge, then go to step 5's
-instruments and aggregation.
+instruments and aggregation. Such a run takes runner replies only: `record` is refused on it.
+A judge can take a minute and they run one after the other, so through the MCP tool, split a
+panel with its `judges` parameter (`judges: [1, 2]`, then `[3, 4]`) to keep each call under your
+host's tool timeout. A seat another call holds is skipped, never judged twice.
 
 Otherwise launch all judges at once. Each judge is a **fresh** agent context, with no tools,
 whose whole prompt is the brief file's text pasted verbatim, preceded by the instructions in

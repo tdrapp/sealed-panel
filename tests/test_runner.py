@@ -391,6 +391,17 @@ class TestCommandLine:
         out = capsys.readouterr().out
         assert out.startswith("VOID judge 2: the judge command exited with status 2 (")
 
+    def test_aggregate_counts_voids_with_the_rejected(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        init_runner(h, "--fail-first", str(h.tmp / "first"))
+        h.brief(1, "cand")
+        assert judge_seat(h.run, 1, 1, False)["void"]
+        judge_round(h.run, 1, False)
+        capsys.readouterr()
+        assert main(["aggregate", str(h.run), "--round", "1"]) == 0
+        assert "1 rejected or void attempt(s)" in capsys.readouterr().out
+
     def test_judge_in_host_mode_exits_2(
         self, h: Harness, capsys: pytest.CaptureFixture[str]
     ) -> None:

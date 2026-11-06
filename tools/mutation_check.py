@@ -1066,6 +1066,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'NOT_GRADING = frozenset({"library.path", "mcp.root"})',
         'NOT_GRADING = frozenset({"library.path"})',
     ),
+    "voids left out of the aggregate line": (
+        f"{PKG}/cli.py",
+        "{len(e['rejected_judges']) + len(e['voided'])} rejected or void",
+        "{len(e['rejected_judges'])} rejected or void",
+    ),
 }
 
 
