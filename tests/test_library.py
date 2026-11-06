@@ -460,6 +460,7 @@ class TestPromote:
         assert not (private_library / "message.json").exists()
         assert (private_library / "inbox" / f"{cid}.json").exists()
         assert not list(private_library.rglob("*.staged"))
+        assert not list(private_library.rglob("*.tmp"))
 
     def test_a_failed_second_move_rolls_back_the_first(
         self, private_library: Path, monkeypatch: pytest.MonkeyPatch
@@ -472,9 +473,10 @@ class TestPromote:
         calls = []
 
         def second_fails(src: Any, dst: Any) -> None:
-            calls.append(dst)
-            if len(calls) == 2:
-                raise OSError("disk full")
+            if str(src).endswith(".staged"):  # the two moves, not the writes that stage them
+                calls.append(dst)
+                if len(calls) == 2:
+                    raise OSError("disk full")
             real(src, dst)
 
         monkeypatch.setattr(library.os, "replace", second_fails)

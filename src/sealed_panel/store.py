@@ -22,8 +22,11 @@ def dump_json(path: Path, data: Any) -> None:
     """Write whole or not at all: a reader in another call never sees half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     draft = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
-    draft.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(draft, path)
+    try:
+        draft.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(draft, path)
+    finally:
+        draft.unlink(missing_ok=True)
 
 
 def read_text(path: Path) -> str:

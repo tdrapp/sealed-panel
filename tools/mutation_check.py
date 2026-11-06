@@ -1076,6 +1076,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "{len(e['rejected_judges']) + len(e['voided'])} rejected or void",
         "{len(e['rejected_judges'])} rejected or void",
     ),
+    "a failed write leaves its draft": (
+        f"{PKG}/store.py",
+        "        draft.unlink(missing_ok=True)\n",
+        "        pass\n",
+    ),
 }
 
 

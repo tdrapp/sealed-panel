@@ -11,7 +11,7 @@ runner (a command you configure, started once per brief; see `sealed-panel judge
 | Mode | Set up | Proof that a judge got the brief |
 |---|---|---|
 | Host mode | `[judge] command` empty (the default) | the judge's transcript (`record --transcript`), or none for a pasted reply |
-| Runner | `[judge] command` in the file given to `init --config` | sealed-panel wrote the brief and read the reply itself |
+| Runner | `[judge] command` in the file given to `init --config`, or to `sealed-panel mcp --config` | sealed-panel wrote the brief and read the reply itself |
 
 MCP sampling, where the server asks the host's model to answer, is not used: the MCP
 specification deprecates it, and the agent hosts we checked do not support it. Roots and server
