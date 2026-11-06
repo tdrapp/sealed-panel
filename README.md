@@ -109,17 +109,26 @@ per run.
 sealed-panel needs Python 3.11 or later and has no runtime dependencies. The MCP server is an
 optional extra.
 
-```sh
-pip install sealed-panel                 # the command and the library
-pip install 'sealed-panel[mcp]'          # plus the MCP server
-uvx --from 'sealed-panel[mcp]' sealed-panel mcp   # run the server without installing it
-```
-
-From GitHub, before a release reaches the package index:
+From GitHub, at a release tag:
 
 ```sh
-pip install git+https://github.com/tdrapp/sealed-panel
+pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+# plus the MCP server:
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+# run the server without installing it:
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0' sealed-panel mcp
 ```
+
+From the package index, once published:
+
+```sh
+pip install sealed-panel
+pip install 'sealed-panel[mcp]'
+uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp
+```
+
+Pin a `uvx` line to an exact version or tag, as above: an unpinned one runs whatever is newest
+the day it starts, and this tool decides which judge reads your text.
 
 From source, with uv:
 

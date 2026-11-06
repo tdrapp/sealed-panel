@@ -71,12 +71,8 @@ def test_the_plugin_files_install_one_version() -> None:
     assert entry["version"] == plugin["version"] == __version__
     launch = server["sealed-panel"]
     assert launch["command"] == "uvx"
-    assert launch["args"] == [
-        "--from",
-        f"sealed-panel[mcp]=={plugin['version']}",
-        "sealed-panel",
-        "mcp",
-    ]
+    source = f"sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}"
+    assert launch["args"] == ["--from", source, "sealed-panel", "mcp"]
 
 
 def test_the_documented_host_configuration_starts_the_same_server() -> None:
@@ -94,3 +90,34 @@ def test_the_documented_host_configuration_starts_the_same_server() -> None:
     ]
     assert block["tool_timeout_sec"] == 300
     assert isinstance(block["env_vars"], list)
+
+
+def test_the_docs_pin_every_install_line_to_this_release() -> None:
+    pattern = re.compile(r"sealed-panel\[mcp\](?: @ git\+\S+@v|==)(\d+\.\d+\.\d+)")
+    for name in ("README.md", "docs/integrations.md"):
+        path = ROOT / name
+        if not path.exists():
+            continue
+        found = pattern.findall(path.read_text(encoding="utf-8"))
+        assert found and set(found) == {__version__}, name
+
+
+def test_no_uvx_line_runs_an_unpinned_server() -> None:
+    for name in ("README.md", "docs/integrations.md"):
+        path = ROOT / name
+        if path.exists():
+            assert "--from 'sealed-panel[mcp]' " not in path.read_text(encoding="utf-8"), name
+
+
+def test_the_release_publishes_through_trusted_publishing() -> None:
+    path = ROOT / ".github" / "workflows" / "release.yml"
+    if not path.exists():
+        pytest.skip("an sdist has no workflows")
+    text = path.read_text(encoding="utf-8")
+    publish = text[text.index("  publish:") :]
+    assert "environment: pypi" in publish and "id-token: write" in publish
+    assert "gh-action-pypi-publish" in publish
+    build = text[: text.index("  publish:")]
+    assert "id-token" not in build  # the job that runs the build holds no publishing right
+    assert "password" not in text and "secrets." not in text
+    assert 'tags: ["v*"]' in text

@@ -68,7 +68,24 @@ A known-good equal to the candidate made the calibration check pass by construct
   setting that guards the protocol also gets a hard bound in `config.py`. The brief texts stay
   in `brief.py`: they are the instrument.
 
+## Vendor names
+
+The project stays vendor-neutral: docs, code and commit messages say "a model CLI" or "your
+agent host". One path is the single accepted exception: the plugin folder at the repository
+root, whose name the host requires.
+
 ## Maintainers
+
+Releases go to the package index through trusted publishing, so no token exists anywhere.
+Once, on the index, add a pending trusted publisher for this repository with the workflow
+`release.yml` and the environment `pypi`, and create that environment in the repository
+settings, with a required reviewer. Then, to release: move the `Unreleased` entries of
+`CHANGELOG.md` under the new version, set the version in `pyproject.toml`,
+`src/sealed_panel/__init__.py`, the plugin manifest and marketplace file, `.mcp.json` and the
+install lines (`tests/test_packaging.py` checks they agree), merge, and push a tag
+`v<version>`. The workflow checks that the tag names the package version, builds the sdist and
+the wheel, and publishes them. After the first publish, the docs' index lines apply; `.mcp.json`
+may then move from the git form to `sealed-panel[mcp]==<version>`.
 
 Branch protection for `main` is kept in `.github/branch-protection.json` (required checks,
 strict status, pull request required, linear history, no force push, no deletion, resolved
