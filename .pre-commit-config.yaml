@@ -33,7 +33,9 @@ repos:
         name: pytest
         entry: pytest
         language: python
-        additional_dependencies: ["pytest>=8", "pytest-cov>=5"]
+        # The same test dependencies as the dev extra, so the coverage floor counts the MCP tests.
+        additional_dependencies:
+          ["pytest>=8", "pytest-cov>=5", "pytest-asyncio>=1.0", "fastmcp>=4.1.6,<4.2"]
         pass_filenames: false
         always_run: true
         stages: [pre-push]
