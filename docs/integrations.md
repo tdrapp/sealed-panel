@@ -64,12 +64,19 @@ Install it from your host's prompt:
 /plugin install sealed-panel@sealed-panel
 ```
 
-The plugin needs `uvx` on the path. The judge agent gets no tool: the host's agent format
-has no empty tool list (leaving the list out grants every tool), so the agent file denies every
-built-in tool by name, and MCP tools with `mcp__*`. Its instructions forbid tools too. A judge
-that can read files could open the run directory and learn which label is the candidate, so a
-reply whose transcript shows any tool call (the handback tool aside) is rejected by `record`.
-Give the judge one brief's text as its whole prompt, never a path.
+The plugin needs `uvx` on the path. The agent file sets `tools: []`. The host's reference does
+not document an empty list, but measured on its version 2.1.316, it gives zero tools to a
+project agent and to a plugin agent, while leaving the field out would grant every tool. If a
+later version refuses it, the agent fails to launch, loudly. The file also denies every built-in
+tool by name, and MCP tools with `mcp__*`, as a second layer, and the instructions forbid tools.
+
+That is not quite no tool: in the host's auto mode a handback tool (`SubagentHandback`) is
+imposed despite all this, and the judge's answer arrives through it instead of a final text.
+That tool only returns the reply, and it is the default of `transcript.handback_tool`, so
+`record` reads it. A judge that can read files could open the run directory and learn which
+label is the candidate, so a reply whose transcript shows any other tool call is rejected by
+`record`, and an agent with any tool call at all, whichever its name, counts as having replied
+and cannot be voided. Give the judge one brief's text as its whole prompt, never a path.
 
 To work on the plugin from a clone, point the server at the clone instead of the published
 package, in your host's MCP configuration:

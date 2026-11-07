@@ -175,8 +175,8 @@ three kinds of proof, and the report says which one each round used.
   must contain the whole brief, each brief carries a random id, and an unrecorded agent holding
   one blocks the aggregation until it is recorded, or recorded as void when it never replied.
   A void clears that block but never fills a seat: each judge slot still needs a real attempt.
-  A judge whose prompt held the whole brief and that left any reply, in any message, cannot be
-  voided.
+  A judge whose prompt held the whole brief and that left any reply, in any message, or called
+  any tool, whichever its name, cannot be voided.
   Pasted replies cannot be checked and are flagged.
 - Unmeasured: whether the planted control lifts the candidate by contrast. Runs with and without
   the control would measure it.

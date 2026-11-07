@@ -104,16 +104,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "void without any brief id": (REC, 'if not meta.get("nonce"):', "if False:"),
     "a pasted reply can be voided": (REC, "if pasted and replied:", "if False:"),
-    "only the last reply read for a void": (
-        REC,
-        "replies = assistant_texts(transcript, cfg) + [m for m in handed if m]",
-        "replies = assistant_texts(transcript, cfg)[-1:]",
-    ),
-    "a malformed handback can be voided": (
-        REC,
-        "replied = malformed or any(r.strip() for r in replies)",
-        "replied = any(r.strip() for r in replies)",
-    ),
     "void label hides a reply": (
         REC,
         '"replied": replied,',
@@ -139,11 +129,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         REC,
         "if not include_refused and call_id is not None and call_id in refused:",
         "if not include_refused and call_id in refused:",
-    ),
-    "refused handback ignored for a void": (
-        REC,
-        "handed = handback_messages(transcript, cfg, include_refused=True)",
-        "handed = handback_messages(transcript, cfg)",
     ),
     "void cap boundary": (REC, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
     "refused verdict not read when nothing was delivered": (
@@ -1028,11 +1013,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        raise\n",
     ),
     "a judge that used a tool is read": (REC, "    if tools_used:\n", "    if False:\n"),
-    "the handback tool counted as a tool use": (
-        REC,
-        'if name != t["handback_tool"] or not t["handback_tool"]:',
-        "if True:",
-    ),
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
@@ -1080,6 +1060,31 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/store.py",
         "        draft.unlink(missing_ok=True)\n",
         "        pass\n",
+    ),
+    "a tool call not read as a reply for a void": (
+        REC,
+        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
+        "replied = bool(assistant_texts(transcript, cfg))",
+    ),
+    "a text not read as a reply for a void": (
+        REC,
+        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
+        "replied = bool(tool_calls(transcript, cfg))",
+    ),
+    "the handback tool counted as a tool use": (
+        REC,
+        "if name != handback})",
+        "})",
+    ),
+    "a tool call without a reply leaves the seat stuck": (
+        REC,
+        "            if not judge_tools(transcript, frozen):\n                raise\n",
+        "            raise\n",
+    ),
+    "no handback tool by default": (
+        DEFAULTS,
+        'handback_tool = "SubagentHandback"',
+        'handback_tool = ""',
     ),
 }
 

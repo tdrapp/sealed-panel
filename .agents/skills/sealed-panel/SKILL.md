@@ -131,13 +131,13 @@ reply is recorded as void, so the round can be aggregated:
 sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jsonl --void
 ```
 
-A void clears the block but never fills the seat: brief a fresh judge on the same brief
-and record it under the same `--judge` number. A judge whose prompt held the whole brief and
-that left any reply, in any message, cannot be voided: record its reply. Voids have their own
-cap of 3 per slot and round. If your agent runtime returns a subagent's answer as a tool call,
-set `transcript.handback_tool` in the configuration given to `init`. A REJECTED judge (control
-too high, known-good too low, quotes not found, malformed) is replaced by a fresh judge on the
-same brief file, recorded under the same `--judge` number.
+A void clears the block but never fills the seat: brief a fresh judge on the same brief and
+record it under the same `--judge` number. A judge whose prompt held the whole brief and that
+left any reply, in any message, or called any tool, cannot be voided: record it. Voids have
+their own cap of 3 per slot and round. If your agent runtime returns a subagent's answer through
+a tool other than `SubagentHandback`, set `transcript.handback_tool` in the configuration given
+to `init`. A REJECTED judge (control too high, known-good too low, quotes not found, malformed)
+is replaced by a fresh judge on the same brief file, recorded under the same `--judge` number.
 
 Instruments, before aggregating:
 

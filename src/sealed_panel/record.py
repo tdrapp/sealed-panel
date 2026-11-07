@@ -149,22 +149,26 @@ def handback_messages(
     return messages
 
 
-def judge_tools(transcript: Path, cfg: Config | None = None) -> list[str]:
-    """The tools the judge called in its transcript, sorted, the configured handback tool
-    excepted (the way some runtimes return a reply). A judge gets no tools: a call to any other
-    tool means it could have read the run directory, labels and roles included."""
+def tool_calls(transcript: Path, cfg: Config | None = None) -> list[str]:
+    """The name of every tool the agent called in its transcript, whichever it is, in order."""
     t = resolve(cfg).transcript
-    used = set()
+    names = []
     for e in _entries(transcript):
         if e.get(t["role_key"]) != t["assistant_role"]:
             continue
         content = _content(e, t)
         for b in content if isinstance(content, list) else []:
             if isinstance(b, dict) and b.get(t["block_type_key"]) == t["tool_block_type"]:
-                name = str(b.get(t["tool_name_key"]))
-                if name != t["handback_tool"] or not t["handback_tool"]:
-                    used.add(name)
-    return sorted(used)
+                names.append(str(b.get(t["tool_name_key"])))
+    return names
+
+
+def judge_tools(transcript: Path, cfg: Config | None = None) -> list[str]:
+    """The tools the judge called, sorted, the configured handback tool excepted (the way some
+    runtimes return a reply). A judge gets no tools: a call to any other tool means it could
+    have read the run directory, labels and roles included."""
+    handback = resolve(cfg).transcript["handback_tool"]
+    return sorted({name for name in tool_calls(transcript, cfg) if name != handback})
 
 
 def last_reply(transcript: Path, cfg: Config | None = None) -> str:
@@ -342,11 +346,9 @@ def _void(
     Refused when the agent got the whole brief and left any reply: that reply is recorded."""
     brief = fixed_normalise(read_text(rdir / f"brief_j{judge}.md"))
     pasted = brief in fixed_normalise(transcript_prompt(transcript, cfg))
-    # A handback the runtime refused still shows that the judge replied.
-    handed = handback_messages(transcript, cfg, include_refused=True)
-    malformed = bool(handed) and handed[-1] is None  # a reply too: recorded as rejected
-    replies = assistant_texts(transcript, cfg) + [m for m in handed if m]
-    replied = malformed or any(r.strip() for r in replies)
+    # Fails closed: any tool call counts as a reply, whichever its name, because a runtime may
+    # deliver the answer through a tool this run does not know. Only silence can be voided.
+    replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))
     if pasted and replied:
         raise EvalError(
             "this judge got the brief and replied: record its reply, it cannot be voided"
@@ -624,6 +626,11 @@ def record_from(
         try:
             raw = last_reply(transcript, frozen)
         except MalformedReply as exc:
+            malformed = str(exc)
+        except EvalError as exc:
+            # No reply, but tool calls: it cannot be voided, so it is recorded as rejected.
+            if not judge_tools(transcript, frozen):
+                raise
             malformed = str(exc)
     return record_reply(run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed)
 

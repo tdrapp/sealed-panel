@@ -50,9 +50,10 @@ def test_the_judge_agent_carries_the_judge_instructions() -> None:
     instructions = (SOURCE / "judge.md").read_text(encoding="utf-8").split("\n---\n", 1)[1]
     assert body.strip() == instructions.strip()
     assert "name: eval-judge" in front
-    # The host documents no empty allowlist: `tools` omitted inherits every tool, so every
-    # built-in tool is denied instead, MCP tools too (a judge must not read keys.json).
-    assert not re.search(r"^tools:", front, re.MULTILINE)
+    # Omitting `tools` would inherit every tool. The empty list gives none on the host we
+    # measured; the deny list is a second layer, MCP tools included (a judge must not read
+    # keys.json). A host that refuses the empty list fails loudly at launch.
+    assert re.search(r"^tools: \[\]$", front, re.MULTILINE)
     [line] = re.findall(r"^disallowedTools: (.*)$", front, re.MULTILINE)
     denied = {name.strip() for name in line.split(",")}
     must = {"Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "LSP"}

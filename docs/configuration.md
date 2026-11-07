@@ -133,7 +133,7 @@ rather than guess.
 | `text_block_type` | `"text"` | not empty | Block type that carries text. |
 | `text_key` | `"text"` | not empty | Block field holding the text. |
 | `agent_id_key` | `"agentId"` | not empty | Field holding the agent id. When present, it must equal `--agent-id`. |
-| `handback_tool` | `""` | | Some agent runtimes return a subagent's answer as a tool call rather than as a final text. Name that tool here and the message of its last call is read as the reply, before any text. Empty means no tool is read. A call whose message is not one non-empty string is recorded as a rejected, malformed reply. |
+| `handback_tool` | `"SubagentHandback"` | | Some agent runtimes return a subagent's answer as a tool call rather than as a final text. Name that tool here and the message of its last call is read as the reply, before any text. A runtime without this tool is unaffected. Empty means no tool is read; a run frozen earlier keeps the value it has. A call whose message is not one non-empty string is recorded as a rejected, malformed reply. |
 | `tool_block_type` | `"tool_use"` | not empty | Block type of a tool call. |
 | `tool_name_key` | `"name"` | not empty | Block field holding the tool name. |
 | `tool_input_key` | `"input"` | not empty | Block field holding the call's input. |
@@ -143,9 +143,9 @@ rather than guess.
 | `tool_result_id_key` | `"tool_use_id"` | not empty | Tool result field naming the call it answers. |
 | `tool_error_key` | `"is_error"` | not empty | Tool result field set to true when the runtime refused the call. A refused handback was never delivered, so the reader prefers a delivered handback, then the last assistant text; only when nothing was delivered at all is the last refused handback the reply (a malformed one is recorded as rejected). For `--void`, a refused handback still counts as a reply. |
 
-`record --void` reads every assistant text and every handback message of the transcript, not
-only the last one: a judge whose prompt held the whole brief and that left any non-empty reply
-cannot be voided.
+`record --void` fails closed: any non-empty assistant text and any tool call, whichever its
+name, counts as a reply, because a runtime may deliver the answer through a tool no setting
+names. A judge whose prompt held the whole brief and that left any of those cannot be voided.
 
 ## Why each section is a setting
 
