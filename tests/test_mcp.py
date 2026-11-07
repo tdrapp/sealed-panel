@@ -480,17 +480,45 @@ class TestTranscriptRoots:
                 msg = await error(c, "record", **args, transcript=str(given))
                 assert "symbolic link" in msg, given
 
-    def test_a_transcript_root_overlapping_the_root_stops_the_server(self, h: Harness) -> None:
+    @pytest.mark.parametrize("inside", [True, False], ids=["root inside", "transcripts inside"])
+    async def test_an_overlap_turns_transcripts_off_and_says_why(
+        self, h: Harness, mode: str, inside: bool
+    ) -> None:
+        """A host started from the home folder: the server still starts, without transcripts."""
         inner = h.tmp / "inner"
         inner.mkdir()
-        with pytest.raises(ConfigError, match="overlaps the root"):
-            build_server(h.tmp, None, [inner])
-        with pytest.raises(ConfigError, match="overlaps the root"):
-            build_server(inner, None, [h.tmp])
+        root, transcripts = (inner, h.tmp) if inside else (h.tmp, inner)
+        write_spec(h)
+        (inner / "spec.json").write_text((h.tmp / "spec.json").read_text())
+        async with Client(build_server(root, None, [transcripts]), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            status = await call(c, "status", run="run")
+            msg = await error(
+                c, "record", run="run", round=1, judge=1, agent_id="a", transcript="x.jsonl"
+            )
+        assert status["transcripts"].startswith("off: the transcript root")
+        assert "overlaps the root" in msg and "start the host from a project directory" in msg
+
+    async def test_status_says_where_transcripts_are_read(self, h: Harness, mode: str) -> None:
+        write_spec(h)
+        host = transcripts_of(h)
+        async with Client(build_server(h.tmp, None, [host]), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            status = await call(c, "status", run="run")
+        assert status["transcripts"] == f"read only under {host.resolve()}"
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            assert "no --transcript-root" in (await call(c, "status", run="run"))["transcripts"]
 
     def test_an_unset_value_names_no_folder(self) -> None:
         assert mcp_server.usable_roots(["", "  ", "${user_config.transcript_root}"]) == []
         assert mcp_server.usable_roots(["/a/b"]) == [Path("/a/b")]
+
+    @pytest.mark.parametrize("given", ["~/x/p", "$HOME/x/p", "${HOME}/x/p"])
+    def test_the_home_is_expanded_however_the_host_passes_it(self, given: str) -> None:
+        """The host passes a user_config default such as `~/...` unexpanded (measured)."""
+        assert mcp_server.usable_roots([given], home="/home/u") == [Path("/home/u/x/p")]
+        assert mcp_server.usable_roots(["~"], home="/home/u") == [Path("/home/u")]
+        assert mcp_server.usable_roots(["$HOMEX/p"], home="/home/u") == []
 
     def test_a_candidate_id_is_quoted_in_the_commands(self) -> None:
         [promote, _] = mcp_server._decide_commands(Path("/lib"), "x; touch pwned #")

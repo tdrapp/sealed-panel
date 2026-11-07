@@ -1062,21 +1062,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if config_file is not None and config_file.is_relative_to(base):",
         "if False:",
     ),
-    "transcript root overlap accepted": (
-        MCP,
-        "if real.is_relative_to(base) or base.is_relative_to(real):",
-        "if False:",
-    ),
-    "transcript root inside the root accepted": (
-        MCP,
-        "if real.is_relative_to(base) or base.is_relative_to(real):",
-        "if base.is_relative_to(real):",
-    ),
-    "root inside a transcript root accepted": (
-        MCP,
-        "if real.is_relative_to(base) or base.is_relative_to(real):",
-        "if real.is_relative_to(base):",
-    ),
     "a transcript under the root taken as proof": (
         MCP,
         "proof = transcript_path(transcript) if transcript is not None else None",
@@ -1091,11 +1076,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         MCP,
         "                        if current.is_symlink():\n",
         "                        if False:\n",
-    ),
-    "an unset transcript root read as a folder": (
-        MCP,
-        'return [Path(v) for v in values if v.strip() and not v.startswith("${")]',
-        "return [Path(v) for v in values]",
     ),
     "facts_file outside the root read": (
         SPEC,
@@ -1327,6 +1307,41 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         MCP,
         "served=not differ,",
         "served=True,",
+    ),
+    "transcript root overlap accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if False:",
+    ),
+    "transcript root inside the root accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if base.is_relative_to(real):",
+    ),
+    "root inside a transcript root accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if real.is_relative_to(base):",
+    ),
+    "an unset transcript root read as a folder": (
+        MCP,
+        '        if v and not v.startswith("$"):\n',
+        "        if True:\n",
+    ),
+    "the home left unexpanded": (
+        MCP,
+        '        if v == "~" or v.startswith("~/"):\n',
+        "        if False:\n",
+    ),
+    "$HOME left unexpanded": (
+        MCP,
+        '            if v == prefix or v.startswith(prefix + "/"):\n',
+        "            if False:\n",
+    ),
+    "an overlap reason kept silent": (
+        MCP,
+        '                    "; ".join(turned_off)\n                    if turned_off\n',
+        '                    ""\n                    if turned_off\n',
     ),
 }
 

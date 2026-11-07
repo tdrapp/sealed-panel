@@ -74,9 +74,13 @@ Install it from your host's prompt:
 /plugin install sealed-panel@sealed-panel
 ```
 
-The plugin asks for one value when it is enabled, the transcript folder: the `projects` folder
-of the host's configuration directory. It reaches the server as `--transcript-root`. Left empty,
-the server starts without one. The plugin needs `uvx` on the path. The agent file sets `tools:
+The plugin works out of the box: its one setting, the transcript folder, defaults to the
+`projects` folder of the host's configuration directory under your home, which the server
+expands, and reaches the server as `--transcript-root`. If you moved that directory, change the
+folder in the plugin's settings (`/config`). Left empty, the server reads no transcript.
+Start the host from a project directory: a host started from your home folder would put the
+transcripts under the server's root, so the server turns transcripts off and says why in
+`status` and in every refusal. The plugin needs `uvx` on the path. The agent file sets `tools:
 []`. The host's reference does not document an empty list, but measured on its version 2.1.316,
 it gives zero tools to a project agent and to a plugin agent, while leaving the field out would
 grant every tool. If a later version refuses it, the agent fails to launch, loudly. The file

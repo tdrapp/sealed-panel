@@ -88,9 +88,10 @@ The first release, in this order:
    environment with a required reviewer, before any tag.
 3. In a release commit, move `[Unreleased]` in `CHANGELOG.md` to `[0.3.0]` with its compare
    link.
-4. Tag `v0.1.0`, `v0.2.0` and `v0.2.1` and push them together: their commits hold no
-   `release.yml`, so nothing publishes.
-5. Push `v0.3.0` alone: GitHub creates no event when more than three tags are pushed at once.
+4. Tag `v0.1.0` on `0d1bb9e`, `v0.2.0` on `bf103bb` and `v0.2.1` on `a7ba6dc`, and push them
+   together: none of these commits holds `release.yml`, so nothing publishes.
+5. Tag the release commit of step 3 `v0.3.0` and push it alone: GitHub creates no event when
+   more than three tags are pushed at once.
 
 A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
 version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace

@@ -107,7 +107,8 @@ per run.
 ## Install
 
 sealed-panel needs Python 3.11 or later and has no runtime dependencies. The MCP server is an
-optional extra.
+optional extra. It runs on macOS and Linux; Windows is not supported yet (the judge runner
+relies on POSIX process groups and directory descriptors, untested there).
 
 From GitHub, at a release tag:
 
@@ -332,7 +333,9 @@ person runs.
 
 **As a plugin.** The repository is a plugin and its own marketplace for agent hosts that
 install plugins from git. It starts the MCP server with `uvx`, and brings the skill and a judge
-agent:
+agent. It works out of the box: it reads judge transcripts from the host's own folder under your
+home, and you can change that folder in the plugin's settings (`/config`). Start the host from
+a project directory, not from your home folder:
 
 ```
 /plugin marketplace add tdrapp/sealed-panel
@@ -440,6 +443,18 @@ uv pip install --python .venv/bin/python -e '.[dev]'
 push. CI runs the same checks on Python 3.11, 3.12 and 3.13, and the tests once more without
 the `mcp` extra, where the MCP tests skip. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Upgrading
+
+A run frozen by an older version keeps the settings it was frozen with. A setting added later
+counts as its default for such a run, now and in later versions, so a new setting never locks
+an old run out. A setting whose default changed does not: a 0.2.x run keeps
+`transcript.handback_tool = ""`. The MCP server's read-only tools (`status`, `report`,
+`rubrics_*`) read any locked run; the tools that change one need the server's configuration to
+match the run's, so change such a run with the command line, or through a server started with
+`--config` setting that value. In a host's auto mode, where the judge answers through its
+`SubagentHandback` tool, a run frozen with an empty `handback_tool` rejects every judge it
+records: start a new run, or freeze one with `[transcript] handback_tool = "SubagentHandback"`.
 
 ## Limits
 

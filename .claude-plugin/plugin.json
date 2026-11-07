@@ -18,9 +18,9 @@
     "transcript_root": {
       "type": "directory",
       "title": "Judge transcript folder",
-      "description": "Where this host writes subagent transcripts: the projects folder of its configuration directory. Lets the record tool read them as proof. Left empty, the tool refuses transcripts, and replies are pasted (flagged in the report) or come from a judge command.",
+      "description": "The folder where the host writes its session and subagent transcripts: ~/.claude/projects under your home, or the projects folder of your configuration directory if you moved it. The record tool reads a judge's transcript as proof only there. Change it later in this plugin's settings (/config). Left empty, transcripts are refused, and replies are pasted (flagged in the report) or come from a judge command.",
       "required": false,
-      "default": ""
+      "default": "~/.claude/projects"
     }
   }
 }

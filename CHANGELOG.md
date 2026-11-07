@@ -73,7 +73,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runner read; the judge command is always shown in full. `aggregate` counts voids in its
   "rejected or void" line.
 - `SECURITY.md` covers the judge runner and the MCP server.
-- A run frozen before 0.3.0 has no `[judge]` section and stays in host mode.
+- A run frozen before 0.3.0 has no `[judge]` section and stays in host mode, and keeps
+  `transcript.handback_tool = ""`. In a host's auto mode, where the judge answers through
+  `SubagentHandback`, such a run rejects every judge it records: start a new run (or freeze one
+  with `[transcript] handback_tool = "SubagentHandback"`).
+- Through MCP, the read-only tools (`status`, `report`, `rubrics_*`) read any locked run, and
+  `status` says whether the server serves it; the tools that change a run need the server's
+  configuration to match it. A setting added in a later version counts as its default for an
+  older run, so a new setting never locks one out; a 0.2.x run, whose `handback_tool` default
+  changed, is changed through the command line or a server whose configuration sets it.
+- A transcript root that overlaps the server's root (a host started from the home folder) is
+  turned off instead of stopping the server, and `status` and every transcript refusal say
+  why. A leading `~`, `$HOME` or `${HOME}` in a transcript root is the user's home. The plugin's
+  transcript folder defaults to the host's own, so it works out of the box.
+- Declared for macOS and Linux; Windows is not supported yet.
 
 ## [0.2.1] - 2026-11-04
 

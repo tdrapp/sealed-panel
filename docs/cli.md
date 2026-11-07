@@ -247,7 +247,7 @@ Refused before the run is sealed, or when learning fails again.
 ## mcp
 
 ```
-sealed-panel mcp [--root DIR] [--config CONFIG.toml]
+sealed-panel mcp [--root DIR] [--config CONFIG.toml] [--transcript-root DIR ...]
 ```
 
 Serves the commands as MCP tools over stdio, for an agent host, and exits when stdin closes.
@@ -257,18 +257,23 @@ resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in
 configuration, else the directory the server starts in. A path outside it, or one starting with
 `~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too.
 
-`--config` is the configuration of every run the server serves, and the only place a `[judge]
-command` comes from. It is read once at startup and must live outside the root, or the server
-does not start. The `init` tool freezes it and takes no configuration from the caller, and every
-tool that changes a run refuses one frozen with other settings (`status`, `report` and the
-`rubrics_*` tools still read it, and `status` says whether it is `served`) (the path of its
-library aside), so a run from an older version or another configuration needs a server started
-for it, or the command line.
+`--config` is the configuration of every run the server changes, and the only place a
+`[judge] command` comes from. It is read once at startup and must live outside the root, or the
+server does not start. The `init` tool freezes it and takes no configuration from the caller.
+The read-only tools (`status`, `report` and the `rubrics_*` tools) read any run whose lock and
+shape hold; every tool that changes a run refuses one whose settings differ from the server's
+(the path of its library aside, and a setting the run lacks counting as its default), and
+`status` says whether the run is `served`. A run from another configuration, or one whose
+setting changed default since it was frozen, is changed through the command line or a server
+started with that configuration.
 
-`--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. It
-is read only, for the transcript of `record` and `void`, and may not overlap the root. Through
-MCP a transcript is accepted only there, with no symbolic link on the way: a file the caller
-can write is no proof.
+`--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. A
+leading `~`, `$HOME` or `${HOME}` is the user's home. It is read only, for the transcript of
+`record` and `void`. Through MCP a transcript is accepted only there, with no symbolic link on
+the way: a file the caller can write is no proof. A transcript root that overlaps the root (a
+host started from the home folder, whose transcripts sit under it) is turned off rather than
+stopping the server: `status` and every transcript refusal say why. Start the host from a
+project directory to read transcripts again.
 
 The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
 (`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,

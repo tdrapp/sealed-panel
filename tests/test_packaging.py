@@ -77,6 +77,9 @@ def test_the_plugin_files_install_one_version() -> None:
     # The transcript folder comes from a value the host asks for when the plugin is enabled.
     assert launch["args"][4:] == ["--transcript-root", "${user_config.transcript_root}"]
     assert plugin["userConfig"]["transcript_root"]["type"] == "directory"
+    # A real default: the host's projects folder under the home, which the server expands.
+    default = plugin["userConfig"]["transcript_root"]["default"]
+    assert re.fullmatch(r"~/\.[a-z]+/projects", default)
 
 
 def test_the_documented_host_configuration_starts_the_same_server() -> None:

@@ -155,6 +155,9 @@ class StatusResult(BaseModel):
         description="whether this server's configuration is the run's: only then do the tools "
         "that change a run accept it"
     )
+    transcripts: str = Field(
+        description="where `record` reads transcripts from, or why it reads none"
+    )
     details: dict[str, Any]
 
 
@@ -305,14 +308,20 @@ def build_server(
             f"the server's configuration {config_file} is under the root {base}: the caller "
             "could rewrite it. Keep it outside the root."
         )
-    allowed = [Path(r).expanduser() for r in transcript_roots or []]
-    for r in allowed:
-        real = r.resolve()
+    allowed: list[Path] = []
+    turned_off: list[str] = []  # why a transcript root given is not used
+    for r in transcript_roots or []:
+        real = r.expanduser().resolve()
         if real.is_relative_to(base) or base.is_relative_to(real):
-            raise ConfigError(
-                f"the transcript root {real} overlaps the root {base}: a transcript the caller "
-                "can write is no proof. Keep them apart."
+            turned_off.append(
+                f"the transcript root {real} overlaps the root {base}, so the caller could write "
+                "a transcript there and it would be no proof; start the host from a project "
+                "directory, not from a folder that holds the transcripts"
             )
+            continue
+        allowed.append(r.expanduser())
+    for reason in turned_off:
+        logging.getLogger("sealed_panel").warning("transcripts off: %s", reason)
 
     def path(p: str) -> Path:
         """A path a caller gave, resolved (links followed) and confined to the root."""
@@ -344,12 +353,22 @@ def build_server(
         settings next to the grade."""
         return path(p)
 
+    def transcripts_note() -> str:
+        if allowed:
+            return "read only under " + ", ".join(str(r.resolve()) for r in allowed)
+        return "off: " + ("; ".join(turned_off) if turned_off else "no --transcript-root given")
+
     def transcript_path(p: str) -> Path:
         """A judge's transcript, read only: under a transcript root, without any link."""
         if not allowed:
             raise ToolError(
-                "this server takes no transcript: start it with --transcript-root DIR, the "
-                "folder where your host writes them"
+                "this server takes no transcript: "
+                + (
+                    "; ".join(turned_off)
+                    if turned_off
+                    else "start it with --transcript-root DIR, "
+                    "the folder where your host writes them"
+                )
             )
         given = Path(os.path.abspath(p))  # `..` goes here, before any comparison
         for r in allowed:
@@ -554,7 +573,11 @@ def build_server(
         rest = {k: v for k, v in d.items() if k not in ("decision", "overrides")}
         differ = config_differences(run_config(where), server)
         return StatusResult(
-            decision=d["decision"], overrides=d["overrides"], served=not differ, details=rest
+            decision=d["decision"],
+            overrides=d["overrides"],
+            served=not differ,
+            transcripts=transcripts_note(),
+            details=rest,
         )
 
     @mcp.tool(annotations=READ)
@@ -680,10 +703,22 @@ def build_server(
     return mcp
 
 
-def usable_roots(values: list[str]) -> list[Path]:
+def usable_roots(values: list[str], home: str | None = None) -> list[Path]:
     """The transcript roots given. A host expands an unset value to nothing, or leaves its
-    placeholder when it does not know it: neither names a folder."""
-    return [Path(v) for v in values if v.strip() and not v.startswith("${")]
+    placeholder when it does not know it: neither names a folder. A leading `~`, `$HOME` or
+    `${HOME}` is the user's home, since a host may pass any of them unexpanded."""
+    home = home or str(Path.home())
+    roots = []
+    for value in values:
+        v = value.strip()
+        for prefix in ("${HOME}", "$HOME"):
+            if v == prefix or v.startswith(prefix + "/"):
+                v = home + v[len(prefix) :]
+        if v == "~" or v.startswith("~/"):
+            v = home + v[1:]
+        if v and not v.startswith("$"):
+            roots.append(Path(v))
+    return roots
 
 
 def serve(
