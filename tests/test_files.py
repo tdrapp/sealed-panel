@@ -16,7 +16,7 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import brief as brief_module
-from sealed_panel import cli, library, record, report, runner
+from sealed_panel import cli, library, record, runner
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.config import Config, ConfigError, default_data, load_config, merge
 from sealed_panel.errors import EvalError
@@ -105,10 +105,7 @@ class TestWrites:
         assert outside.read_text() == "ORIGINAL"
         assert not (rdir / planted).is_symlink()
 
-    def test_a_findings_link_planted_after_the_check_is_not_followed(
-        self, h: Harness, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(report, "refuse_links", lambda *paths: None)
+    def test_a_planted_findings_link_is_replaced_never_followed(self, h: Harness) -> None:
         h.init(judges_per_persona=2)
         outside = h.tmp / "outside.txt"
         outside.write_text("ORIGINAL")

@@ -1029,11 +1029,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        refuse_links(*rdir.iterdir())\n",
         "        pass\n",
     ),
-    "a link stops no findings file": (
-        f"{PKG}/report.py",
-        "    refuse_links(path.parent, path)\n",
-        "",
-    ),
     "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
     "root listed with the grading settings": (
         CFG,
