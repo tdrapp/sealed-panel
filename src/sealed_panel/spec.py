@@ -267,12 +267,14 @@ def looks_like_path(text: str) -> bool:
     return len(stripped.splitlines()) == 1 and bool(re.search(ext, stripped, re.IGNORECASE))
 
 
-def _freeze_facts(spec: dict[str, Any], base: Path) -> None:
+def _freeze_facts(spec: dict[str, Any], base: Path, root: Path | None = None) -> None:
     facts_file = spec.pop("facts_file", None)
     if facts_file is not None:
         path = Path(facts_file).expanduser()
         if not path.is_absolute():
             path = base / path  # relative to the spec file's folder
+        if root is not None and not path.resolve().is_relative_to(root):
+            raise EvalError(f"facts_file {facts_file!r} is outside the root {root}")
         if not path.is_file():
             raise EvalError(f"facts_file does not exist: {facts_file!r}")
         spec["facts"] = read_text(path)  # frozen by content, not by path
@@ -310,9 +312,14 @@ def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
 
 
 def init_run(
-    run: Path, spec_path: Path, cfg: Config | None = None, library: Path | None = None
+    run: Path,
+    spec_path: Path,
+    cfg: Config | None = None,
+    library: Path | None = None,
+    facts_root: Path | None = None,
 ) -> str:
-    """Validate the spec, freeze it and the configuration into `run`, return the rubric hash."""
+    """Validate the spec, freeze it and the configuration into `run`, return the rubric hash.
+    With `facts_root`, a `facts_file` must resolve under it (the MCP server's root)."""
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
@@ -327,7 +334,7 @@ def init_run(
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
-    _freeze_facts(spec, Path(spec_path).parent)
+    _freeze_facts(spec, Path(spec_path).parent, facts_root)
     lib = library_dir(library, cfg)  # resolved before anything is written: a refusal leaves no run
     if isinstance(spec.get("template"), dict):
         _check_template_ref(spec, cfg, lib)

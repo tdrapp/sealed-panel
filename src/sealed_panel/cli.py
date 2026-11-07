@@ -108,7 +108,20 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="every tool path must resolve under it (default: [mcp] root, else here)",
     )
-    p.add_argument("--config", type=Path, help="configuration init freezes when a call names none")
+    p.add_argument(
+        "--config",
+        type=Path,
+        help="the configuration of every run this server serves, its judge command included; "
+        "read once, and it must live outside the root",
+    )
+    p.add_argument(
+        "--transcript-root",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="a folder where the host writes judge transcripts, read only, outside the root "
+        "(repeat for several); a transcript elsewhere is refused",
+    )
 
     p = sub.add_parser("rubrics", help="the rubric library: templates and learned candidates")
     rsub = p.add_subparsers(dest="rcmd", required=True)
@@ -219,9 +232,10 @@ def _mcp(a: argparse.Namespace) -> None:
         from .mcp_server import serve
     except ImportError as exc:
         raise EvalError(
-            f"the MCP server needs the mcp extra ({exc}): pip install 'sealed-panel[mcp]'"
+            f"the MCP server needs the mcp extra ({exc}): pip install "
+            f"'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}'"
         ) from exc
-    serve(a.root, a.config)
+    serve(a.root, a.config, a.transcript_root)
 
 
 def _round(a: argparse.Namespace) -> int:

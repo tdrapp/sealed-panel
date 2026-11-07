@@ -116,7 +116,9 @@ sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jso
 
 The transcript's first user entry must contain the whole brief file: paste the brief verbatim,
 or `record` refuses it. Text you add around the brief is counted and reported, so add nothing.
-Otherwise save the reply to a file, unchanged, and use `--output reply.json`.
+Otherwise save the reply to a file, unchanged, and use `--output reply.json`. Through the MCP
+tools, a transcript is read only from a folder the server was started with
+(`--transcript-root`); elsewhere `record` refuses it, so say so to the user, or paste the reply.
 
 Without JSONL transcripts, every reply is pasted: the report flags each round, and the defence
 against selective recording (an agent briefed but never recorded blocks the aggregation) does

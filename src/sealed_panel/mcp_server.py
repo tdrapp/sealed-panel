@@ -1,20 +1,25 @@
 """The MCP server: the sealed-panel commands as tools for an agent host.
 
 `sealed-panel mcp` serves these tools over stdio and exits when stdin closes. It needs the
-`mcp` extra (`pip install 'sealed-panel[mcp]'`). Every tool calls the same functions as the
-command line, so every refusal is the same. A refusal or a file the caller can fix comes back
-as a tool error with its reason; any other error is masked.
+`mcp` extra. Every tool calls the same functions as the command line, so every refusal is the
+same. A refusal or a file the caller can fix comes back as a tool error with its reason; any
+other error is masked.
 
-Paths come from the tool parameters, resolved against the server's root directory (the current
-directory, or `--root`), never from the host. Promoting or rejecting a rubric candidate is not
-a tool: a host can answer a confirmation on its own, so it proves no person decided. The tools
-that touch candidates return the command a person runs instead.
+The caller is the author of the text, so it is trusted with nothing that decides a grade. The
+configuration is read once at startup from a file outside the root, and every tool taking a run
+refuses one frozen with other settings. Paths come from the tool parameters and stay under the
+root (`--root`, `[mcp] root`, or the current directory), never from the host. A transcript is
+proof only under a `--transcript-root`, which never overlaps the root: a file the caller could
+write is no proof. Promoting or rejecting a rubric candidate is not a tool: a host can answer a
+confirmation on its own, so it proves no person decided. The tools that touch candidates return
+the command a person runs instead.
 """
 
 from __future__ import annotations
 
 import functools
 import logging
+import os
 import shlex
 import sys
 from collections.abc import Callable
@@ -31,14 +36,14 @@ from . import __version__
 from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import Config, library_dir, load_config
-from .errors import user_message
+from .config import config_differences, library_dir, load_config
+from .errors import ConfigError, EvalError, user_message
 from .learn import user_disagreement
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .runner import SeatTaken, judge_seat, open_seats
-from .spec import init_run, library_for
+from .spec import init_run, library_for, run_config
 from .store import resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
@@ -256,10 +261,10 @@ def _record_result(r: dict[str, Any]) -> RecordResult:
 
 
 def _decide_commands(lib: Path, cid: str) -> list[str]:
-    where = shlex.quote(str(lib))
+    where, name = shlex.quote(str(lib)), shlex.quote(cid)
     return [
-        f"sealed-panel rubrics promote {cid} --library {where}",
-        f'sealed-panel rubrics reject {cid} --reason "<why>" --library {where}',
+        f"sealed-panel rubrics promote {name} --library {where}",
+        f'sealed-panel rubrics reject {name} --reason "<why>" --library {where}',
     ]
 
 
@@ -279,14 +284,32 @@ def _candidate_row(lib: Path, c: dict[str, Any]) -> CandidateRow:
     )
 
 
-def build_server(root: Path | None = None, config: Path | None = None) -> FastMCP:
+def build_server(
+    root: Path | None = None,
+    config: Path | None = None,
+    transcript_roots: list[Path] | None = None,
+) -> FastMCP:
     """The sealed-panel MCP server. Every path a tool takes resolves under the root: `root`,
     else `[mcp] root` in `config`, else the current directory. `config` is the user's
     configuration: `init` freezes it into every run, and `judge` refuses a run whose judge
     settings differ from it."""
-    default_config = config.expanduser().resolve() if config else None
-    configured = str(load_config(default_config).section("mcp")["root"]).strip()
+    config_file = config.expanduser().resolve() if config else None
+    server = load_config(config_file)  # read once: the caller may write under the root
+    configured = str(server.section("mcp")["root"]).strip()
     base = (root or (Path(configured) if configured else Path.cwd())).expanduser().resolve()
+    if config_file is not None and config_file.is_relative_to(base):
+        raise ConfigError(
+            f"the server's configuration {config_file} is under the root {base}: the caller "
+            "could rewrite it. Keep it outside the root."
+        )
+    allowed = [Path(r).expanduser() for r in transcript_roots or []]
+    for r in allowed:
+        real = r.resolve()
+        if real.is_relative_to(base) or base.is_relative_to(real):
+            raise ConfigError(
+                f"the transcript root {real} overlaps the root {base}: a transcript the caller "
+                "can write is no proof. Keep them apart."
+            )
 
     def path(p: str) -> Path:
         """A path a caller gave, resolved (links followed) and confined to the root."""
@@ -301,6 +324,37 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
     def opt(p: str | None) -> Path | None:
         return path(p) if p else None
 
+    def served(p: str) -> Path:
+        """A run this server serves: frozen with the settings it was started with."""
+        where = path(p)
+        differ = config_differences(run_config(where), server)
+        if differ:
+            raise EvalError(
+                f"this run's settings differ from the configuration the server was started with "
+                f"({', '.join(differ)}): start a server with that configuration"
+            )
+        return where
+
+    def transcript_path(p: str) -> Path:
+        """A judge's transcript, read only: under a transcript root, without any link."""
+        if not allowed:
+            raise ToolError(
+                "this server takes no transcript: start it with --transcript-root DIR, the "
+                "folder where your host writes them"
+            )
+        given = Path(os.path.abspath(p))  # `..` goes here, before any comparison
+        for r in allowed:
+            real = r.resolve()
+            for form in (r.absolute(), real):
+                if given.is_relative_to(form):
+                    current = real
+                    for part in given.relative_to(form).parts:
+                        current = current / part
+                        if current.is_symlink():
+                            raise ToolError(f"{p!r} goes through a symbolic link: refused")
+                    return current
+        raise ToolError(f"{p!r} is outside every transcript root: a transcript is proof only there")
+
     mcp = FastMCP(
         "sealed-panel",
         instructions=INSTRUCTIONS,
@@ -308,10 +362,6 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         mask_error_details=True,
         strict_input_validation=True,
     )
-
-    def server_config() -> Config:
-        """The configuration the user started the server with, read again at every call."""
-        return load_config(default_config)
 
     @mcp.tool(annotations=ADDS)
     def init(
@@ -323,7 +373,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         server was started with (its judge command included): a caller never picks its judge."""
 
         def call() -> InitResult:
-            digest = init_run(path(run), path(spec), server_config(), opt(library))
+            digest = init_run(path(run), path(spec), server, opt(library), base)
             return InitResult(run=str(path(run)), rubric_sha256=digest)
 
         return _calling(call)
@@ -338,7 +388,9 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
     ) -> BriefResult:
         """Write one blind brief per judge for a loop round."""
         paths = _calling(
-            lambda: write_briefs(path(run), round, path(artefact), path(control), opt(good), False)
+            lambda: write_briefs(
+                served(run), round, path(artefact), path(control), opt(good), False
+            )
         )
         return BriefResult(
             run=str(path(run)), round=round, sealed=False, briefs=list(map(str, paths))
@@ -354,7 +406,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
     ) -> BriefResult:
         """Brief the sealed panel: after CONVERGED, PLATEAU or CAP, or as a one-shot grade."""
         paths = _calling(
-            lambda: write_briefs(path(run), round, path(artefact), path(control), opt(good), True)
+            lambda: write_briefs(served(run), round, path(artefact), path(control), opt(good), True)
         )
         return BriefResult(
             run=str(path(run)), round=round, sealed=True, briefs=list(map(str, paths))
@@ -383,7 +435,9 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
             if reply_file is not None:
                 text = path(reply_file).read_text("utf-8")
             rnd = resolve_round(round, sealed)
-            r = record_from(path(run), rnd, judge, agent_id, sealed, opt(transcript), text)
+            where = served(run)
+            proof = transcript_path(transcript) if transcript is not None else None
+            r = record_from(where, rnd, judge, agent_id, sealed, proof, text)
             return _record_result(r)
 
         return _calling(call)
@@ -401,7 +455,9 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
 
         def call() -> RecordResult:
             rnd = resolve_round(round, sealed)
-            r = record_from(path(run), rnd, judge, agent_id, sealed, path(transcript), void=True)
+            where = served(run)
+            proof = transcript_path(transcript)
+            r = record_from(where, rnd, judge, agent_id, sealed, proof, void=True)
             return _record_result(r)
 
         return _calling(call)
@@ -419,8 +475,8 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         """Run the run's judge command once per open seat: one fresh process per brief, the brief
         on stdin, the reply on stdout. Split a large panel across calls with `judges`."""
         rnd = _calling(lambda: resolve_round(round, sealed))
-        where = path(run)
-        expected = _calling(lambda: server_config().judge)
+        where = _calling(lambda: served(run))
+        expected = server.judge
         seats = _calling(lambda: open_seats(where, rnd, sealed, judges, expected))
         done: list[SeatResult] = []
         skipped: list[int] = []
@@ -457,7 +513,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
 
         def call() -> MeasureResult:
             rnd = resolve_round(round, sealed)
-            ok = record_measurement(path(run), rnd, id, value, passed, sealed)
+            ok = record_measurement(served(run), rnd, id, value, passed, sealed)
             return MeasureResult(id=id, value=value, passed=ok)
 
         return _calling(call)
@@ -469,7 +525,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
 
         def call() -> AggregateResult:
             rnd = resolve_round(round, sealed)
-            e = aggregate_round(path(run), rnd, sealed)
+            e = aggregate_round(served(run), rnd, sealed)
             return AggregateResult(
                 round=e["round"],
                 sealed=e["sealed"],
@@ -484,22 +540,22 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
     @mcp.tool(annotations=READ)
     def status(run: RunPath) -> StatusResult:
         """The stop rule's decision: CONTINUE, CONVERGED, PLATEAU, CAP or SEALED."""
-        d = _calling(lambda: run_status(path(run)))
+        d = _calling(lambda: run_status(served(run)))
         rest = {k: v for k, v in d.items() if k not in ("decision", "overrides")}
         return StatusResult(decision=d["decision"], overrides=d["overrides"], details=rest)
 
     @mcp.tool(annotations=READ)
     def report(run: RunPath) -> ReportResult:
         """The run's report: the sealed grade, the round table and every note."""
-        return ReportResult(markdown=_calling(lambda: render_report(path(run))))
+        return ReportResult(markdown=_calling(lambda: render_report(served(run))))
 
     @mcp.tool(annotations=READ)
     def rubrics_list(library: LibraryPath = None, run: str | None = None) -> RubricsList:
         """Every rubric template (built-in and user) and the open candidates of the library."""
 
         def call() -> RubricsList:
-            lib = library_for(opt(library), opt(run))
-            served, warnings = rubrics_lib.all_templates(lib)
+            lib = library_for(opt(library), served(run) if run else None)
+            templates, warnings = rubrics_lib.all_templates(lib)
             cands, more = rubrics_lib.open_candidates(lib)
             return RubricsList(
                 library=str(lib),
@@ -510,7 +566,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
                         source=str(s["source"]),
                         title=str(s["template"]["title"]),
                     )
-                    for tid, s in served.items()
+                    for tid, s in templates.items()
                 ],
                 candidates=[_candidate_row(lib, c) for c in cands],
                 warnings=warnings + more,
@@ -531,7 +587,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         """The rubric templates for a kind of text, with when to use each and its dimensions."""
 
         def call() -> SuggestResult:
-            lib = library_for(opt(library), opt(run))
+            lib = library_for(opt(library), served(run) if run else None)
             body = path(text).read_text("utf-8") if text else ""
             rows = rubrics_lib.suggest(lib, kind, body, top)
             every = (
@@ -569,9 +625,9 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
         candidates on it and the command a person runs to decide each."""
 
         def call() -> ShowResult:
-            lib = library_for(opt(library), opt(run))
-            served = rubrics_lib.get_template(lib, id)
-            t = served["template"]
+            lib = library_for(opt(library), served(run) if run else None)
+            shown = rubrics_lib.get_template(lib, id)
+            t = shown["template"]
             cands = [
                 c
                 for c in rubrics_lib.open_candidates(lib)[0]
@@ -580,7 +636,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
             return ShowResult(
                 id=id,
                 version=int(t["version"]),
-                source=str(served["source"]),
+                source=str(shown["source"]),
                 template=dict(t),
                 candidates=[_candidate_row(lib, c) for c in cands],
             )
@@ -601,7 +657,7 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
 
         def call() -> FeedbackResult:
             lib = library_dir(opt(library)) if library else None
-            p = user_disagreement(path(run), note, dimension, lib)
+            p = user_disagreement(served(run), note, dimension, lib)
             return FeedbackResult(
                 candidate_id=p.stem, path=str(p), commands=_decide_commands(p.parent.parent, p.stem)
             )
@@ -611,7 +667,16 @@ def build_server(root: Path | None = None, config: Path | None = None) -> FastMC
     return mcp
 
 
-def serve(root: Path | None = None, config: Path | None = None) -> None:
+def usable_roots(values: list[str]) -> list[Path]:
+    """The transcript roots given. A host expands an unset value to nothing, or leaves its
+    placeholder when it does not know it: neither names a folder."""
+    return [Path(v) for v in values if v.strip() and not v.startswith("${")]
+
+
+def serve(
+    root: Path | None = None, config: Path | None = None, transcript_roots: list[str] | None = None
+) -> None:
     """Serve over stdio until stdin closes. Logs go to stderr; stdout carries the protocol."""
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
-    build_server(root, config).run(transport="stdio", show_banner=False)
+    server = build_server(root, config, usable_roots(transcript_roots or []))
+    server.run(transport="stdio", show_banner=False)

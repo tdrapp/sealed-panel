@@ -139,24 +139,28 @@ three kinds of proof, and the report says which one each round used.
   its stdin and reads its stdout itself, so nothing stands between the brief and the reply. The
   reply's record stores the proof: the sha256 of the bytes written, the argument list, the exit
   status, the duration, the sha256 of the bytes read, the timeout, and the names of the
-  environment variables passed. One process per brief, so every runner reply comes from a
-  fresh context, and one process per seat at a time: a marker created only when absent holds
-  the seat from its check to its record, so concurrent or retried calls cannot collect several
-  replies and keep the best. A process that fails, times out, writes nothing or writes past
-  the cap is a void: no reply is ever made up from partial output, and every process started
-  ends recorded, at worst as a void. A run with a judge command takes runner replies only, on
-  every seat: no reply pasted, read from a transcript or voided by hand, so a rejected runner
-  reply cannot be swapped for one from another judge. Only the runner records a runner reply:
-  the library's `record_reply` refuses the source, so no proof can be written by hand. Through
-  MCP, the judge command comes from the configuration the user started the server with, never
-  from the caller, and `judge` refuses a run frozen with other judge settings. The judge
-  process gets a minimal environment and an empty working directory: no credential beyond the
-  ones the user allowed, and no path into the run directory.
+  environment variables passed. One process per brief, so every runner reply comes from a fresh
+  context, and one process per seat at a time: a marker created only when absent holds the seat
+  from its check to its record, so concurrent or retried calls cannot collect several replies
+  and keep the best. A process that fails, times out, writes nothing or writes past the cap is a
+  void: no reply is ever made up from partial output, and every process started ends recorded,
+  at worst as a void. A run with a judge command takes runner replies only, on every seat: no
+  reply pasted, read from a transcript or voided by hand, so a rejected runner reply cannot be
+  swapped for one from another judge. Only the runner records a runner reply through the
+  commands and tools: the library's `record_reply` refuses the source. Someone who writes the
+  run's files by hand can still forge one; `SECURITY.md` keeps that out of scope. Through MCP,
+  the judge command comes from the configuration the user started the server with, never from
+  the caller, and every tool refuses a run frozen with other settings. The judge process gets a
+  minimal environment and an empty working directory: no credential beyond the ones the user
+  allowed, and no path into the run directory.
 - **Transcript (`record --transcript`).** The judge's own transcript must contain the whole
   brief in its prompt; text added around it is counted and reported, and an agent that holds a
   brief id but was never recorded blocks the aggregation. A transcript showing that the judge
   called any tool other than the configured handback tool is rejected: a judge with a tool
-  could have read the run's keys and known which item is the candidate.
+  could have read the run's keys and known which item is the candidate. Through MCP a
+  transcript counts only under a `--transcript-root`, away from the root: a file the author
+  wrote in its workspace is no proof. An author with shell access to that folder can still
+  forge one, so the runner stays the strong proof.
 - **Pasted (`record --output`).** Nothing shows that the judge received the brief verbatim,
   or that no other judge was asked and discarded. The report flags such rounds.
 

@@ -6,7 +6,9 @@
         "--from",
         "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0",
         "sealed-panel",
-        "mcp"
+        "mcp",
+        "--transcript-root",
+        "${user_config.transcript_root}"
       ]
     }
   }

@@ -20,7 +20,8 @@ from fastmcp import Client
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import mcp_server
-from sealed_panel.config import load_config
+from sealed_panel.config import Config, load_config
+from sealed_panel.errors import ConfigError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
 from sealed_panel.report import status as run_status_of
@@ -54,9 +55,17 @@ def mode(request: pytest.FixtureRequest) -> str:
 
 def runner_config(h: Harness, *stub_args: str) -> Path:
     argv = [sys.executable, str(STUB), *stub_args]
-    cfg = h.tmp / "judge.toml"
+    # Outside the root: the server refuses a configuration its caller could rewrite.
+    cfg = h.tmp.parent / f"{h.tmp.name}.judge.toml"
     cfg.write_text("[judge]\ncommand = [" + ", ".join(json.dumps(a) for a in argv) + "]\n")
     return cfg
+
+
+def transcripts_of(h: Harness) -> Path:
+    """A folder where a host would write transcripts: never under the root."""
+    folder = h.tmp.parent / f"{h.tmp.name}-transcripts"
+    folder.mkdir(exist_ok=True)
+    return folder
 
 
 def write_spec(h: Harness, **over: Any) -> Path:
@@ -155,7 +164,8 @@ class TestEndToEnd:
             measured=[{"id": "length", "description": "words", "max": 100}],
         )
         (h.tmp / "spec.json").write_text(json.dumps(spec))
-        async with Client(build_server(h.tmp), mode=mode) as c:
+        host = transcripts_of(h)
+        async with Client(build_server(h.tmp, None, [host]), mode=mode) as c:
             await call(c, "init", run=str(h.run), spec=str(h.tmp / "spec.json"))
             await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
             assert "no judge command" in await error(c, "judge", run="run", round=1)
@@ -166,13 +176,11 @@ class TestEndToEnd:
             r = await call(c, "record", run="run", round=1, judge=1, agent_id="a1", reply=raw)
             assert r["status"] == "VALID" and r["source"] == "output"
             # A judge that got brief j2 and stopped: a void, which never fills the seat.
-            t = h.tmp / "t.jsonl"
+            t = host / "t.jsonl"
             brief = (h.run / "rounds" / "r1" / "brief_j2.md").read_text()
             row = {"type": "user", "agentId": "a3", "message": {"content": brief}}
             t.write_text(json.dumps(row) + "\n")
-            v = await call(
-                c, "void", run="run", round=1, judge=2, agent_id="a3", transcript="t.jsonl"
-            )
+            v = await call(c, "void", run="run", round=1, judge=2, agent_id="a3", transcript=str(t))
             assert v["status"] == "VOID"
             meta = keys[1]
             sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
@@ -231,7 +239,9 @@ class TestErrors:
             raise RuntimeError("internal detail /secret/path")
 
         monkeypatch.setattr(mcp_server, "render_report", boom)
+        write_spec(h)
         async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
             msg = await error(c, "report", run="run")
         assert "secret" not in msg and "report" in msg
 
@@ -299,9 +309,24 @@ class TestJudgeAuthority:
         )
         init_run(h.run, write_spec(h), load_config(evil))  # by hand, outside the server
         async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
-            msg = await error(c, "judge", run="run", sealed=True)
-        assert "differ from the configuration the server was started with" in msg
+            for tool, args in (
+                ("seal", {"artefact": "cand.md", "control": "ctrl.md"}),
+                ("judge", {"sealed": True}),
+                ("record", {"judge": 1, "agent_id": "a", "sealed": True, "reply": "{}"}),
+                ("measure", {"id": "x", "value": "1", "sealed": True}),
+                ("aggregate", {"sealed": True}),
+                ("status", {}),
+                ("report", {}),
+                ("feedback", {"note": "a note"}),
+            ):
+                msg = await error(c, tool, run="run", **args)
+                assert "differ from the configuration the server was started with" in msg, tool
+            for tool, args in (
+                ("rubrics_list", {}),
+                ("rubrics_suggest", {"kind": "email"}),
+                ("rubrics_show", {"id": "message"}),
+            ):
+                assert "differ from the configuration" in await error(c, tool, run="run", **args)
         assert not (h.tmp / "pwned.txt").exists()
 
     async def test_a_server_without_a_judge_command_runs_no_judge(
@@ -309,10 +334,162 @@ class TestJudgeAuthority:
     ) -> None:
         init_run(h.run, write_spec(h), load_config(runner_config(h)))
         async with Client(build_server(h.tmp), mode=mode) as c:
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
-            assert "differ from the configuration" in await error(
-                c, "judge", run="run", sealed=True
+            msg = await error(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+        assert "differ from the configuration" in msg
+
+    async def test_a_runner_server_serves_no_host_mode_run(self, h: Harness, mode: str) -> None:
+        init_run(h.run, write_spec(h))  # built beside the server, in host mode
+        async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
+            msg = await error(
+                c, "record", run="run", judge=1, agent_id="a1", sealed=True, reply="{}"
             )
+        assert "judge.command" in msg
+
+    async def test_a_forged_grading_limit_with_a_recomputed_lock_is_refused(
+        self, h: Harness, mode: str
+    ) -> None:
+        init_run(h.run, write_spec(h))
+        data = json.loads((h.run / "config.json").read_text())
+        data["limits"]["max_replacements"] = 5
+        (h.run / "config.json").write_text(json.dumps(data))
+        (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            msg = await error(c, "status", run="run")
+        assert "limits.max_replacements" in msg
+
+    def test_a_configuration_under_the_root_stops_the_server(self, h: Harness) -> None:
+        inside = h.tmp / "srv.toml"
+        inside.write_text("")
+        with pytest.raises(ConfigError, match="under the root"):
+            build_server(h.tmp, inside)
+
+    async def test_the_configuration_is_read_once(self, h: Harness, mode: str) -> None:
+        cfg = runner_config(h)
+        write_spec(h)
+        original = cfg.read_text()
+        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+            cfg.write_text('[judge]\ncommand = ["/bin/sh", "-c", "echo pwned"]\n')
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "status", run="run")
+        assert run_config_of(h.run).judge["command"][1] == str(STUB)
+        assert "pwned" not in json.dumps(run_config_of(h.run).data)
+        assert original != cfg.read_text()
+
+    async def test_facts_file_stays_under_the_root(
+        self, h: Harness, mode: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(h.tmp.parent))
+        outside = h.tmp.parent / f"{h.tmp.name}.secret.txt"
+        outside.write_text("TOP-SECRET-CANARY\n")
+        (h.tmp / "facts.md").write_text("These facts sit under the root.\n")
+        base = make_spec(judges_per_persona=2, max_rounds=1)
+        cases = {"abs": str(outside), "up": f"../{outside.name}", "home": f"~/{outside.name}"}
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            for name, facts in cases.items():
+                (h.tmp / f"{name}.json").write_text(json.dumps({**base, "facts_file": facts}))
+                msg = await error(c, "init", run=name, spec=f"{name}.json")
+                assert "outside the root" in msg, name
+                assert not (h.tmp / name / "spec.json").exists()
+            (h.tmp / "ok.json").write_text(json.dumps({**base, "facts_file": "facts.md"}))
+            await call(c, "init", run="fine", spec="ok.json")
+        assert "under the root" in json.loads((h.tmp / "fine" / "spec.json").read_text())["facts"]
+
+
+class TestTranscriptRoots:
+    """A transcript is proof only under a --transcript-root, away from what the caller writes."""
+
+    def judge_transcript(self, h: Harness, folder: Path, agent: str, judge: int = 1) -> Path:
+        meta = next(m for m in h.keys(1)["judges"] if m["judge"] == judge)
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+        raw = judge_json(meta, h.texts(1, meta), sc)
+        brief = (h.run / "rounds" / "r1" / f"brief_j{judge}.md").read_text()
+        rows = [
+            {"type": "user", "agentId": agent, "message": {"content": brief}},
+            {"type": "assistant", "agentId": agent,
+             "message": {"content": [{"type": "text", "text": raw}]}},
+        ]  # fmt: skip
+        t = folder / f"{agent}.jsonl"
+        t.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        return t
+
+    async def setup_run(self, c: Client, h: Harness) -> None:
+        write_spec(h)
+        await call(c, "init", run="run", spec="spec.json")
+        await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+
+    async def test_inside_a_transcript_root_is_read(self, h: Harness, mode: str) -> None:
+        host = transcripts_of(h)
+        nested = host / "session" / "subagents"
+        nested.mkdir(parents=True)
+        async with Client(build_server(h.tmp, None, [host]), mode=mode) as c:
+            await self.setup_run(c, h)
+            t = self.judge_transcript(h, nested, "real")
+            r = await call(
+                c, "record", run="run", round=1, judge=1, agent_id="real", transcript=str(t)
+            )
+        assert r["status"] == "VALID" and r["source"] == "transcript"
+
+    async def test_a_forged_transcript_under_the_root_is_no_proof(
+        self, h: Harness, mode: str
+    ) -> None:
+        async with Client(build_server(h.tmp, None, [transcripts_of(h)]), mode=mode) as c:
+            await self.setup_run(c, h)
+            t = self.judge_transcript(h, h.tmp, "forged")
+            for given in (str(t), "forged.jsonl"):
+                msg = await error(
+                    c, "record", run="run", round=1, judge=1, agent_id="forged", transcript=given
+                )
+                assert "outside every transcript root" in msg, given
+                msg = await error(
+                    c, "void", run="run", round=1, judge=1, agent_id="forged", transcript=given
+                )
+                assert "outside every transcript root" in msg, given
+        assert results_by_judge(h.run / "rounds" / "r1") == {}
+
+    async def test_without_a_root_no_transcript_is_taken(self, h: Harness, mode: str) -> None:
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await self.setup_run(c, h)
+            t = self.judge_transcript(h, h.tmp, "forged")
+            msg = await error(
+                c, "record", run="run", round=1, judge=1, agent_id="forged", transcript=str(t)
+            )
+        assert "--transcript-root" in msg
+
+    async def test_escapes_are_refused(self, h: Harness, mode: str) -> None:
+        host = transcripts_of(h)
+        beside = h.tmp.parent / f"{h.tmp.name}-beside"
+        beside.mkdir()
+        (host / "sub").mkdir()
+        async with Client(build_server(h.tmp, None, [host]), mode=mode) as c:
+            await self.setup_run(c, h)
+            t = self.judge_transcript(h, beside, "esc")
+            (host / "link.jsonl").symlink_to(t)
+            (host / "dir").symlink_to(beside)
+            (host / "same.jsonl").symlink_to(host / "sub")
+            args = {"run": "run", "round": 1, "judge": 1, "agent_id": "esc"}
+            msg = await error(
+                c, "record", **args, transcript=f"{host}/sub/../../{beside.name}/esc.jsonl"
+            )
+            assert "outside every transcript root" in msg
+            for given in (host / "link.jsonl", host / "dir" / "esc.jsonl", host / "same.jsonl"):
+                msg = await error(c, "record", **args, transcript=str(given))
+                assert "symbolic link" in msg, given
+
+    def test_a_transcript_root_overlapping_the_root_stops_the_server(self, h: Harness) -> None:
+        inner = h.tmp / "inner"
+        inner.mkdir()
+        with pytest.raises(ConfigError, match="overlaps the root"):
+            build_server(h.tmp, None, [inner])
+        with pytest.raises(ConfigError, match="overlaps the root"):
+            build_server(inner, None, [h.tmp])
+
+    def test_an_unset_value_names_no_folder(self) -> None:
+        assert mcp_server.usable_roots(["", "  ", "${user_config.transcript_root}"]) == []
+        assert mcp_server.usable_roots(["/a/b"]) == [Path("/a/b")]
+
+    def test_a_candidate_id_is_quoted_in_the_commands(self) -> None:
+        [promote, _] = mcp_server._decide_commands(Path("/lib"), "x; touch pwned #")
+        assert promote.startswith("sealed-panel rubrics promote 'x; touch pwned #' ")
 
 
 class TestConcurrentJudges:
@@ -424,7 +601,7 @@ class TestPaths:
         write_spec(h)
         inner = h.tmp / "inner"
         inner.mkdir()
-        cfg = h.tmp / "root.toml"
+        cfg = h.tmp.parent / f"{h.tmp.name}.root.toml"
         cfg.write_text(f'[mcp]\nroot = "{inner}"\n')
         spec = str(h.tmp / "spec.json")
         (inner / "spec.json").write_text((h.tmp / "spec.json").read_text())
@@ -461,7 +638,7 @@ class TestRunnerRefusalsThroughTools:
                 msg = await error(
                     c, tool, run="run", round=1, judge=1, agent_id="y", transcript="t.jsonl"
                 )
-                assert "every reply comes from the runner" in msg
+                assert "--transcript-root" in msg
             assert "never fills a seat" in await error(c, "aggregate", run="run", round=1)
 
     async def test_a_filled_seat_takes_no_second_reply(self, h: Harness, mode: str) -> None:

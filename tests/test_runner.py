@@ -424,7 +424,10 @@ class TestMcpCommand:
     ) -> None:
         monkeypatch.setitem(sys.modules, "sealed_panel.mcp_server", None)
         assert main(["mcp"]) == 2
-        assert "pip install 'sealed-panel[mcp]'" in capsys.readouterr().err
+        # While the name is free on the index, never send anyone to it: it could be squatted.
+        err = capsys.readouterr().err
+        assert "@ git+https://github.com/tdrapp/sealed-panel@v" in err
+        assert "pip install 'sealed-panel[mcp]'" not in err
 
 
 class TestOneJudgePerSeat:

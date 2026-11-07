@@ -73,7 +73,10 @@ def test_the_plugin_files_install_one_version() -> None:
     launch = server["sealed-panel"]
     assert launch["command"] == "uvx"
     source = f"sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}"
-    assert launch["args"] == ["--from", source, "sealed-panel", "mcp"]
+    assert launch["args"][:4] == ["--from", source, "sealed-panel", "mcp"]
+    # The transcript folder comes from a value the host asks for when the plugin is enabled.
+    assert launch["args"][4:] == ["--transcript-root", "${user_config.transcript_root}"]
+    assert plugin["userConfig"]["transcript_root"]["type"] == "directory"
 
 
 def test_the_documented_host_configuration_starts_the_same_server() -> None:
@@ -85,10 +88,11 @@ def test_the_documented_host_configuration_starts_the_same_server() -> None:
     assert len(servers) == 1
     [block] = servers
     launch = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
-    assert [block["command"], *block["args"]] == [
+    assert [block["command"], *block["args"][:4]] == [
         launch["sealed-panel"]["command"],
-        *launch["sealed-panel"]["args"],
+        *launch["sealed-panel"]["args"][:4],
     ]
+    assert block["args"][4] == "--transcript-root"
     assert block["tool_timeout_sec"] == 300
     assert isinstance(block["env_vars"], list)
 

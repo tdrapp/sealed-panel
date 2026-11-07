@@ -543,6 +543,13 @@ def _show(value: Any, where: str, key: str = "") -> str:
     return f"<{len(text)} characters, sha256 {digest}, see {where}>"
 
 
+def config_differences(a: Config, b: Config) -> list[str]:
+    """The settings that differ between two configurations, those that only place files aside."""
+    left, right = _flatten(a.data), _flatten(b.data)
+    keys = (set(left) | set(right)) - NOT_GRADING
+    return sorted(k for k in keys if left.get(k) != right.get(k))
+
+
 def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
     """Every setting that differs from the packaged defaults, as `key = value (default x)`.
 

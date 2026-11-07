@@ -924,11 +924,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    if frozen != dict(expected):",
         "    if False:",
     ),
-    "init takes the caller's configuration": (
-        MCP,
-        "digest = init_run(path(run), path(spec), server_config(), opt(library))",
-        "digest = init_run(path(run), path(spec), None, opt(library))",
-    ),
     "judge command shown as a hash": (
         CFG,
         "if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:",
@@ -1085,6 +1080,73 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         DEFAULTS,
         'handback_tool = "SubagentHandback"',
         'handback_tool = ""',
+    ),
+    # What the MCP server trusts.
+    "a run with other settings served": (MCP, "        if differ:\n", "        if False:\n"),
+    "configuration under the root accepted": (
+        MCP,
+        "if config_file is not None and config_file.is_relative_to(base):",
+        "if False:",
+    ),
+    "transcript root overlap accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if False:",
+    ),
+    "transcript root inside the root accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if base.is_relative_to(real):",
+    ),
+    "root inside a transcript root accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if real.is_relative_to(base):",
+    ),
+    "a transcript under the root taken as proof": (
+        MCP,
+        "proof = transcript_path(transcript) if transcript is not None else None",
+        "proof = path(transcript) if transcript is not None else None",
+    ),
+    "a void read from a transcript under the root": (
+        MCP,
+        "            proof = transcript_path(transcript)\n",
+        "            proof = path(transcript)\n",
+    ),
+    "links followed in a transcript root": (
+        MCP,
+        "                        if current.is_symlink():\n",
+        "                        if False:\n",
+    ),
+    "an unset transcript root read as a folder": (
+        MCP,
+        'return [Path(v) for v in values if v.strip() and not v.startswith("${")]',
+        "return [Path(v) for v in values]",
+    ),
+    "facts_file outside the root read": (
+        SPEC,
+        "if root is not None and not path.resolve().is_relative_to(root):",
+        "if False:",
+    ),
+    "init freezes no server configuration": (
+        MCP,
+        "digest = init_run(path(run), path(spec), server, opt(library), base)",
+        "digest = init_run(path(run), path(spec), None, opt(library), base)",
+    ),
+    "init leaves facts_file unconfined": (
+        MCP,
+        "digest = init_run(path(run), path(spec), server, opt(library), base)",
+        "digest = init_run(path(run), path(spec), server, opt(library))",
+    ),
+    "the install hint names the index": (
+        f"{PKG}/cli.py",
+        "'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}'",
+        "'sealed-panel[mcp]'",
+    ),
+    "a candidate id unquoted in a command": (
+        MCP,
+        "where, name = shlex.quote(str(lib)), shlex.quote(cid)",
+        "where, name = shlex.quote(str(lib)), cid",
     ),
 }
 

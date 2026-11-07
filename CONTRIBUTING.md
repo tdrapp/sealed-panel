@@ -84,8 +84,11 @@ settings, with a required reviewer. Then, to release: move the `Unreleased` entr
 `src/sealed_panel/__init__.py`, the plugin manifest and marketplace file, `.mcp.json` and the
 install lines (`tests/test_packaging.py` checks they agree), merge, and push a tag
 `v<version>`. The workflow checks that the tag names the package version, builds the sdist and
-the wheel, and publishes them. After the first publish, the docs' index lines apply; `.mcp.json`
-may then move from the git form to `sealed-panel[mcp]==<version>`.
+the wheel, and publishes them. After the first publish, the docs' index lines apply: the
+hint `sealed-panel mcp` prints without the extra (`cli.py`) may then name the index. Until then
+it names the tag, because an agent reading it would install whatever holds that free name.
+`.mcp.json` may then move from the git form to `sealed-panel[mcp]==<version>`, and
+`tests/test_packaging.py` moves with it.
 
 Branch protection for `main` is kept in `.github/branch-protection.json` (required checks,
 strict status, pull request required, linear history, no force push, no deletion, resolved

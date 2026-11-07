@@ -246,14 +246,23 @@ sealed-panel mcp [--root DIR] [--config CONFIG.toml]
 ```
 
 Serves the commands as MCP tools over stdio, for an agent host, and exits when stdin closes.
-Needs the `mcp` extra (`pip install 'sealed-panel[mcp]'`); without it, the command says so and
-exits with status 2. stdout carries the protocol only; logs go to stderr. Every path a tool
-takes must resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in the
+Needs the `mcp` extra; without it, the command says so, with the install line, and exits with
+status 2. stdout carries the protocol only; logs go to stderr. Every path a tool takes must
+resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in the
 configuration, else the directory the server starts in. A path outside it, or one starting with
-`~`, is refused, whether given absolute or relative. `--config` is the configuration the `init`
-tool freezes into every run, and the only place a `[judge] command` comes from: the tool takes
-no configuration from the caller, and `judge` re-reads the file and refuses a run whose judge
-settings differ from it.
+`~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too.
+
+`--config` is the configuration of every run the server serves, and the only place a
+`[judge] command` comes from. It is read once at startup and must live outside the root, or the
+server does not start. The `init` tool freezes it and takes no configuration from the caller,
+and every tool taking a run refuses one frozen with other settings (the path of its library
+aside), so a run from an older version or another configuration needs a server started for it,
+or the command line.
+
+`--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. It
+is read only, for the transcript of `record` and `void`, and may not overlap the root. Through
+MCP a transcript is accepted only there, with no symbolic link on the way: a file the caller
+can write is no proof.
 
 The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
 (`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,
