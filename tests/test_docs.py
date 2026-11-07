@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import re
 import subprocess
 from pathlib import Path
 
@@ -56,3 +58,25 @@ def test_the_check_sees_prose_and_skips_the_rest() -> None:
     long = "a " * WIDTH
     text = f"---\nd: {long}\n---\nok\n{long}\n```\n{long}\n```\n| {long} |\n{'x' * 200}\n"
     assert long_lines(text) == [5]
+
+
+def test_the_readme_mutation_figures_match_the_tool() -> None:
+    """The README states how many mutations the tool holds, how many are killed and how many
+    survive; a mutation added or an expected survivor listed without the README fails here."""
+    tool, readme = ROOT / "tools" / "mutation_check.py", ROOT / "README.md"
+    if not (tool.exists() and readme.exists()):  # the mutation check runs on a copy without them
+        pytest.skip("not a checkout: the README and the mutation tool are not here")
+    spec = importlib.util.spec_from_file_location("mutation_check", tool)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    total, survivors = len(module.MUTATIONS), len(module.EXPECTED_SURVIVORS)
+    text = " ".join(readme.read_text(encoding="utf-8").split())
+    found = re.search(r"Of its (\d+) mutations, (\d+) are killed; the (\w+) that survive", text)
+    assert found, "the README no longer states the mutation figures in the expected sentence"
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+    assert (int(found[1]), int(found[2]), found[3]) == (
+        total,
+        total - survivors,
+        words.get(survivors, str(survivors)),
+    )
