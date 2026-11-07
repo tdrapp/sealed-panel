@@ -491,3 +491,12 @@ class TestDefaultHandback:
         t = self.real_shape(h, "a04d", self.a_reply(h))
         r = record_from(h.run, 1, 1, "a04d", False, t)
         assert not r["ok"] and "SubagentHandback" in r["errors"][0]
+
+
+def test_an_empty_handback_setting_reads_no_tool(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[transcript]\nhandback_tool = ""\n')
+    block = {"type": "tool_use", "id": "t1", "name": "", "input": {"message": "a reply"}}
+    t = tmp_path / "t.jsonl"
+    t.write_text(json.dumps({"type": "assistant", "message": {"content": [block]}}) + "\n")
+    assert handback_messages(t, load_config(cfg)) == []
