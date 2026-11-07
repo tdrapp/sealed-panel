@@ -155,12 +155,12 @@ class TestFailures:
             aggregate_round(h.run, 1, False)
 
     def test_a_timeout_is_a_void(self, h: Harness) -> None:
-        init_runner(h, "--sleep", "30", extra="timeout_s = 1\n")
+        init_runner(h, "--sleep", "300", extra="timeout_s = 1\n")
         h.brief(1, "cand")
         r = judge_seat(h.run, 1, 1, False)
         assert r["void"] and r["errors"] == ["the judge command timed out after 1 s"]
         assert r["runner"]["timed_out"] is True
-        assert r["runner"]["duration_s"] < 15
+        assert r["runner"]["duration_s"] < 60  # the judge would have slept 300 s
 
     def test_no_output_is_a_void(self, h: Harness) -> None:
         init_runner(h, "--silent")
@@ -432,7 +432,10 @@ class TestMcpCommand:
 
 class TestOneJudgePerSeat:
     def test_concurrent_calls_judge_a_seat_once(self, h: Harness) -> None:
-        init_runner(h, "--sleep", "1")
+        """The judge blocks until the three other calls were turned away, so none of them can
+        start after it ended, however slow the machine."""
+        release = h.tmp / "release"
+        init_runner(h, "--wait-for", str(release))
         h.brief(1, "cand", sealed=True)
         outcomes: list[str] = []
 
@@ -443,10 +446,16 @@ class TestOneJudgePerSeat:
                 outcomes.append("taken")
 
         threads = [threading.Thread(target=go) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        try:
+            for t in threads:
+                t.start()
+            deadline = time.monotonic() + 60
+            while outcomes.count("taken") < 3 and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            release.touch()
+            for t in threads:
+                t.join()
         assert sorted(outcomes) == ["ok", "taken", "taken", "taken"]
         rows = results_by_judge(round_dir(h.run, 1, True))[1]
         assert len(rows) == 1 and rows[0]["ok"]
@@ -515,7 +524,8 @@ class TestResources:
         r = judge_seat(h.run, 1, 1, False)
         try:
             assert r["void"] and r["errors"] == ["the judge command timed out after 1 s"]
-            assert time.monotonic() - start < 1 + 2 * runner.STOP_GRACE_S + 5
+            # About 11 s here; the grandchild holds stdout for 300 s.
+            assert time.monotonic() - start < 1 + 2 * runner.STOP_GRACE_S + 30
         finally:
             log = (round_dir(h.run, 1) / r["runner"]["stderr_log"]).read_text()
             for line in log.splitlines():
@@ -530,12 +540,12 @@ class TestResources:
             raise PermissionError(1, "Operation not permitted")
 
         monkeypatch.setattr(runner.os, "killpg", refused)
-        init_runner(h, "--sleep", "30", extra="timeout_s = 1\n")
+        init_runner(h, "--sleep", "300", extra="timeout_s = 1\n")
         h.brief(1, "cand")
         start = time.monotonic()
         r = judge_seat(h.run, 1, 1, False)
         assert r["void"] and r["errors"] == ["the judge command timed out after 1 s"]
-        assert time.monotonic() - start < 15
+        assert time.monotonic() - start < 60  # the judge would have slept 300 s
 
 
 def test_the_marker_is_taken_only_when_absent(h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:

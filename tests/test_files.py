@@ -3,8 +3,10 @@ followed, bounded output, leftovers of a killed runner, replies built to break t
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -216,7 +218,7 @@ class TestRunnerStreams:
     def test_an_interruption_stops_the_judge_and_records_it(
         self, h: Harness, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        init_judge(h, [sys.executable, str(STUB), "--sleep", "30"])
+        init_judge(h, [sys.executable, str(STUB), "--sleep", "300"])
         h.brief(1, "cand")
 
         def interrupted(seconds: float) -> None:
@@ -226,7 +228,7 @@ class TestRunnerStreams:
         start = time.monotonic()
         with pytest.raises(KeyboardInterrupt):
             judge_seat(h.run, 1, 1, False)
-        assert time.monotonic() - start < 15
+        assert time.monotonic() - start < 60  # the judge would have slept 300 s
         [void] = results_by_judge(round_dir(h.run, 1))[1]
         assert void["void"] and "interrupted" in void["errors"][0]
         assert not list(round_dir(h.run, 1).glob("running_j*"))
@@ -438,25 +440,52 @@ class TestCommandLineEdges:
         assert out.startswith("SKIPPED judge 1: judge 1 is being judged")
 
     def test_a_killed_runner_leaves_a_void_for_the_next_call(self, h: Harness) -> None:
-        init_judge(h, [sys.executable, str(STUB), "--sleep", "1"])
+        """The judge blocks until killed, so the runner is always killed mid-judge, however slow
+        the machine. The judge runs in a session of its own, out of reach of the runner's death:
+        the test stops it, and the runner's temporary folder stays under the test's."""
+        pid_file = h.tmp / "judge.pid"
+        init_judge(h, [sys.executable, str(STUB), "--sleep", "600", "--pid-file", str(pid_file)])
         h.brief(1, "cand")
         code = (
             "import sys; from pathlib import Path; from sealed_panel.runner import judge_seat; "
             f"judge_seat(Path({str(h.run)!r}), 1, 1, False)"
         )
-        env = {**os.environ, "PYTHONPATH": str(SRC.parent)}
+        (h.tmp / "tmp").mkdir()
+        env = {**os.environ, "PYTHONPATH": str(SRC.parent), "TMPDIR": str(h.tmp / "tmp")}
         proc = subprocess.Popen([sys.executable, "-c", code], env=env)
         marker = round_dir(h.run, 1) / "running_j1.json"
-        for _ in range(200):
-            if marker.exists():
-                break
-            time.sleep(0.05)
-        proc.kill()
-        proc.wait()
+        judge = 0
+        try:
+            deadline = time.monotonic() + 60
+            while not pid_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            judge = int(pid_file.read_text())
+            assert marker.exists()  # held for as long as the judge runs
+        finally:
+            proc.kill()
+            proc.wait()
+            if judge:
+                stop_group(judge)
         assert marker.exists()
         assert open_seats(h.run, 1, False) == [1, 2]
         [void] = results_by_judge(round_dir(h.run, 1))[1]
         assert void["void"] and "stopped before recording it" in void["errors"][0]
+
+
+def stop_group(pid: int) -> None:
+    """Kill a process group and wait until it is gone (reaped by init once its parent died)."""
+    with contextlib.suppress(OSError):
+        os.killpg(pid, signal.SIGKILL)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:  # macOS: every member exited, not yet reaped
+            pass
+        time.sleep(0.05)
+    raise AssertionError(f"the judge group {pid} outlived the test")
 
 
 def relock(run: Path, data: dict[str, Any]) -> None:

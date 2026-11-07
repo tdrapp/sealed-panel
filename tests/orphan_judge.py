@@ -9,6 +9,6 @@ import sys
 
 sys.stdin.buffer.read()
 child = subprocess.Popen(
-    [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    [sys.executable, "-c", "import time; time.sleep(300)"], start_new_session=True
 )
 print(f"GRANDCHILD {child.pid}", file=sys.stderr, flush=True)

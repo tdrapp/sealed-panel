@@ -548,21 +548,32 @@ class TestConcurrentJudges:
     async def test_a_retry_after_a_cancelled_call_never_judges_the_seat_twice(
         self, h: Harness, mode: str
     ) -> None:
-        cfg = runner_config(h, "--sleep", "2")
+        """The judge blocks until the retry was turned away, so the retry always meets it
+        running, however slow the machine."""
+        release = h.tmp.parent / f"{h.tmp.name}.release"
+        cfg = runner_config(h, "--wait-for", str(release))
         write_spec(h)
-        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
-            await call(c, "init", run="run", spec="spec.json")
-            await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
-            args = {"run": "run", "round": 1, "judges": [1]}
-            with contextlib.suppress(Exception):
-                await c.call_tool_mcp("judge", args, timeout=datetime.timedelta(seconds=0.5))
-            retry = await c.call_tool_mcp("judge", args)
-            assert retry.is_error and "being judged by another call" in retry.content[0].text  # type: ignore[union-attr]
-            marker = h.run / "rounds" / "r1" / "running_j1.json"
-            for _ in range(100):
-                if not marker.exists():
-                    break
-                await asyncio.sleep(0.1)
+        marker = h.run / "rounds" / "r1" / "running_j1.json"
+        try:
+            async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+                await call(c, "init", run="run", spec="spec.json")
+                await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+                args = {"run": "run", "round": 1, "judges": [1]}
+                with contextlib.suppress(Exception):
+                    await c.call_tool_mcp("judge", args, timeout=datetime.timedelta(seconds=0.5))
+                for _ in range(600):
+                    if marker.exists():
+                        break
+                    await asyncio.sleep(0.1)
+                retry = await c.call_tool_mcp("judge", args)
+                assert retry.is_error and "being judged by another call" in retry.content[0].text  # type: ignore[union-attr]
+                release.touch()
+                for _ in range(600):
+                    if not marker.exists():
+                        break
+                    await asyncio.sleep(0.1)
+        finally:
+            release.touch()
         rows = results_by_judge(h.run / "rounds" / "r1")[1]
         assert [r["ok"] for r in rows] == [True]
 

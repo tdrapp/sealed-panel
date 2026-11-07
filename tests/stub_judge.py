@@ -6,7 +6,10 @@ bytes read, so a test can check the brief arrived unchanged. Options make it mis
 
     stub_judge.py [--exit N] [--sleep S] [--silent] [--noise] [--show-env] [--show-cwd]
                   [--low WORD] [--score N] [--fixed] [--fail-first PATH] [--flood MIB]
-                  [--flood-stderr MIB]
+                  [--flood-stderr MIB] [--pid-file PATH] [--wait-for PATH]
+
+--pid-file writes the stub's pid there before anything else; --wait-for blocks after the reply
+until PATH exists (two minutes at most), so a test decides when the judge ends.
 
 Without --fixed, the retell also carries a random tag: real judges never reply identically.
 """
@@ -62,7 +65,14 @@ def main() -> int:
     ap.add_argument("--fail-first", help="exit 3 when PATH does not exist yet, creating it")
     ap.add_argument("--flood", type=int, default=0, help="write this many MiB to stdout first")
     ap.add_argument("--flood-stderr", type=int, default=0, help="the same, to stderr")
+    ap.add_argument("--pid-file", help="write the pid here first")
+    ap.add_argument("--wait-for", help="after the reply, block until PATH exists")
     a = ap.parse_args()
+    if a.pid_file:
+        draft = a.pid_file + ".new"
+        with open(draft, "w") as f:
+            f.write(str(os.getpid()))
+        os.replace(draft, a.pid_file)  # whole or absent: the test never reads half a pid
     data = sys.stdin.buffer.read()
     digest = hashlib.sha256(data).hexdigest()
     for _ in range(a.flood_stderr):
@@ -83,6 +93,9 @@ def main() -> int:
         return 3
     if a.sleep:
         time.sleep(a.sleep)
+    deadline = time.monotonic() + 120
+    while a.wait_for and not os.path.exists(a.wait_for) and time.monotonic() < deadline:
+        time.sleep(0.05)
     return a.exit
 
 
