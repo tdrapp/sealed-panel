@@ -6,6 +6,7 @@ bytes read, so a test can check the brief arrived unchanged. Options make it mis
 
     stub_judge.py [--exit N] [--sleep S] [--silent] [--noise] [--show-env] [--show-cwd]
                   [--low WORD] [--score N] [--fixed] [--fail-first PATH] [--flood MIB]
+                  [--flood-stderr MIB]
 
 Without --fixed, the retell also carries a random tag: real judges never reply identically.
 """
@@ -60,9 +61,12 @@ def main() -> int:
     ap.add_argument("--fixed", action="store_true")
     ap.add_argument("--fail-first", help="exit 3 when PATH does not exist yet, creating it")
     ap.add_argument("--flood", type=int, default=0, help="write this many MiB to stdout first")
+    ap.add_argument("--flood-stderr", type=int, default=0, help="the same, to stderr")
     a = ap.parse_args()
     data = sys.stdin.buffer.read()
     digest = hashlib.sha256(data).hexdigest()
+    for _ in range(a.flood_stderr):
+        sys.stderr.buffer.write(b"E" * (1 << 20))
     for _ in range(a.flood):
         sys.stdout.buffer.write(b"A" * (1 << 20))
     if a.noise:

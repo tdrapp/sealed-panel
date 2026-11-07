@@ -285,6 +285,8 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     low, high = REPLY_BYTES_BOUNDS
     if not low <= judge.get("max_reply_bytes", low) <= high:
         errors.append(f"judge.max_reply_bytes must be between {low} and {high}")
+    if not low <= judge.get("max_stderr_bytes", low) <= high:
+        errors.append(f"judge.max_stderr_bytes must be between {low} and {high}")
     names = judge["env_allow"]
     if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
         errors.append("judge.env_allow must hold environment variable names only")

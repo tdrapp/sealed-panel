@@ -17,7 +17,7 @@ from .config import Config, resolve
 from .decide import STOP_DECISIONS, decide
 from .errors import EvalError
 from .spec import dims_for, load_frozen, rubric_hash, run_config
-from .store import dump_json, load_json, read_text, refuse_links, round_dir
+from .store import dump_json, load_json, read_text, refuse_links, round_dir, write_file
 from .text import fixed_normalise, injection_flags, text_hash
 
 # Letters drawn without repetition to label the items of one brief.
@@ -242,7 +242,7 @@ def write_briefs(
         refuse_links(*rdir.iterdir())
     rdir.mkdir(parents=True, exist_ok=True)
     for role, text in roles:
-        (rdir / f"{role}.md").write_text(text, encoding="utf-8")
+        write_file(rdir / f"{role}.md", text)
     framings = spec.get("framings") or cfg.framings
     seed = secrets.randbits(SEED_BITS)
     rng = random.Random(seed)
@@ -259,9 +259,7 @@ def write_briefs(
             fr = (k + offset) % len(framings)
             nonce = secrets.token_hex(NONCE_BYTES)
             bpath = rdir / f"brief_j{j}.md"
-            bpath.write_text(
-                build_brief(spec, persona, framings[fr], items, nonce, cfg), encoding="utf-8"
-            )
+            write_file(bpath, build_brief(spec, persona, framings[fr], items, nonce, cfg))
             judges.append(
                 {
                     "judge": j,

@@ -191,6 +191,7 @@ env_allow = ["MY_MODEL_API_KEY"]
 | `timeout_s` | `300` | 1 to 3600 | Seconds a judge process may run. Past it, the process and every process it started are stopped, and the attempt is recorded as void. |
 | `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). |
 | `max_reply_bytes` | `1048576` | 1024 to 16777216 | Bytes a judge may write to stdout. Past it, the process is stopped and the attempt is recorded as void; only the bytes up to the cap are kept. |
+| `max_stderr_bytes` | `1048576` | 1024 to 16777216 | The same for stderr, kept in the log beside the brief. |
 
 The judge process never inherits the environment of the process that runs sealed-panel. That
 environment often holds credentials (cloud tokens, repository tokens, other API keys) that a

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -19,14 +21,69 @@ def load_json(path: Path) -> Any:
 
 
 def dump_json(path: Path, data: Any) -> None:
-    """Write whole or not at all: a reader in another call never sees half a file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    draft = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    write_file(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _open_dir(parent: Path) -> int:
+    """The directory a file goes in, opened without following a link in its last step."""
     try:
-        draft.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(draft, path)
+        return os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        if parent.is_symlink():
+            raise EvalError(
+                f"{parent} is a symbolic link: a run writes only inside its own directory"
+            ) from exc
+        raise
+
+
+def write_file(path: Path, text: str) -> None:
+    """Write a file whole or not at all, and never through a link: a temporary file in the
+    target directory, moved over the target, both named from an open directory. A reader in
+    another call never sees half a file; a link planted on the target is replaced, not followed,
+    and a link planted on the directory stops the write. An existing file keeps its mode."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    draft = f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+    if os.open not in os.supports_dir_fd:  # no directory descriptors on this platform
+        refuse_links(path.parent)
+        temporary = path.parent / draft
+        try:
+            temporary.write_text(text, encoding="utf-8")
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return
+    folder = _open_dir(path.parent)
+    try:
+        try:
+            before = os.stat(path.name, dir_fd=folder, follow_symlinks=False)
+            mode = stat.S_IMODE(before.st_mode) if stat.S_ISREG(before.st_mode) else None
+        except FileNotFoundError:
+            mode = None
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        fd = os.open(draft, flags, 0o666, dir_fd=folder)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+                if mode is not None:
+                    os.fchmod(f.fileno(), mode)
+            os.replace(draft, path.name, src_dir_fd=folder, dst_dir_fd=folder)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(draft, dir_fd=folder)
     finally:
-        draft.unlink(missing_ok=True)
+        os.close(folder)
+
+
+def read_no_follow(path: Path) -> bytes:
+    """A file's bytes, refused when the path is a symbolic link (on platforms that can say)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:
+        if path.is_symlink():
+            raise EvalError(f"{path} is a symbolic link: refused") from exc
+        raise
+    with os.fdopen(fd, "rb") as f:
+        return f.read()
 
 
 def read_text(path: Path) -> str:

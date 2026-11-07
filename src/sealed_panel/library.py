@@ -24,7 +24,7 @@ from typing import Any
 
 from .errors import EvalError
 from .spec import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
-from .store import dump_json, load_json
+from .store import dump_json, load_json, refuse_links
 
 TEMPLATE_KEYS = frozenset(
     {
@@ -155,6 +155,9 @@ def user_templates(lib: Path) -> tuple[dict[str, tuple[dict[str, Any], Path]], l
     warnings = []
     if lib.is_dir():
         for path in sorted(lib.glob("*.json")):
+            if path.is_symlink():
+                warnings.append(f"skipped {path}: a symbolic link")
+                continue
             try:
                 t = _checked(json.loads(path.read_text(encoding="utf-8")), str(path))
             except (OSError, ValueError, EvalError) as exc:
@@ -299,10 +302,12 @@ def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = N
 
 
 def inbox_dir(lib: Path) -> Path:
+    refuse_links(lib / "inbox")
     return lib / "inbox"
 
 
 def history_dir(lib: Path) -> Path:
+    refuse_links(lib / "history")
     return lib / "history"
 
 
@@ -342,6 +347,9 @@ def _load_candidates(folder: Path) -> tuple[list[dict[str, Any]], list[str]]:
     for path in sorted(folder.glob("*.json")):
         if not CANDIDATE_ID.match(path.stem):
             warnings.append(f"skipped {path}: not a candidate file name")
+            continue
+        if path.is_symlink():
+            warnings.append(f"skipped {path}: a symbolic link")
             continue
         try:
             c = json.loads(path.read_text(encoding="utf-8"))
@@ -449,6 +457,7 @@ def _history_file(lib: Path, cid: str) -> Path:
 
 def _open_candidate(lib: Path, cid: str) -> dict[str, Any]:
     path = inbox_dir(lib) / f"{check_candidate_id(cid)}.json"
+    refuse_links(path)
     if not path.exists():
         raise EvalError(f"no open candidate {cid!r} in {inbox_dir(lib)}")
     try:

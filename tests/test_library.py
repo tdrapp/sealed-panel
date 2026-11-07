@@ -451,7 +451,7 @@ class TestPromote:
     ) -> None:
         cid = candidate(private_library, rewrite())
 
-        def fail(src: Any, dst: Any) -> None:
+        def fail(src: Any, dst: Any, **kw: Any) -> None:
             raise OSError("no space left")
 
         monkeypatch.setattr(library.os, "replace", fail)
@@ -472,12 +472,12 @@ class TestPromote:
         real = os.replace
         calls = []
 
-        def second_fails(src: Any, dst: Any) -> None:
+        def second_fails(src: Any, dst: Any, **kw: Any) -> None:
             if str(src).endswith(".staged"):  # the two moves, not the writes that stage them
                 calls.append(dst)
                 if len(calls) == 2:
                     raise OSError("disk full")
-            real(src, dst)
+            real(src, dst, **kw)
 
         monkeypatch.setattr(library.os, "replace", second_fails)
         with pytest.raises(OSError):

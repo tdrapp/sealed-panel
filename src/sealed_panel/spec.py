@@ -19,7 +19,7 @@ from .config import (
     run_value_error,
 )
 from .errors import EvalError
-from .store import dump_json, load_json, read_text
+from .store import dump_json, load_json, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -350,10 +350,10 @@ def init_run(
     frozen["library"] = {**cfg.library, "path": str(lib)}
     cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
-    (run / "config.lock").write_text(cfg.fingerprint + "\n", encoding="utf-8")
+    write_file(run / "config.lock", cfg.fingerprint + "\n")
     dump_json(run / "spec.json", spec)
     digest = rubric_hash(spec)
-    (run / "rubric.lock").write_text(digest + "\n", encoding="utf-8")
+    write_file(run / "rubric.lock", digest + "\n")
     dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
 

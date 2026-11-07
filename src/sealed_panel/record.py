@@ -158,7 +158,10 @@ def tool_calls(transcript: Path, cfg: Config | None = None) -> list[str]:
             continue
         content = _content(e, t)
         for b in content if isinstance(content, list) else []:
-            if isinstance(b, dict) and b.get(t["block_type_key"]) == t["tool_block_type"]:
+            # Any type ending like the tool block: a server's tool call is a tool call too.
+            if isinstance(b, dict) and str(b.get(t["block_type_key"])).endswith(
+                str(t["tool_block_type"])
+            ):
                 names.append(str(b.get(t["tool_name_key"])))
     return names
 
@@ -195,11 +198,19 @@ def last_reply(transcript: Path, cfg: Config | None = None) -> str:
     raise EvalError(f"no assistant reply found in {transcript}")
 
 
+FENCE_OPENING = re.compile(r"```(?:json)?[ \t\r\n]*\{")
+
+
 def extract_json(text: str) -> Any:
-    fence = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
-    if fence:
-        text = fence.group(1)
+    """The JSON object in a judge's output: inside its fence when it wrote one, else from the
+    first brace to the last. Linear in the size of the text: a reply is hostile input."""
     start, end = text.find("{"), text.rfind("}")
+    opening = FENCE_OPENING.search(text)
+    if opening:
+        closing = text.rfind("```")
+        last = text.rfind("}", 0, closing) if closing >= opening.end() else -1
+        if last >= opening.end() - 1 and not text[last + 1 : closing].strip():
+            start, end = opening.end() - 1, last
     if start < 0 or end <= start:
         raise EvalError("no JSON object in the judge output")
     return json.loads(text[start : end + 1])
@@ -416,7 +427,8 @@ def _runner_void(
 ) -> dict[str, Any]:
     """A judge process that failed or timed out: the brief was delivered, no reply came back.
     Recorded as void, under the void cap; whatever it wrote is kept for a human, never read."""
-    check_void_cap(judge, prior)
+    if not proof.get("stale"):  # a stale marker: its process started under the cap
+        check_void_cap(judge, prior)
     result: dict[str, Any] = {
         "ok": False,
         "void": True,
@@ -562,8 +574,10 @@ def _record_reply(
             if malformed:
                 raise EvalError(malformed)
             result = check_output(extract_json(raw), meta["key"], texts, dim_ids, cfg)
-        except (json.JSONDecodeError, EvalError) as exc:
-            result = {"ok": False, "errors": [f"unparseable: {exc}"], "items": {}}
+        except (ValueError, RecursionError, EvalError) as exc:
+            # ValueError: not JSON, or an integer past the conversion limit. Hostile input.
+            reason = "nested too deeply" if isinstance(exc, RecursionError) else exc
+            result = {"ok": False, "errors": [f"unparseable: {reason}"], "items": {}}
     if result["ok"]:
         _calibrate(result, meta, spec)
     result.update(
@@ -579,7 +593,11 @@ def _record_reply(
     )
     if runner is not None:
         result["runner"] = runner
-    _store(rdir, judge, agent_id, raw, result)
+    try:
+        _store(rdir, judge, agent_id, raw, result)
+    except RecursionError:  # parsed, but too deep to write back: never a reason to lose it
+        result.update(ok=False, errors=["unparseable: nested too deeply"], items={})
+        _store(rdir, judge, agent_id, raw, result)
     return result
 
 

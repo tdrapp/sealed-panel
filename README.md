@@ -457,15 +457,15 @@ also shift the panel.
 Whether the planted control lifts the candidate by contrast is unmeasured; runs with and
 without it would measure it.
 
-The refusals hold for the CLI used as documented. They do not hold against someone who starts
-a new run directory, edits the spec and its lock together, or deletes a transcript before
+The refusals hold for the CLI used as documented. They do not hold against someone who starts a
+new run directory, edits the spec and its lock together, or deletes a transcript before
 aggregating. Pasted replies (`--output`) carry no proof that the judge received the brief
 verbatim, or that no other judge was asked and discarded; the report flags such rounds. The
-judge runner proves what sealed-panel wrote and read, not what the judge command did between
-the two: a command that asks a model several times and prints the best answer is a re-roll it
-cannot see, so the command is frozen into the run and listed next to the grade.
-`record` and `judge` calls for one round must be made one after the other, not in parallel,
-because each call reads the files the previous one wrote.
+judge runner proves what sealed-panel wrote and read, not what the judge command did between the
+two: a command that asks a model several times and prints the best answer is a re-roll it cannot
+see, so the command is frozen into the run and listed next to the grade. `record` calls for one
+round must be made one after the other, not in parallel, because each call reads the files the
+previous one wrote; `judge` calls may overlap, since a marker holds each seat.
 
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and

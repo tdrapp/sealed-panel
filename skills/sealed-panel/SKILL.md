@@ -172,10 +172,13 @@ sealed-panel status RUN
 sealed-panel brief RUN --sealed --artefact final.md --control control.md [--good good.md]
 ```
 
-With `--sealed`, `--round` defaults to 1. Fresh judges (or `judge RUN --sealed`), then
-`record ... --sealed`,
-`measure ... --sealed` (every measured criterion, before aggregating), `aggregate ... --sealed`,
-and:
+With `--sealed`, `--round` defaults to 1. Then the judges, one way or the other:
+
+- With a judge command: `sealed-panel judge RUN --sealed`. `record` is refused on such a run.
+- Otherwise: fresh judges, then `record ... --sealed` for each.
+
+Then `measure ... --sealed` (every measured criterion, before aggregating),
+`aggregate ... --sealed`, and:
 
 ```
 sealed-panel report RUN

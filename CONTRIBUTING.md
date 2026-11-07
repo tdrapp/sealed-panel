@@ -76,15 +76,29 @@ root, whose name the host requires.
 
 ## Maintainers
 
-Releases go to the package index through trusted publishing, so no token exists anywhere.
-Once, on the index, add a pending trusted publisher for this repository with the workflow
-`release.yml` and the environment `pypi`, and create that environment in the repository
-settings, with a required reviewer. Then, to release: move the `Unreleased` entries of
-`CHANGELOG.md` under the new version, set the version in `pyproject.toml`,
-`src/sealed_panel/__init__.py`, the plugin manifest and marketplace file, `.mcp.json` and the
-install lines (`tests/test_packaging.py` checks they agree), merge, and push a tag
-`v<version>`. The workflow checks that the tag names the package version, builds the sdist and
-the wheel, and publishes them. After the first publish, the docs' index lines apply: the
+Releases go to the package index through trusted publishing, so no token exists anywhere. The
+workflows pin every action by commit, with the version in a trailing comment that Dependabot
+keeps up to date.
+
+The first release, in this order:
+
+1. Make the repository public: the plugin marketplace and the git install need it.
+2. On the index, add a pending trusted publisher for this repository with the workflow
+   `release.yml` and the environment `pypi`. In the repository settings, create the `pypi`
+   environment with a required reviewer, before any tag.
+3. In a release commit, move `[Unreleased]` in `CHANGELOG.md` to `[0.3.0]` with its compare
+   link.
+4. Tag `v0.1.0`, `v0.2.0` and `v0.2.1` and push them together: their commits hold no
+   `release.yml`, so nothing publishes.
+5. Push `v0.3.0` alone: GitHub creates no event when more than three tags are pushed at once.
+
+A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
+version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace
+file, `.mcp.json` and the install lines (`tests/test_packaging.py` checks they agree), merge,
+and push a tag `v<version>`. The workflow checks that the tag names the package version, builds
+the sdist and the wheel, and publishes them.
+
+After the first publish, the docs' index lines apply: the
 hint `sealed-panel mcp` prints without the extra (`cli.py`) may then name the index. Until then
 it names the tag, because an agent reading it would install whatever holds that free name.
 `.mcp.json` may then move from the git form to `sealed-panel[mcp]==<version>`, and

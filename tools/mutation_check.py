@@ -880,12 +880,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "return dict(source)",
     ),
     "judge started in the current directory": (RUN, "cwd=cwd,", "cwd=None,"),
-    "stderr mixed into the reply": (RUN, "stderr=err,", "stderr=subprocess.STDOUT,"),
-    "brief altered on stdin": (
-        RUN,
-        "stdin.write(brief)",
-        'stdin.write(brief + b"\\n")',
-    ),
     "seat refusals checked after the call": (
         RUN,
         "        _runnable(judge, prior, cfg)\n",
@@ -987,8 +981,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "stale marker reused without a void": (
         RUN,
-        '        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
-        "        pass\n",
+        '    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
+        "    pass\n",
     ),
     "running seat aggregated": (AGG, "    if running:\n", "    if False:\n"),
     "output cap ignored": (RUN, "if size > cap:", "if False:"),
@@ -1050,11 +1044,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/cli.py",
         "{len(e['rejected_judges']) + len(e['voided'])} rejected or void",
         "{len(e['rejected_judges'])} rejected or void",
-    ),
-    "a failed write leaves its draft": (
-        f"{PKG}/store.py",
-        "        draft.unlink(missing_ok=True)\n",
-        "        pass\n",
     ),
     "a tool call not read as a reply for a void": (
         REC,
@@ -1147,6 +1136,116 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         MCP,
         "where, name = shlex.quote(str(lib)), shlex.quote(cid)",
         "where, name = shlex.quote(str(lib)), cid",
+    ),
+    # How a run touches the disk.
+    "a failed write leaves its draft": (
+        f"{PKG}/store.py",
+        "                os.unlink(draft, dir_fd=folder)\n",
+        "                pass\n",
+    ),
+    "a link on the directory followed": (
+        f"{PKG}/store.py",
+        "os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW",
+        "os.O_RDONLY | os.O_DIRECTORY",
+    ),
+    "a file's mode lost": (
+        f"{PKG}/store.py",
+        "                if mode is not None:\n",
+        "                if False:\n",
+    ),
+    "role text written through a link": (
+        BRIEF,
+        'write_file(rdir / f"{role}.md", text)',
+        '(rdir / f"{role}.md").write_text(text)',
+    ),
+    "keys written through a link": (
+        f"{PKG}/store.py",
+        '    write_file(path, json.dumps(data, ensure_ascii=False, indent=2) + "\\n")\n',
+        "    path.parent.mkdir(parents=True, exist_ok=True)\n"
+        '    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n")\n',
+    ),
+    "findings written through a link": (
+        f"{PKG}/report.py",
+        "    write_file(path, feedback_for_author(entry))\n",
+        "    path.parent.mkdir(exist_ok=True)\n    path.write_text(feedback_for_author(entry))\n",
+    ),
+    "a linked template served": (
+        LIB,
+        '            if path.is_symlink():\n                warnings.append(f"skipped {path}: a symbolic link")\n                continue\n            try:\n                t = _checked(',
+        "            try:\n                t = _checked(",
+    ),
+    "a linked inbox followed": (LIB, '    refuse_links(lib / "inbox")\n', ""),
+    "a linked history followed": (LIB, '    refuse_links(lib / "history")\n', ""),
+    "a linked candidate read": (
+        LIB,
+        '        if path.is_symlink():\n            warnings.append(f"skipped {path}: a symbolic link")\n            continue\n        try:\n            c = json.loads(',
+        "        try:\n            c = json.loads(",
+    ),
+    "a linked candidate opened": (LIB, "    refuse_links(path)\n", ""),
+    "a linked brief read by the runner": (
+        RUN,
+        'brief = read_no_follow(rdir / f"brief_j{judge}.md")',
+        'brief = (rdir / f"brief_j{judge}.md").read_bytes()',
+    ),
+    "stderr mixed into the reply": (
+        RUN,
+        "args=(proc.stderr.fileno(), caps[1], err.write, over_err)",
+        "args=(proc.stderr.fileno(), caps[1], chunks.append, over_err)",
+    ),
+    "stderr cap ignored": (
+        RUN,
+        "args=(proc.stderr.fileno(), caps[1], err.write, over_err)",
+        "args=(proc.stderr.fileno(), 1 << 40, err.write, over_err)",
+    ),
+    "stale files ignored by a judge call": (
+        RUN,
+        "    settle_stale_files(run, rnd, sealed)\n    slots =",
+        "    slots =",
+    ),
+    "stale files ignored by aggregate": (
+        AGG,
+        "    settle_stale_files(run, rnd, sealed)\n",
+        "",
+    ),
+    "a used agent hides a stale attempt": (
+        RUN,
+        "    if not agent or agent in used_agent_ids(run):\n",
+        "    if not agent:\n",
+    ),
+    "a stale void under the cap refused": (
+        REC,
+        '    if not proof.get("stale"):  # a stale marker: its process started under the cap\n',
+        "    if True:\n",
+    ),
+    "a huge integer breaks the reader": (
+        REC,
+        "except (ValueError, RecursionError, EvalError) as exc:",
+        "except (json.JSONDecodeError, RecursionError, EvalError) as exc:",
+    ),
+    "a deep reply breaks the reader": (
+        REC,
+        "except (ValueError, RecursionError, EvalError) as exc:",
+        "except (ValueError, EvalError) as exc:",
+    ),
+    "a reply too deep to store is lost": (
+        REC,
+        "    except RecursionError:  # parsed, but too deep to write back: never a reason to lose it\n",
+        "    except ZeroDivisionError:\n",
+    ),
+    "a server tool call not seen": (
+        REC,
+        """str(b.get(t["block_type_key"])).endswith(""",
+        """str(b.get(t["block_type_key"])).__eq__(""",
+    ),
+    "ctrl-c prints a traceback": (
+        f"{PKG}/cli.py",
+        "    except KeyboardInterrupt:\n",
+        "    except ZeroDivisionError:\n",
+    ),
+    "a taken seat stops the command line": (
+        f"{PKG}/cli.py",
+        "            except SeatTaken as exc:\n",
+        "            except ZeroDivisionError as exc:\n",
     ),
 }
 

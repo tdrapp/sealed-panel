@@ -120,6 +120,8 @@ command = []
 timeout_s = 300
 # Bytes a judge may write to stdout; past it, the process is stopped and the brief gets no reply.
 max_reply_bytes = 1048576
+# Bytes it may write to stderr, kept in the log beside the brief; past it, the same.
+max_stderr_bytes = 1048576
 # Names of environment variables passed to the judge process, besides PATH, HOME and LANG.
 # Nothing else from the environment reaches it.
 env_allow = []

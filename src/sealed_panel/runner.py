@@ -20,13 +20,14 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import secrets
 import signal
 import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,7 @@ from .errors import EvalError
 from .ledger import results_by_judge, used_agent_ids
 from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys
 from .spec import load_frozen, run_config
-from .store import round_dir
+from .store import read_no_follow, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
 BASE_ENV = ("PATH", "HOME", "LANG")
@@ -45,10 +46,14 @@ AGENT_BYTES = 6
 STOP_GRACE_S = 5
 # Bytes read from a judge's stdout at a time.
 READ_CHUNK = 65536
-# A run frozen before max_reply_bytes existed gets the default.
-DEFAULT_MAX_REPLY_BYTES = 1 << 20
+# A run frozen before the output caps existed gets the default.
+DEFAULT_MAX_BYTES = 1 << 20
 # A seat's in-progress marker, beside its brief: running_j<J>.json.
 MARKER_PREFIX = "running_j"
+# A marker moved aside by the call settling it, until its void is recorded.
+STALE_SUFFIX = ".stale"
+# Seconds between looks at a running judge.
+POLL_S = 0.02
 # Seconds past the timeout after which a marker whose holder still runs counts as stale.
 STALE_MARGIN_S = 60
 
@@ -144,7 +149,7 @@ def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Conf
     fresh = isinstance(started, (int, float)) and time.time() - started < limit
     if isinstance(pid, int) and _alive(pid) and fresh:
         raise SeatTaken(f"judge {judge} is being judged by another call (pid {pid}): wait for it")
-    taken = path.with_name(f"{path.name}.{secrets.token_hex(AGENT_BYTES)}.stale")
+    taken = path.with_name(f"{path.name}.{secrets.token_hex(AGENT_BYTES)}{STALE_SUFFIX}")
     try:
         path.rename(taken)
     except FileNotFoundError:
@@ -156,14 +161,36 @@ def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Conf
             os.link(taken, path)
         taken.unlink(missing_ok=True)
         raise SeatTaken(f"judge {judge} is being judged by another call")
-    agent = str(held.get("agent_id") or f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}")
-    if agent not in used_agent_ids(run):
-        proof = {
-            **held,
-            "failure": "the runner that started this judge stopped before recording it",
-        }
-        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
+    _record_stale(run, rnd, judge, sealed, taken, held)
+
+
+def _record_stale(
+    run: Path, rnd: int, judge: int, sealed: bool, taken: Path, held: dict[str, Any]
+) -> None:
+    """A stopped runner's attempt, recorded as a void whatever its marker says: an agent id
+    already used gets a fresh one, so a marker can never hide an attempt."""
+    agent = str(held.get("agent_id") or "")
+    if not agent or agent in used_agent_ids(run):
+        agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
+    failure = "the runner that started this judge stopped before recording it"
+    proof = {**held, "stale": True, "failure": failure}
+    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
     taken.unlink(missing_ok=True)
+
+
+def settle_stale_files(run: Path, rnd: int, sealed: bool) -> None:
+    """Markers already moved aside by a runner killed right after the move: record them."""
+    rdir = round_dir(run, rnd, sealed)
+    for taken in sorted(rdir.glob(f"{MARKER_PREFIX}*{STALE_SUFFIX}")):
+        found = re.match(rf"{MARKER_PREFIX}(\d+)\.json\.", taken.name)
+        if found is None:
+            continue
+        try:
+            held = json.loads(taken.read_text(encoding="utf-8"))
+        except ValueError:
+            held = {}
+        held = held if isinstance(held, dict) else {}
+        _record_stale(run, rnd, int(found.group(1)), sealed, taken, held)
 
 
 def open_seats(
@@ -178,6 +205,7 @@ def open_seats(
     a void first. Every refusal is checked here, before any process starts. `expected` is the
     judge section the caller must match (see check_judge)."""
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
+    settle_stale_files(run, rnd, sealed)
     slots = [j["judge"] for j in keys["judges"] if isinstance(j, dict)]
     if only:
         unknown = sorted(set(only) - set(slots))
@@ -220,12 +248,28 @@ def _stop(proc: subprocess.Popen[bytes]) -> None:
         proc.kill()
 
 
+def _pump(fd: int, cap: int, sink: Callable[[bytes], Any], over: threading.Event) -> None:
+    """Copy a pipe to `sink` up to `cap` bytes; past it, set `over` and stop reading."""
+    size = 0
+    while chunk := os.read(fd, READ_CHUNK):
+        sink(chunk[: max(cap - size, 0)])
+        size += len(chunk)
+        if size > cap:
+            over.set()
+            return
+
+
 def _launch(
-    argv: list[str], brief: bytes, timeout: int, cap: int, env: dict[str, str], log: Path
-) -> tuple[int | None, bool, bool, float, bytes]:
-    """Run one judge process: the brief on stdin, stdout read in chunks up to `cap` bytes.
-    Returns (exit status, timed out, over the cap, seconds, stdout). Past the timeout or the
-    cap, or on any interruption, the process group is stopped."""
+    argv: list[str],
+    brief: bytes,
+    timeout: int,
+    caps: tuple[int, int],
+    env: dict[str, str],
+    log: Path,
+) -> tuple[int | None, bool, str, float, bytes]:
+    """Run one judge process: the brief on stdin, stdout and stderr read in chunks up to their
+    caps. Returns (exit status, timed out, the stream over its cap or "", seconds, stdout). Past
+    the timeout or a cap, or on any interruption, the process group is stopped."""
     start = time.monotonic()
     with (
         tempfile.TemporaryDirectory(prefix="sealed-panel-judge-") as cwd,
@@ -239,49 +283,45 @@ def _launch(
                 argv,
                 stdin=stdin,
                 stdout=subprocess.PIPE,
-                stderr=err,
+                stderr=subprocess.PIPE,
                 cwd=cwd,
                 env=env,
                 start_new_session=os.name == "posix",
             )
         except OSError as exc:
             raise EvalError(f"cannot start the judge command {argv[0]!r}: {exc}") from exc
+        assert proc.stdout is not None and proc.stderr is not None
         chunks: list[bytes] = []
-        over = threading.Event()
-
-        out_fd = proc.stdout.fileno() if proc.stdout else -1
-
-        def read() -> None:
-            size = 0
-            while chunk := os.read(out_fd, READ_CHUNK):
-                chunks.append(chunk)
-                size += len(chunk)
-                if size > cap:
-                    over.set()
-                    return
-
-        reader = threading.Thread(target=read, daemon=True)
+        over_out, over_err = threading.Event(), threading.Event()
+        reader = threading.Thread(
+            target=_pump, args=(proc.stdout.fileno(), caps[0], chunks.append, over_out), daemon=True
+        )
+        logger = threading.Thread(
+            target=_pump, args=(proc.stderr.fileno(), caps[1], err.write, over_err), daemon=True
+        )
         reader.start()
+        logger.start()
         timed_out = False
         try:
-            reader.join(timeout)  # until end of output, the cap, or the timeout
-            if reader.is_alive():
-                timed_out = True
-            elif not over.is_set():
-                try:
-                    proc.wait(max(timeout - (time.monotonic() - start), 0))
-                except subprocess.TimeoutExpired:
+            while not (over_out.is_set() or over_err.is_set()):
+                if not reader.is_alive() and proc.poll() is not None:
+                    break  # the output is closed and the process is gone
+                if time.monotonic() - start >= timeout:
                     timed_out = True
+                    break
+                time.sleep(POLL_S)
         except BaseException:
             _stop(proc)
             raise
-        if timed_out or over.is_set():
+        if timed_out or over_out.is_set() or over_err.is_set():
             _stop(proc)
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(STOP_GRACE_S)
-        reader.join(STOP_GRACE_S)  # left behind when a process outside the group holds stdout
-        out = b"".join(list(chunks))[:cap]
-        return proc.poll(), timed_out, over.is_set(), time.monotonic() - start, out
+        # Left behind when a process outside the group holds a stream.
+        reader.join(STOP_GRACE_S)
+        logger.join(STOP_GRACE_S)
+        over = "stdout" if over_out.is_set() else "stderr" if over_err.is_set() else ""
+        return proc.poll(), timed_out, over, time.monotonic() - start, b"".join(list(chunks))
 
 
 def judge_seat(
@@ -317,24 +357,28 @@ def judge_seat(
                 "a second one would be a re-roll"
             )
         _runnable(judge, prior, cfg)
+        brief = read_no_follow(rdir / f"brief_j{judge}.md")
     except BaseException:
         marker.unlink(missing_ok=True)
         raise
     timeout = int(cfg.judge["timeout_s"])
-    cap = int(cfg.judge.get("max_reply_bytes", DEFAULT_MAX_REPLY_BYTES))
+    cap = int(cfg.judge.get("max_reply_bytes", DEFAULT_MAX_BYTES))
+    cap_err = int(cfg.judge.get("max_stderr_bytes", DEFAULT_MAX_BYTES))
     env = child_env(cfg)
-    brief = (rdir / f"brief_j{judge}.md").read_bytes()
     log = rdir / f"runner_j{judge}_{agent_id}.log"
     proof: dict[str, Any] = {
         "brief_sha256": hashlib.sha256(brief).hexdigest(),
         "argv": argv,
         "timeout_s": timeout,
         "max_reply_bytes": cap,
+        "max_stderr_bytes": cap_err,
         "env_names": sorted(env),
         "stderr_log": log.name,
     }
     try:
-        code, timed_out, over, seconds, out = _launch(argv, brief, timeout, cap, env, log)
+        code, timed_out, over, seconds, out = _launch(
+            argv, brief, timeout, (cap, cap_err), env, log
+        )
     except EvalError:
         marker.unlink(missing_ok=True)  # the command never started: nothing to record
         raise
@@ -348,8 +392,10 @@ def judge_seat(
     reply = out.decode("utf-8", errors="replace")
     if timed_out:
         failure = f"the judge command timed out after {timeout} s"
-    elif over:
+    elif over == "stdout":
         failure = f"the judge command wrote more than {cap} bytes"
+    elif over:
+        failure = f"the judge command wrote more than {cap_err} bytes to stderr"
     elif code != 0:
         failure = f"the judge command exited with status {code}"
     elif not reply.strip():
@@ -368,7 +414,7 @@ def judge_seat(
         result = _record_reply(
             run, rnd, judge, agent_id, reply, sealed, RUNNER, void=bool(failure), runner=proof
         )
-    except EvalError as exc:
+    except (EvalError, ValueError, RecursionError) as exc:
         if failure:
             raise
         # A reply the record refuses (one already recorded) still ends recorded, as a void.

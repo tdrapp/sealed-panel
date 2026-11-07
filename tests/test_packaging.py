@@ -98,7 +98,7 @@ def test_the_documented_host_configuration_starts_the_same_server() -> None:
 
 
 def test_the_docs_pin_every_install_line_to_this_release() -> None:
-    pattern = re.compile(r"sealed-panel\[mcp\](?: @ git\+\S+@v|==)(\d+\.\d+\.\d+)")
+    pattern = re.compile(r"sealed-panel(?:\[mcp\])?(?: @ git\+\S+@v|==)(\d+\.\d+\.\d+)")
     for name in ("README.md", "docs/integrations.md"):
         path = ROOT / name
         if not path.exists():
@@ -126,3 +126,25 @@ def test_the_release_publishes_through_trusted_publishing() -> None:
     assert "id-token" not in build  # the job that runs the build holds no publishing right
     assert "password" not in text and "secrets." not in text
     assert 'tags: ["v*"]' in text
+
+
+def test_every_action_is_pinned_by_commit() -> None:
+    folder = ROOT / ".github" / "workflows"
+    if not folder.exists():
+        pytest.skip("an sdist has no workflows")
+    pin = re.compile(r"^\s*(?:- )?uses: [\w./-]+@[0-9a-f]{40} # v\d[\w.]*$")
+    lines = [
+        (path.name, line)
+        for path in sorted(folder.glob("*.yml"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "uses:" in line
+    ]
+    assert lines
+    assert [item for item in lines if not pin.match(item[1])] == []
+
+
+def test_a_release_cannot_be_pushed_with_a_mutable_publisher() -> None:
+    path = ROOT / ".github" / "workflows" / "release.yml"
+    if not path.exists():
+        pytest.skip("an sdist has no workflows")
+    assert re.search(r"gh-action-pypi-publish@[0-9a-f]{40}", path.read_text(encoding="utf-8"))

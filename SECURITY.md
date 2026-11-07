@@ -21,8 +21,11 @@ checked and are flagged in the report.
 - A crafted spec, text, reply or transcript that executes code, or reads or writes outside the
   run directory and the files given on the command line.
 - The judge runner: a judge process that gets a variable outside `PATH`, `HOME`, `LANG` and
-  `[judge] env_allow`, a reply recorded from a process that failed, timed out or passed the
-  output cap, two judges on one seat, or a process started and never recorded.
+  `[judge] env_allow`, a reply recorded from a process that failed, timed out or passed an
+  output cap, two judges on one seat through the documented commands and tools, or a process
+  started and never recorded. A reply built to break the reader or to hang it.
+- A write through a symbolic link planted in a run or in a library, and a linked brief, template
+  or candidate read as if it were the file.
 - The MCP server: a tool call that picks the judge command, its environment or its timeout, a
 path that escapes the root, a transcript accepted outside a `--transcript-root`, a run served
 with other settings than the server's, a re-roll the command line would refuse, or a rubric
@@ -54,7 +57,11 @@ being graded.
 ## Out of scope
 
 The bypasses listed under the threat model and in the section above, and the limits listed in
-the README.
+the README. Hand-written run files stay among them, whatever the writer: a record written into a
+round, a marker moved or aged, a transcript forged where a `--transcript-root` lets someone
+write. The code compares what it can (a run's whole configuration with the server's, a lock with
+its file); it cannot tell who wrote a record. A report is evidence for someone who trusts the
+machine that made it.
 
 ## Reporting a vulnerability
 

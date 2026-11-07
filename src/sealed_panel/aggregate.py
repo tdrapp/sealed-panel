@@ -13,6 +13,7 @@ from .learn import learn_safely
 from .ledger import results_by_judge
 from .record import round_keys, transcript_agent_id
 from .report import write_feedback
+from .runner import settle_stale_files
 from .spec import dims_for, load_frozen, run_config
 from .store import dump_json, load_json, round_dir
 
@@ -153,6 +154,8 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     if (rdir / "result.json").exists():
         raise EvalError("this round is already aggregated: a round is aggregated once")
     keys = round_keys(rdir, rnd)
+    by_judge = results_by_judge(rdir)
+    settle_stale_files(run, rnd, sealed)
     by_judge = results_by_judge(rdir)
     _check_complete(spec, rdir, keys, by_judge, sealed, cfg)
     valid = [next(r for r in rs if r["ok"]) for rs in by_judge.values() if any(r["ok"] for r in rs)]

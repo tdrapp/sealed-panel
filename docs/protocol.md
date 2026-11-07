@@ -191,7 +191,10 @@ three kinds of proof, and the report says which one each round used.
   shift it.
 - The judges' prompt is checked only through transcripts: text added around the brief is counted
   and reported, but its effect is not measured.
-- `record` and `judge` calls for one round must be sequential.
+- `record` calls for one round must be sequential. `judge` calls may overlap: a marker holds
+  each seat.
+- The markers and the run's files are not protected from someone who edits them by hand: moving
+  a marker lets a second process start. `SECURITY.md` keeps that out of scope.
 - The runner proves what sealed-panel wrote and read, not what the judge command did in
   between: a command that calls a model several times and prints the best answer is a re-roll
   the runner cannot see. The command is frozen into the run and listed next to the grade, so

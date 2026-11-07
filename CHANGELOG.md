@@ -13,43 +13,55 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   slot from the `[judge] command` argument list (never a shell), writes the brief file's bytes
   to its stdin and records its stdout as the reply, with source `runner` and its proof: the
   sha256 of the brief bytes and of the reply, the argument list, the exit status, the duration
-  and the names of the variables passed. stderr goes to a log file beside the brief. The
-  process starts in an empty directory with `PATH`, `HOME`, `LANG` and the names in
-  `[judge] env_allow` only. A non-zero exit, a timeout (`[judge] timeout_s`, 1 to 3600 s), no
-  output, or output past `[judge] max_reply_bytes` (1 MiB by default, 1 KiB to 16 MiB) is
-  recorded as a void, under the void cap; every seat refusal is checked before a process
-  starts. A marker holds each seat from its check to its record, so concurrent or retried calls
-  never judge it twice; a marker a stopped runner left becomes a void; every process started
-  ends recorded. A run with a judge command takes runner replies only, and only the runner can
-  record one. The library exposes `judge_round`, `judge_seat`, `open_seats` and `record_from`.
+  and the names of the variables passed. stderr goes to a log file beside the brief. The process
+  starts in an empty directory with `PATH`, `HOME`, `LANG` and the names in `[judge] env_allow`
+  only. A non-zero exit, a timeout (`[judge] timeout_s`, 1 to 3600 s), no output, or output past
+  `[judge] max_reply_bytes` or `max_stderr_bytes` (1 MiB by default, 1 KiB to 16 MiB) is
+  recorded as a void, under the void cap; every seat refusal is checked before a process starts.
+  A marker holds each seat from its check to its record, so concurrent or retried calls never
+  judge it twice; a marker a stopped runner left becomes a void; every process started ends
+  recorded. A run with a judge command takes runner replies only, and only the runner can record
+  one. The library exposes `judge_round`, `judge_seat`, `open_seats` and `record_from`.
 - An MCP server, `sealed-panel mcp`, in the optional `mcp` extra: stdio only, tools `init`,
   `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
   `rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`, each calling the same
   function as the command. Structured results, strict input validation, refusals as tool
-  errors and other errors masked. The judge settings come only from the file given to
-  `sealed-panel mcp --config`, never from a tool call, and `judge` refuses a run frozen with
-  others. Every path must resolve under the root (`--root`, `[mcp] root`, or the starting
-  directory). Promoting and rejecting candidates stay with a person.
+  errors and other errors masked. The settings come only from the file given to
+  `sealed-panel mcp --config`, read once and kept outside the root, never from a tool call, and
+  every tool taking a run refuses one frozen with others. Every path, a spec's `facts_file`
+  included, must resolve under the root (`--root`, `[mcp] root`, or the starting directory). A
+  transcript counts only under a `--transcript-root`, away from the root. Promoting and
+  rejecting candidates stay with a person.
 - The repository is a plugin and its own marketplace for agent hosts that install plugins
   from git: an MCP server started with `uvx`, the skill under `skills/sealed-panel/`, and an
-  `eval-judge` agent that denies every built-in tool. The skill is also under
+  `eval-judge` agent with an empty tool list that also denies every built-in tool. It asks for
+  the host's transcript folder when it is enabled. The skill is also under
   `.agents/skills/sealed-panel/`. `skill/` stays the one source, and a test fails when a copy
   drifts.
 - `docs/integrations.md`: MCP hosts, the plugin, TOML host configuration, API pipelines.
   `examples/runner/`: a provider-neutral judge command template, its configuration and a
   library example.
 - A release workflow: a tag `v*` builds the sdist and the wheel and publishes them through
-  trusted publishing. The sdist holds everything its tests read.
+  trusted publishing. Every workflow pins its actions by commit. The sdist holds everything its
+  tests read.
 - CI runs the tests on Python 3.11 to 3.13 without the `mcp` extra as well, where the MCP
   tests skip.
 
 ### Changed
 
+- `transcript.handback_tool` defaults to `SubagentHandback`, the tool a host imposes in its auto
+  mode, where the final text is no longer delivered. A run frozen earlier keeps its value.
 - `record` rejects a transcript reply whose judge called any tool other than the configured
-  handback tool: a judge with a tool could have read the run's keys.
-- `init` refuses a non-empty directory that is not a run. A symbolic link where a round or its
-  findings write stops the command, and a rubric library inside a run is refused.
-- Run files are written whole, so a concurrent call never reads half of one.
+  handback tool, of any block type ending in `tool_use`: a judge with a tool could have read the
+  run's keys. `--void` counts any tool call as a reply, so a judge that replied through a tool
+  cannot be voided. A judge with tool calls and no reply is recorded as rejected.
+- A reply is read in linear time, and one built to break the parser (deep nesting, a huge
+  integer) is rejected.
+- `init` refuses a non-empty directory that is not a run. Every file of a run goes through one
+  helper: written whole under a temporary name, moved into place, never through a link, keeping
+  the mode of the file it replaces. A symbolic link on a run's folders, on a library's `inbox`
+  or `history`, or on a brief, template or candidate that is read, stops the command or is
+  skipped with a warning. A rubric library inside a run is refused.
 - The report labels a void by the runner with its reason, and notes rounds whose replies the
   runner read; the judge command is always shown in full. `aggregate` counts voids in its
   "rejected or void" line.

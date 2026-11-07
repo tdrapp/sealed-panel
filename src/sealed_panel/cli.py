@@ -19,6 +19,8 @@ from .runner import SeatTaken, judge_seat, open_seats
 from .spec import TODO_MARKER, init_run, library_for
 from .store import load_json, resolve_round
 
+# The usual exit status of a command stopped by Ctrl-C.
+INTERRUPTED = 130
 DESCRIPTION = "Grade a text with blind panels of LLM judges and a sealed final panel."
 ROUND_HELP = "round number; optional with --sealed, where it defaults to 1"
 LIBRARY_HELP = (
@@ -309,6 +311,9 @@ def main(argv: list[str] | None = None) -> int:
     a = _parser().parse_args(argv)
     try:
         _run(a)
+    except KeyboardInterrupt:
+        print("sealed-panel: interrupted; a judge that was running is recorded as void")
+        return INTERRUPTED
     except Exception as exc:
         message = user_message(exc)
         if message is None:
