@@ -257,12 +257,13 @@ resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in
 configuration, else the directory the server starts in. A path outside it, or one starting with
 `~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too.
 
-`--config` is the configuration of every run the server serves, and the only place a
-`[judge] command` comes from. It is read once at startup and must live outside the root, or the
-server does not start. The `init` tool freezes it and takes no configuration from the caller,
-and every tool taking a run refuses one frozen with other settings (the path of its library
-aside), so a run from an older version or another configuration needs a server started for it,
-or the command line.
+`--config` is the configuration of every run the server serves, and the only place a `[judge]
+command` comes from. It is read once at startup and must live outside the root, or the server
+does not start. The `init` tool freezes it and takes no configuration from the caller, and every
+tool that changes a run refuses one frozen with other settings (`status`, `report` and the
+`rubrics_*` tools still read it, and `status` says whether it is `served`) (the path of its
+library aside), so a run from an older version or another configuration needs a server started
+for it, or the command line.
 
 `--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. It
 is read only, for the transcript of `record` and `void`, and may not overlap the root. Through

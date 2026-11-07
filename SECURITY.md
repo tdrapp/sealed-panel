@@ -43,7 +43,7 @@ it: the command is stored with every reply and shown next to the grade. Only the
 
 The caller of the MCP server is the author of the text: an agent under optimisation pressure,
 not a trusted party. So the server reads its settings once from the file given to `sealed-panel
-mcp --config`, which must lie outside the root, never from a tool call; serves only runs frozen
+mcp --config`, which must lie outside the root, never from a tool call; changes only runs frozen
 with them; confines every path to its root; takes a transcript only under a `--transcript-root`,
 away from the root; and leaves promotion to a person at a terminal. It has no authentication: it
 serves one host over stdio.

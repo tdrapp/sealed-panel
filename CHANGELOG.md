@@ -25,13 +25,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An MCP server, `sealed-panel mcp`, in the optional `mcp` extra: stdio only, tools `init`,
   `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
   `rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`, each calling the same
-  function as the command. Structured results, strict input validation, refusals as tool
-  errors and other errors masked. The settings come only from the file given to
-  `sealed-panel mcp --config`, read once and kept outside the root, never from a tool call, and
-  every tool taking a run refuses one frozen with others. Every path, a spec's `facts_file`
-  included, must resolve under the root (`--root`, `[mcp] root`, or the starting directory). A
-  transcript counts only under a `--transcript-root`, away from the root. Promoting and
-  rejecting candidates stay with a person.
+  function as the command. Structured results, strict input validation, refusals as tool errors
+  and other errors masked. The settings come only from the file given to `sealed-panel mcp
+  --config`, read once and kept outside the root, never from a tool call, and every tool that
+  changes a run refuses one frozen with others (the read-only tools read it, and `status` says
+  whether it is served). Every path, a spec's `facts_file` included, must resolve under the root
+  (`--root`, `[mcp] root`, or the starting directory). A transcript counts only under a
+  `--transcript-root`, away from the root. Promoting and rejecting candidates stay with a
+  person.
 - The repository is a plugin and its own marketplace for agent hosts that install plugins
   from git: an MCP server started with `uvx`, the skill under `skills/sealed-panel/`, and an
   `eval-judge` agent with an empty tool list that also denies every built-in tool. It asks for

@@ -6,14 +6,13 @@ same. A refusal or a file the caller can fix comes back as a tool error with its
 other error is masked.
 
 The caller is the author of the text, so it is trusted with nothing that decides a grade. The
-configuration is read once at startup from a file outside the root, and every tool taking a run
-refuses one frozen with other settings. Paths come from the tool parameters and stay under the
-root (`--root`, `[mcp] root`, or the current directory), never from the host. A transcript is
-proof only under a `--transcript-root`, which never overlaps the root: a file the caller could
-write is no proof. Promoting or rejecting a rubric candidate is not a tool: a host can answer a
-confirmation on its own, so it proves no person decided. The tools that touch candidates return
-the command a person runs instead.
-"""
+configuration is read once at startup from a file outside the root, and every tool that changes
+a run refuses one frozen with other settings (the read-only tools still read it). Paths come
+from the tool parameters and stay under the root (`--root`, `[mcp] root`, or the current
+directory), never from the host. A transcript is proof only under a `--transcript-root`, which
+never overlaps the root: a file the caller could write is no proof. Promoting or rejecting a
+rubric candidate is not a tool: a host can answer a confirmation on its own, so it proves no
+person decided. The tools that touch candidates return the command a person runs instead."""
 
 from __future__ import annotations
 
@@ -152,6 +151,10 @@ class StatusResult(BaseModel):
 
     decision: str
     overrides: list[str] = Field(description="every setting that differs from the defaults")
+    served: bool = Field(
+        description="whether this server's configuration is the run's: only then do the tools "
+        "that change a run accept it"
+    )
     details: dict[str, Any]
 
 
@@ -333,6 +336,13 @@ def build_server(
                 f"this run's settings differ from the configuration the server was started with "
                 f"({', '.join(differ)}): start a server with that configuration"
             )
+        return where
+
+    def readable(p: str) -> Path:
+        """A run a read-only tool may read: well formed and locked, whatever its settings. A
+        read changes nothing, and the report lists the run's own settings next to the grade."""
+        where = path(p)
+        run_config(where)
         return where
 
     def transcript_path(p: str) -> Path:
@@ -540,21 +550,25 @@ def build_server(
     @mcp.tool(annotations=READ)
     def status(run: RunPath) -> StatusResult:
         """The stop rule's decision: CONTINUE, CONVERGED, PLATEAU, CAP or SEALED."""
-        d = _calling(lambda: run_status(served(run)))
+        where = _calling(lambda: readable(run))
+        d = _calling(lambda: run_status(where))
         rest = {k: v for k, v in d.items() if k not in ("decision", "overrides")}
-        return StatusResult(decision=d["decision"], overrides=d["overrides"], details=rest)
+        differ = config_differences(run_config(where), server)
+        return StatusResult(
+            decision=d["decision"], overrides=d["overrides"], served=not differ, details=rest
+        )
 
     @mcp.tool(annotations=READ)
     def report(run: RunPath) -> ReportResult:
         """The run's report: the sealed grade, the round table and every note."""
-        return ReportResult(markdown=_calling(lambda: render_report(served(run))))
+        return ReportResult(markdown=_calling(lambda: render_report(readable(run))))
 
     @mcp.tool(annotations=READ)
     def rubrics_list(library: LibraryPath = None, run: str | None = None) -> RubricsList:
         """Every rubric template (built-in and user) and the open candidates of the library."""
 
         def call() -> RubricsList:
-            lib = library_for(opt(library), served(run) if run else None)
+            lib = library_for(opt(library), readable(run) if run else None)
             templates, warnings = rubrics_lib.all_templates(lib)
             cands, more = rubrics_lib.open_candidates(lib)
             return RubricsList(
@@ -587,7 +601,7 @@ def build_server(
         """The rubric templates for a kind of text, with when to use each and its dimensions."""
 
         def call() -> SuggestResult:
-            lib = library_for(opt(library), served(run) if run else None)
+            lib = library_for(opt(library), readable(run) if run else None)
             body = path(text).read_text("utf-8") if text else ""
             rows = rubrics_lib.suggest(lib, kind, body, top)
             every = (
@@ -625,7 +639,7 @@ def build_server(
         candidates on it and the command a person runs to decide each."""
 
         def call() -> ShowResult:
-            lib = library_for(opt(library), served(run) if run else None)
+            lib = library_for(opt(library), readable(run) if run else None)
             shown = rubrics_lib.get_template(lib, id)
             t = shown["template"]
             cands = [

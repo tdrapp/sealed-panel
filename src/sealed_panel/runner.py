@@ -184,7 +184,12 @@ def _record_stale(
         failure = "the runner that started this judge stopped before recording it"
         kept = {k: held[k] for k in MARKER_KEYS if k in held}
         proof = {**kept, "stale": True, "failure": failure}
-        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
+        try:
+            _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
+        except EvalError:
+            # At the void cap, or a round closed: the seat already says why; another seat's
+            # judge must not fail for it.
+            return
     finally:
         taken.unlink(missing_ok=True)
 

@@ -1318,6 +1318,21 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '        nargs="?",\n',
         "",
     ),
+    "a seat at its cap fails every judge call": (
+        RUN,
+        "        except EvalError:\n            # At the void cap, or a round closed",
+        "        except ZeroDivisionError:\n            # At the void cap, or a round closed",
+    ),
+    "status claims a run is served": (
+        MCP,
+        "served=not differ,",
+        "served=True,",
+    ),
+    "a read-only tool reads a damaged run": (
+        MCP,
+        "        where = path(p)\n        run_config(where)\n        return where\n",
+        "        return path(p)\n",
+    ),
 }
 
 

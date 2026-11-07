@@ -44,9 +44,9 @@ To let the server run the judges, start it with a configuration that holds a `[j
 kept outside the root: `sealed-panel mcp --root ~/texts --config ~/.config/my-judge.toml`. The
 server reads that file once at startup and refuses to start when it lies under the root, since
 the caller could rewrite it. It is the only source of the settings: the `init` tool freezes it
-into every run and takes no configuration from the caller, and every tool taking a run refuses
-one frozen with other settings. The caller is the author of the text; letting it choose the
-judge would let it grade itself.
+into every run and takes no configuration from the caller, and every tool that changes a run
+refuses one frozen with other settings. The caller is the author of the text; letting it choose
+the judge would let it grade itself.
 
 To let `record` read your host's transcripts, name their folder with `--transcript-root DIR`
 (repeat for several). It is read only and may not overlap the root: through MCP, a transcript is

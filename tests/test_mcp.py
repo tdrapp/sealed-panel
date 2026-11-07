@@ -315,18 +315,20 @@ class TestJudgeAuthority:
                 ("record", {"judge": 1, "agent_id": "a", "sealed": True, "reply": "{}"}),
                 ("measure", {"id": "x", "value": "1", "sealed": True}),
                 ("aggregate", {"sealed": True}),
-                ("status", {}),
-                ("report", {}),
                 ("feedback", {"note": "a note"}),
             ):
                 msg = await error(c, tool, run="run", **args)
                 assert "differ from the configuration the server was started with" in msg, tool
+            # Reading changes nothing: the read-only tools read it, and status says it is
+            # not served.
             for tool, args in (
                 ("rubrics_list", {}),
                 ("rubrics_suggest", {"kind": "email"}),
                 ("rubrics_show", {"id": "message"}),
+                ("report", {}),
             ):
-                assert "differ from the configuration" in await error(c, tool, run="run", **args)
+                await call(c, tool, run="run", **args)
+            assert (await call(c, "status", run="run"))["served"] is False
         assert not (h.tmp / "pwned.txt").exists()
 
     async def test_a_server_without_a_judge_command_runs_no_judge(
@@ -354,8 +356,11 @@ class TestJudgeAuthority:
         (h.run / "config.json").write_text(json.dumps(data))
         (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
         async with Client(build_server(h.tmp), mode=mode) as c:
-            msg = await error(c, "status", run="run")
+            msg = await error(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            status = await call(c, "status", run="run")
         assert "limits.max_replacements" in msg
+        assert status["served"] is False
+        assert any(o.startswith("limits.max_replacements") for o in status["overrides"])
 
     def test_a_configuration_under_the_root_stops_the_server(self, h: Harness) -> None:
         inside = h.tmp / "srv.toml"
@@ -672,6 +677,7 @@ class TestRoundThreeProbes:
             (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
             for tool, args in (
                 ("status", {}),
+                ("report", {}),
                 ("seal", {"artefact": "cand.md", "control": "ctrl.md"}),
             ):
                 assert "holds a dot" in await error(c, tool, run="run", **args)
@@ -685,7 +691,8 @@ class TestRoundThreeProbes:
             del data["mcp"]
             (h.run / "config.json").write_text(json.dumps(data))
             (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
-            assert (await call(c, "status", run="run"))["decision"] == "CONTINUE"
+            status = await call(c, "status", run="run")
+            assert status["decision"] == "CONTINUE" and status["served"] is True
             await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
 
     async def test_a_library_replaced_by_a_link_takes_no_feedback(

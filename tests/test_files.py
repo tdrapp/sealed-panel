@@ -534,6 +534,14 @@ class TestPlantedMarkers:
             open_seats(h.run, 1, False)
         assert len(results_by_judge(rdir)[1]) == 3
 
+    def test_a_seat_at_its_cap_never_fails_another_seat(self, h: Harness) -> None:
+        rdir = self.run_mode(h)
+        for i in range(5):
+            (rdir / f"running_j1.json.m{i}.stale").write_text("{}")
+        assert open_seats(h.run, 1, False, [2]) == [2]
+        assert len(results_by_judge(rdir)[1]) == 3
+        assert not list(rdir.glob("*.stale"))
+
     def test_a_stale_file_for_an_unknown_seat_is_dropped(self, h: Harness) -> None:
         rdir = self.run_mode(h)
         (rdir / "running_j999.json.x.stale").write_text("{}")

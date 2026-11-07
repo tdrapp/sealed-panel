@@ -174,7 +174,7 @@ names. A judge whose prompt held the whole brief and that left any of those cann
 
 The judge runner (`sealed-panel judge`, see [cli.md](cli.md)). Set it in the file given to `init
 --config`, or, for the MCP server, in the file given to `sealed-panel mcp --config`, outside its
-root: the server reads that file once, freezes it into every run it starts and serves only runs
+root: the server reads that file once, freezes it into every run it starts and changes only runs
 frozen with it, so the caller of a tool never picks its judge. It is frozen into the run like
 every other setting, so the judges cannot change in the middle of a run, and a command that
 differs from the default (empty) is listed in full next to the grade. A run with a judge command
