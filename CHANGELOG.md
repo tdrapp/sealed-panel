@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-07
+
 ### Added
 
 - A judge runner: `sealed-panel judge RUN --round N` starts one fresh process per open judge
@@ -159,7 +161,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Agent skill in `skill/`, synthetic example with demo judges in `examples/announcement/`.
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
-[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tdrapp/sealed-panel/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tdrapp/sealed-panel/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tdrapp/sealed-panel/releases/tag/v0.1.0
