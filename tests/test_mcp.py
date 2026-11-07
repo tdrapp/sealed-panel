@@ -21,7 +21,7 @@ from fastmcp import Client
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import mcp_server
 from sealed_panel.config import Config, load_config
-from sealed_panel.errors import ConfigError
+from sealed_panel.errors import ConfigError, EvalError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
 from sealed_panel.report import status as run_status_of
@@ -244,6 +244,22 @@ class TestErrors:
             await call(c, "init", run="run", spec="spec.json")
             msg = await error(c, "report", run="run")
         assert "secret" not in msg and "report" in msg
+
+    async def test_a_status_error_keeps_its_reason(
+        self, h: Harness, mode: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The configuration check of `status` is a core call like the others: an error the caller
+        can act on comes back with its reason, not masked."""
+
+        def changed(run: Config, server: Config) -> list[str]:
+            raise EvalError("the configuration changed after the freeze")
+
+        monkeypatch.setattr(mcp_server, "config_differences", changed)
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            msg = await error(c, "status", run="run")
+        assert "changed after the freeze" in msg
 
     async def test_inputs_are_validated_strictly(self, h: Harness, mode: str) -> None:
         async with Client(build_server(h.tmp), mode=mode) as c:

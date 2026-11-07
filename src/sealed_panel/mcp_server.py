@@ -572,7 +572,7 @@ def build_server(
         where = _calling(lambda: readable(run))
         d = _calling(lambda: run_status(where))
         rest = {k: v for k, v in d.items() if k not in ("decision", "overrides")}
-        differ = config_differences(run_config(where), server)
+        differ = _calling(lambda: config_differences(run_config(where), server))
         return StatusResult(
             decision=d["decision"],
             overrides=d["overrides"],
