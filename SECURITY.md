@@ -24,8 +24,11 @@ checked and are flagged in the report.
   `[judge] env_allow`, a reply recorded from a process that failed, timed out or passed an
   output cap, two judges on one seat through the documented commands and tools, or a process
   started and never recorded. A reply built to break the reader or to hang it.
-- A write through a symbolic link planted in a run or in a library, and a linked brief, template
-  or candidate read as if it were the file.
+- A write through a symbolic link planted in a run or in a library (the library folder itself
+  included), and a linked brief, template, candidate or marker read as if it were the file. A
+  planted marker or brief that blocks a command (a FIFO).
+- A frozen configuration that reads one way to the checks and another to the code (a shadowing
+  key), and a planted marker that mints voids past the cap or vetoes a reply.
 - The MCP server: a tool call that picks the judge command, its environment or its timeout, a
 path that escapes the root, a transcript accepted outside a `--transcript-root`, a run served
 with other settings than the server's, a re-roll the command line would refuse, or a rubric

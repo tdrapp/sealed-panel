@@ -302,12 +302,12 @@ def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = N
 
 
 def inbox_dir(lib: Path) -> Path:
-    refuse_links(lib / "inbox")
+    refuse_links(lib, lib / "inbox")
     return lib / "inbox"
 
 
 def history_dir(lib: Path) -> Path:
-    refuse_links(lib / "history")
+    refuse_links(lib, lib / "history")
     return lib / "history"
 
 

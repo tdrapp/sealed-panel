@@ -8,6 +8,7 @@ import os
 import stat
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -16,15 +17,23 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import brief as brief_module
-from sealed_panel import cli, library, record, runner
+from sealed_panel import cli, library, record, runner, store
 from sealed_panel.aggregate import aggregate_round
-from sealed_panel.config import Config, ConfigError, default_data, load_config, merge
+from sealed_panel.config import (
+    Config,
+    ConfigError,
+    config_differences,
+    default_config,
+    default_data,
+    load_config,
+    merge,
+)
 from sealed_panel.errors import EvalError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import extract_json, record_from, record_reply
 from sealed_panel.report import render_report
 from sealed_panel.runner import SeatTaken, judge_round, judge_seat, open_seats
-from sealed_panel.spec import init_run
+from sealed_panel.spec import init_run, run_config, run_library
 from sealed_panel.store import dump_json, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
@@ -235,16 +244,30 @@ class TestLeftovers:
         path = self.stale(h, {"pid": 0, "agent_id": "runner-dead", "started": 0})
         assert open_seats(h.run, 1, False) == [1, 2]
         [void] = results_by_judge(round_dir(h.run, 1))[1]
-        assert void["void"] and void["agent_id"] == "runner-dead"
+        assert void["void"] and void["agent_id"].startswith("runner-")
+        assert void["agent_id"] != "runner-dead"  # never an id the marker names
         assert not path.exists()
 
     def test_a_marker_moved_aside_becomes_a_void_at_aggregate(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB)])
         h.brief(1, "cand")
-        judge_round(h.run, 1, False)
+        judge_round(h.run, 1, False, [2])
         path = self.stale(h, {"pid": 0, "agent_id": "runner-dead", "started": 0})
-        entry = aggregate_round(h.run, 1, False)
-        assert [v["agent_id"] for v in entry["voided"]] == ["runner-dead"]
+        with pytest.raises(EvalError, match="never fills a seat"):
+            aggregate_round(h.run, 1, False)
+        [void] = results_by_judge(round_dir(h.run, 1))[1]
+        assert void["void"] and "stopped before recording it" in void["errors"][0]
+        assert not path.exists()
+
+    def test_a_marker_on_a_filled_seat_gives_no_void(self, h: Harness) -> None:
+        """A runner never starts on a filled seat, so the marker is planted: a void there would
+        let the author veto a reply it has seen."""
+        init_judge(h, [sys.executable, str(STUB)])
+        h.brief(1, "cand")
+        judge_round(h.run, 1, False)
+        path = self.stale(h, {"pid": 0, "started": 0})
+        aggregate_round(h.run, 1, False)
+        assert [r["ok"] for r in results_by_judge(round_dir(h.run, 1))[1]] == [True]
         assert not path.exists()
 
     def test_a_marker_with_a_used_agent_still_gives_a_void(self, h: Harness) -> None:
@@ -264,7 +287,7 @@ class TestLeftovers:
         open_seats(h.run, 1, False)
         assert results_by_judge(round_dir(h.run, 1))[1][0]["void"]
 
-    def test_a_stale_attempt_is_recorded_even_at_the_void_cap(self, h: Harness) -> None:
+    def test_a_stale_attempt_counts_against_the_void_cap(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB), "--exit", "1"])
         h.brief(1, "cand")
         for _ in range(3):
@@ -273,7 +296,7 @@ class TestLeftovers:
         marker.write_text(json.dumps({"pid": 0, "agent_id": "runner-last", "started": 0}))
         with pytest.raises(EvalError, match="voided attempts"):
             open_seats(h.run, 1, False)
-        assert len(results_by_judge(round_dir(h.run, 1))[1]) == 4
+        assert len(results_by_judge(round_dir(h.run, 1))[1]) == 3
         assert not marker.exists()
 
 
@@ -434,3 +457,225 @@ class TestCommandLineEdges:
         assert open_seats(h.run, 1, False) == [1, 2]
         [void] = results_by_judge(round_dir(h.run, 1))[1]
         assert void["void"] and "stopped before recording it" in void["errors"][0]
+
+
+def relock(run: Path, data: dict[str, Any]) -> None:
+    """What someone editing the run's files by hand does: the config and its lock together."""
+    (run / "config.json").write_text(json.dumps(data))
+    (run / "config.lock").write_text(Config(data).fingerprint + "\n")
+
+
+class TestFrozenConfiguration:
+    def test_a_dotted_key_is_refused(self, h: Harness) -> None:
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        data["transcript"]["tool_block_type"] = "nothing"
+        data["transcript.tool_block_type"] = "tool_use"  # would shadow it in a flattened view
+        relock(h.run, data)
+        with pytest.raises(EvalError, match="holds a dot"):
+            run_config(h.run)
+
+    def test_an_unknown_key_is_refused(self, h: Harness) -> None:
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        data["limits"]["extra"] = 1
+        relock(h.run, data)
+        with pytest.raises(EvalError, match=r"unknown configuration key 'limits\.extra'"):
+            run_config(h.run)
+
+    def test_punctuation_keeps_its_open_table(self, h: Harness) -> None:
+        cfg = h.tmp / "p.toml"
+        cfg.write_text('[text.punctuation]\n"\\u2032" = "\'"\n')
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        init_run(h.run, sp, load_config(cfg))
+        assert run_config(h.run).punctuation[chr(0x2032)] == "'"
+
+    def test_differences_are_read_section_by_section(self, h: Harness) -> None:
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        data["limits"]["max_replacements"] = 5
+        data["judge"]["timeout_s"] = 9
+        relock(h.run, data)
+        assert config_differences(run_config(h.run), default_config()) == [
+            "judge.timeout_s",
+            "limits.max_replacements",
+        ]
+
+    def test_a_key_an_older_run_lacks_counts_as_its_default(self, h: Harness) -> None:
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        del data["judge"]["max_stderr_bytes"]
+        del data["mcp"]
+        relock(h.run, data)
+        assert config_differences(run_config(h.run), default_config()) == []
+
+    def test_a_present_old_value_still_differs(self, h: Harness) -> None:
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        data["transcript"]["handback_tool"] = ""
+        relock(h.run, data)
+        assert config_differences(run_config(h.run), default_config()) == [
+            "transcript.handback_tool"
+        ]
+
+
+class TestPlantedMarkers:
+    def run_mode(self, h: Harness, *args: str) -> Path:
+        init_judge(h, [sys.executable, str(STUB), *args])
+        h.brief(1, "cand")
+        return round_dir(h.run, 1)
+
+    def test_planted_stale_files_never_pass_the_void_cap(self, h: Harness) -> None:
+        rdir = self.run_mode(h)
+        for i in range(5):
+            (rdir / f"running_j1.json.m{i}.stale").write_text("{}")
+        with pytest.raises(EvalError, match="voided attempts"):
+            open_seats(h.run, 1, False)
+        assert len(results_by_judge(rdir)[1]) == 3
+
+    def test_a_stale_file_for_an_unknown_seat_is_dropped(self, h: Harness) -> None:
+        rdir = self.run_mode(h)
+        (rdir / "running_j999.json.x.stale").write_text("{}")
+        assert open_seats(h.run, 1, False) == [1, 2]
+        assert not (rdir / "running_j999.json.x.stale").exists()
+        assert 999 not in results_by_judge(rdir)
+
+    def test_a_marker_gives_nothing_but_holder_and_time(self, h: Harness) -> None:
+        rdir = self.run_mode(h)
+        held = {"pid": 0, "started": 0, "argv": ["x"], "agent_id": "author-pick", "note": "CANARY"}
+        (rdir / "running_j1.json.a.stale").write_text(json.dumps(held))
+        open_seats(h.run, 1, False)
+        [void] = results_by_judge(rdir)[1]
+        assert void["agent_id"].startswith("runner-") and "author-pick" not in json.dumps(void)
+        assert set(void["runner"]) == {"pid", "started", "argv", "stale", "failure"}
+
+    def test_a_linked_stale_file_is_not_read(self, h: Harness) -> None:
+        rdir = self.run_mode(h)
+        outside = h.tmp / "secret.json"
+        outside.write_text(json.dumps({"pid": 1, "started": 1, "argv": ["OUTSIDE-CANARY"]}))
+        (rdir / "running_j2.json.lk.stale").symlink_to(outside)
+        open_seats(h.run, 1, False)
+        assert "OUTSIDE-CANARY" not in json.dumps(results_by_judge(rdir))
+        assert not (rdir / "running_j2.json.lk.stale").is_symlink()
+
+    def test_stale_files_mean_nothing_in_host_mode(self, h: Harness) -> None:
+        h.init(judges_per_persona=2)
+        h.brief(1, "cand")
+        rdir = round_dir(h.run, 1)
+        (rdir / "running_j1.json.v.stale").write_text(json.dumps({"agent_id": "A1"}))
+        h.answer(1, {"candidate": FLAT, "control": BAD})
+        aggregate_round(h.run, 1, False)
+        assert all(not r.get("void") for rows in results_by_judge(rdir).values() for r in rows)
+
+    @pytest.mark.parametrize("name", ["running_j1.json", "running_j1.json.f.stale", "brief_j1.md"])
+    def test_a_fifo_never_blocks_the_runner(self, h: Harness, name: str) -> None:
+        rdir = self.run_mode(h)
+        target = rdir / name
+        target.unlink(missing_ok=True)
+        os.mkfifo(target)
+        outcome: list[Any] = []
+
+        def go() -> None:
+            try:
+                open_seats(h.run, 1, False)
+                outcome.append(judge_seat(h.run, 1, 1, False))
+            except EvalError as exc:
+                outcome.append(exc)
+
+        thread = threading.Thread(target=go, daemon=True)
+        thread.start()
+        thread.join(30)
+        assert not thread.is_alive(), "blocked on a FIFO"
+        if name == "brief_j1.md":
+            assert isinstance(outcome[0], EvalError) and "not a regular file" in str(outcome[0])
+        else:
+            assert outcome[0]["ok"] and not target.exists()
+
+
+class TestLibraryMoved:
+    def test_a_library_replaced_by_a_link_is_refused(self, h: Harness) -> None:
+        lib = h.tmp / "lib"
+        lib.mkdir()
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        init_run(h.run, sp, None, lib)
+        outside = h.tmp / "outside"
+        outside.mkdir()
+        lib.rename(h.tmp / "lib.real")
+        lib.symlink_to(outside)
+        with pytest.raises(EvalError, match="a link was put in its place"):
+            run_library(h.run)
+        assert list(outside.iterdir()) == []
+
+    def test_a_linked_library_folder_writes_nothing(self, tmp_path: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        lib = tmp_path / "lib"
+        lib.symlink_to(outside)
+        for folder in (library.inbox_dir, library.history_dir):
+            with pytest.raises(EvalError, match="symbolic link"):
+                folder(lib)
+
+
+class TestHandbackType:
+    def test_the_handback_is_exempt_only_as_a_plain_tool_call(self, h: Harness) -> None:
+        h.init(judges_per_persona=2)
+        h.brief(1, "cand")
+        meta = h.keys(1)["judges"][0]
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+        raw = judge_json(meta, h.texts(1, meta), sc)
+        brief = (round_dir(h.run, 1) / "brief_j1.md").read_text()
+        odd = {"type": "server_tool_use", "id": "t", "name": "SubagentHandback",
+               "input": {"message": "x"}}  # fmt: skip
+        rows = [
+            {"type": "user", "agentId": "o", "message": {"content": brief}},
+            {"type": "assistant", "agentId": "o",
+             "message": {"content": [odd, {"type": "text", "text": raw}]}},
+        ]  # fmt: skip
+        folder = h.tmp / "tasks"
+        folder.mkdir()
+        t = folder / "o.jsonl"
+        t.write_text("\n".join(json.dumps(r) for r in rows))
+        r = record_from(h.run, 1, 1, "o", False, t)
+        assert not r["ok"] and "(SubagentHandback)" in r["errors"][0]
+
+
+class TestDraftModes:
+    def test_a_draft_replacing_a_private_file_starts_private(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "keep.json"
+        path.write_text("{}")
+        os.chmod(path, 0o600)
+        modes: list[int] = []
+        real = os.open
+
+        def spy(file: Any, flags: int, mode: int = 0o777, **kw: Any) -> int:
+            if flags & os.O_CREAT:
+                modes.append(mode)
+            return real(file, flags, mode, **kw)
+
+        monkeypatch.setattr(store.os, "open", spy)
+        dump_json(path, {"a": 1})
+        assert modes == [0o600]
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_the_fallback_keeps_the_mode_and_refuses_links(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(store.os, "supports_dir_fd", set())
+        path = tmp_path / "keep.json"
+        path.write_text("{}")
+        os.chmod(path, 0o600)
+        dump_json(path, {"a": 1})
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert json.loads(path.read_text()) == {"a": 1}
+        (tmp_path / "elsewhere").mkdir()
+        (tmp_path / "dir").symlink_to(tmp_path / "elsewhere")
+        with pytest.raises(EvalError, match="symbolic link"):
+            write_file(tmp_path / "dir" / "x.md", "x")
+
+    def test_an_empty_transcript_root_argument_is_accepted(self) -> None:
+        args = cli._parser().parse_args(["mcp", "--transcript-root"])
+        assert args.transcript_root == [""]

@@ -24,7 +24,9 @@ normalise away letters, digits or spaces before quotes are compared.
 
 At `init`, the effective configuration is written to `config.json` in the run directory and its
 sha256 to `config.lock`. Every later command reads that frozen copy and refuses if it was
-edited. The report header and the output of `status` list every setting that differs from the
+edited, or if it holds a key the defaults do not know or a key with a dot (the open
+`text.punctuation` table aside); a key it lacks, from an older version, counts as its
+default. The report header and the output of `status` list every setting that differs from the
 packaged defaults, including the per-run keys of the spec, so a loosened or tightened setting
 is always visible next to the grade.
 

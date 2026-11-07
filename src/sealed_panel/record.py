@@ -149,8 +149,8 @@ def handback_messages(
     return messages
 
 
-def tool_calls(transcript: Path, cfg: Config | None = None) -> list[str]:
-    """The name of every tool the agent called in its transcript, whichever it is, in order."""
+def tool_calls(transcript: Path, cfg: Config | None = None) -> list[tuple[str, str]]:
+    """(block type, name) of every tool the agent called in its transcript, in order."""
     t = resolve(cfg).transcript
     names = []
     for e in _entries(transcript):
@@ -162,7 +162,7 @@ def tool_calls(transcript: Path, cfg: Config | None = None) -> list[str]:
             if isinstance(b, dict) and str(b.get(t["block_type_key"])).endswith(
                 str(t["tool_block_type"])
             ):
-                names.append(str(b.get(t["tool_name_key"])))
+                names.append((str(b.get(t["block_type_key"])), str(b.get(t["tool_name_key"]))))
     return names
 
 
@@ -170,8 +170,9 @@ def judge_tools(transcript: Path, cfg: Config | None = None) -> list[str]:
     """The tools the judge called, sorted, the configured handback tool excepted (the way some
     runtimes return a reply). A judge gets no tools: a call to any other tool means it could
     have read the run directory, labels and roles included."""
-    handback = resolve(cfg).transcript["handback_tool"]
-    return sorted({name for name in tool_calls(transcript, cfg) if name != handback})
+    t = resolve(cfg).transcript
+    exempt = (str(t["tool_block_type"]), str(t["handback_tool"]))
+    return sorted({name for kind, name in tool_calls(transcript, cfg) if (kind, name) != exempt})
 
 
 def last_reply(transcript: Path, cfg: Config | None = None) -> str:
@@ -427,8 +428,7 @@ def _runner_void(
 ) -> dict[str, Any]:
     """A judge process that failed or timed out: the brief was delivered, no reply came back.
     Recorded as void, under the void cap; whatever it wrote is kept for a human, never read."""
-    if not proof.get("stale"):  # a stale marker: its process started under the cap
-        check_void_cap(judge, prior)
+    check_void_cap(judge, prior)
     result: dict[str, Any] = {
         "ok": False,
         "void": True,

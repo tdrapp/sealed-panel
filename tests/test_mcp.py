@@ -658,3 +658,62 @@ class TestRunnerRefusalsThroughTools:
                 [seat] = (await call(c, "judge", **args))["seats"]
                 assert seat["status"] == "REJECTED" and "control scored" in seat["errors"][0]
             assert "rejected 3 times" in await error(c, "judge", **args)
+
+
+class TestRoundThreeProbes:
+    async def test_a_shadowing_key_never_reaches_a_tool(self, h: Harness, mode: str) -> None:
+        write_spec(h)
+        async with Client(build_server(h.tmp, None, [transcripts_of(h)]), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            data = json.loads((h.run / "config.json").read_text())
+            data["transcript"]["tool_block_type"] = "nothing"
+            data["transcript.tool_block_type"] = "tool_use"
+            (h.run / "config.json").write_text(json.dumps(data))
+            (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
+            for tool, args in (
+                ("status", {}),
+                ("seal", {"artefact": "cand.md", "control": "ctrl.md"}),
+            ):
+                assert "holds a dot" in await error(c, tool, run="run", **args)
+
+    async def test_a_run_from_an_older_version_is_served(self, h: Harness, mode: str) -> None:
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            data = json.loads((h.run / "config.json").read_text())
+            del data["judge"]["max_stderr_bytes"]
+            del data["mcp"]
+            (h.run / "config.json").write_text(json.dumps(data))
+            (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
+            assert (await call(c, "status", run="run"))["decision"] == "CONTINUE"
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+
+    async def test_a_library_replaced_by_a_link_takes_no_feedback(
+        self, h: Harness, mode: str
+    ) -> None:
+        cfg = runner_config(h, "--score", "5")
+        write_spec(h)
+        (h.tmp / "lib").mkdir()
+        outside = h.tmp.parent / f"{h.tmp.name}-outside"
+        outside.mkdir()
+        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json", library="lib")
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            await call(c, "judge", run="run", sealed=True)
+            await call(c, "aggregate", run="run", sealed=True)
+            (h.tmp / "lib").rename(h.tmp / "lib.real")
+            (h.tmp / "lib").symlink_to(outside)
+            msg = await error(c, "feedback", run="run", note="the evidence reads too low")
+        assert "a link was put in its place" in msg
+        assert list(outside.iterdir()) == []
+
+    async def test_planted_stale_files_never_fail_a_judge_call(self, h: Harness, mode: str) -> None:
+        cfg = runner_config(h)
+        write_spec(h)
+        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            rdir = h.run / "sealed" / "r1"
+            (rdir / "running_j999.json.x.stale").write_text("{}")
+            seats = (await call(c, "judge", run="run", sealed=True, judges=[2]))["seats"]
+        assert [s["status"] for s in seats] == ["VALID"]

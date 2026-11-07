@@ -478,7 +478,7 @@ class TestOneJudgePerSeat:
         (round_dir(h.run, 1) / "running_j1.json").write_text(json.dumps(held))
         assert open_seats(h.run, 1, False) == [1, 2]
         [void] = results_by_judge(round_dir(h.run, 1))[1]
-        assert void["void"] and void["agent_id"] == held["agent_id"]
+        assert void["void"] and void["agent_id"] != held["agent_id"]
         assert "stopped before recording it" in void["errors"][0]
         assert not list(round_dir(h.run, 1).glob("running_j*"))
         assert judge_seat(h.run, 1, 1, False)["ok"]

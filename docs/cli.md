@@ -144,9 +144,13 @@ One process per slot at a time: from the slot's check to its record, the runner 
 slot with `running_j<J>.json` beside the brief, created only when absent. A second call skips
 a held slot, `judge --judge J` on it is refused, and `aggregate` refuses the round while a slot
 is held. A marker whose runner stopped (its process is gone, or it is older than the timeout
-plus 60 seconds) is recorded as a void by the next `judge`, never reused silently. Every process
-started ends recorded: a reply the record refuses (one already recorded) and an interrupted run
-are recorded as voids.
+plus 60 seconds) is recorded as a void by the next `judge`, never reused silently. That void
+counts against the void cap, gets a fresh agent id and keeps only the holder's pid, start time
+and command from the marker; a marker on a slot that already holds a valid reply, or for a slot
+the round does not have, is dropped without one, and so is a marker that is a link or not a
+regular file. Markers exist only in a run with a judge command; elsewhere such a file means
+nothing. Every process started ends recorded: a reply the record refuses (one already recorded)
+and an interrupted run are recorded as voids.
 
 Refused before any process starts: a run without a judge command (host mode), a round not
 briefed or already aggregated, a slot not in the round, every asked slot already holding a

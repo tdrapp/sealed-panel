@@ -17,6 +17,7 @@ from .config import (
     library_dir,
     resolve,
     run_value_error,
+    schema_errors,
 )
 from .errors import EvalError
 from .store import dump_json, load_json, read_text, write_file
@@ -372,9 +373,18 @@ def load_frozen(run: Path) -> dict[str, Any]:
 
 
 def run_library(run: Path) -> Path:
-    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now."""
+    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now. A frozen
+    path that resolves elsewhere now (it, or a folder above it, became a link) is refused."""
     frozen = run_config(run).data.get("library") or {}
-    return guard_library(Path(frozen["path"])) if frozen.get("path") else library_dir()
+    if not frozen.get("path"):
+        return library_dir()
+    path = Path(frozen["path"])
+    if path.resolve() != path:
+        raise EvalError(
+            f"the library {path} frozen into this run now resolves to {path.resolve()}: a "
+            "link was put in its place; restore the folder"
+        )
+    return guard_library(path)
 
 
 def library_for(flag: Path | None, run: Path | None) -> Path:
@@ -388,7 +398,11 @@ def run_config(run: Path) -> Config:
     lock = run / "config.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    frozen = Config(load_json(run / "config.json"))
+    data = load_json(run / "config.json")
+    shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
+    if shape:
+        raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
+    frozen = Config(data)
     if frozen.fingerprint != read_text(lock).strip():
         raise EvalError(
             "the configuration changed after the freeze: scores are no longer comparable. "

@@ -964,11 +964,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "resolved = given.resolve()",
     ),
     "seat marker not exclusive": (RUN, "os.link(draft, marker)", "os.replace(draft, marker)"),
-    "a late settle steals a live marker": (
-        RUN,
-        '    if taken.read_text(encoding="utf-8") != text:',
-        "    if False:",
-    ),
     "live marker ignored": (
         RUN,
         "    if isinstance(pid, int) and _alive(pid) and fresh:",
@@ -1049,11 +1044,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         REC,
         "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
         "replied = bool(tool_calls(transcript, cfg))",
-    ),
-    "the handback tool counted as a tool use": (
-        REC,
-        "if name != handback})",
-        "})",
     ),
     "a tool call without a reply leaves the seat stuck": (
         REC,
@@ -1143,11 +1133,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW",
         "os.O_RDONLY | os.O_DIRECTORY",
     ),
-    "a file's mode lost": (
-        f"{PKG}/store.py",
-        "                if mode is not None:\n",
-        "                if False:\n",
-    ),
     "role text written through a link": (
         BRIEF,
         'write_file(rdir / f"{role}.md", text)',
@@ -1169,8 +1154,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '            if path.is_symlink():\n                warnings.append(f"skipped {path}: a symbolic link")\n                continue\n            try:\n                t = _checked(',
         "            try:\n                t = _checked(",
     ),
-    "a linked inbox followed": (LIB, '    refuse_links(lib / "inbox")\n', ""),
-    "a linked history followed": (LIB, '    refuse_links(lib / "history")\n', ""),
     "a linked candidate read": (
         LIB,
         '        if path.is_symlink():\n            warnings.append(f"skipped {path}: a symbolic link")\n            continue\n        try:\n            c = json.loads(',
@@ -1202,16 +1185,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    settle_stale_files(run, rnd, sealed)\n",
         "",
     ),
-    "a used agent hides a stale attempt": (
-        RUN,
-        "    if not agent or agent in used_agent_ids(run):\n",
-        "    if not agent:\n",
-    ),
-    "a stale void under the cap refused": (
-        REC,
-        '    if not proof.get("stale"):  # a stale marker: its process started under the cap\n',
-        "    if True:\n",
-    ),
     "a huge integer breaks the reader": (
         REC,
         "except (ValueError, RecursionError, EvalError) as exc:",
@@ -1241,6 +1214,109 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/cli.py",
         "            except SeatTaken as exc:\n",
         "            except ZeroDivisionError as exc:\n",
+    ),
+    "a late settle steals a live marker": (
+        RUN,
+        '    if read_no_follow(taken).decode("utf-8", errors="replace") != text:\n',
+        "    if False:\n",
+    ),
+    "the handback tool counted as a tool use": (
+        REC,
+        "if (kind, name) != exempt})",
+        "if True})",
+    ),
+    "the handback exempt by name only": (
+        REC,
+        "if (kind, name) != exempt})",
+        "if name != exempt[1]})",
+    ),
+    "a file's mode lost": (
+        f"{PKG}/store.py",
+        "                if final is not None:\n                    os.fchmod(f.fileno(), final)\n",
+        "",
+    ),
+    "a linked inbox followed": (LIB, '    refuse_links(lib, lib / "inbox")\n', ""),
+    "a linked history followed": (LIB, '    refuse_links(lib, lib / "history")\n', ""),
+    "a linked library folder written": (
+        LIB,
+        '    refuse_links(lib, lib / "inbox")\n',
+        '    refuse_links(lib / "inbox")\n',
+    ),
+    # Round 3: shadowed settings, planted markers, moved libraries.
+    "dotted keys in a frozen configuration accepted": (
+        CFG,
+        '        if "." in key:\n',
+        "        if False:\n",
+    ),
+    "unknown keys in a frozen configuration accepted": (
+        CFG,
+        "        elif key not in shape:\n",
+        "        elif False:\n",
+    ),
+    "a key an older run lacks read as a difference": (
+        CFG,
+        "here = default.get(key, _ABSENT) if isinstance(default, Mapping) else _ABSENT",
+        "here = _ABSENT",
+    ),
+    "a frozen configuration not checked for its shape": (
+        SPEC,
+        "    if shape:\n",
+        "    if False:\n",
+    ),
+    "stale files settled in host mode": (
+        RUN,
+        '    if not cfg.judge["command"]:\n        return\n    rdir = round_dir(run, rnd, sealed)\n',
+        "    rdir = round_dir(run, rnd, sealed)\n",
+    ),
+    "a stale file for an unknown seat recorded": (
+        RUN,
+        "if found is None or int(found.group(1)) not in seats:",
+        "if found is None:",
+    ),
+    "a marker's agent id taken": (
+        RUN,
+        '        agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"\n        failure = "the runner',
+        '        agent = str(held.get("agent_id") or "runner-x")\n        failure = "the runner',
+    ),
+    "a marker's whole content kept": (
+        RUN,
+        "kept = {k: held[k] for k in MARKER_KEYS if k in held}",
+        "kept = dict(held)",
+    ),
+    "a stale void on a filled seat": (
+        RUN,
+        '        if any(r["ok"] for r in results_by_judge(taken.parent).get(judge, [])):\n            return\n',
+        "",
+    ),
+    "a linked stale file read": (
+        RUN,
+        "            held = json.loads(read_no_follow(taken))\n",
+        "            held = json.loads(taken.read_bytes())\n",
+    ),
+    "a non-regular file read as a run file": (
+        f"{PKG}/store.py",
+        "        if not stat.S_ISREG(os.fstat(fd).st_mode):\n",
+        "        if False:\n",
+    ),
+    "a library replaced by a link accepted": (
+        SPEC,
+        "    if path.resolve() != path:\n",
+        "    if False:\n",
+    ),
+    "a draft replacing a private file starts readable": (
+        f"{PKG}/store.py",
+        "        return 0o600, stat.S_IMODE(existing.st_mode)\n",
+        "        return 0o666, stat.S_IMODE(existing.st_mode)\n",
+    ),
+    "the fallback write loses the mode": (
+        f"{PKG}/store.py",
+        "            if final is not None:\n                os.chmod(temporary, final)\n",
+        "",
+    ),
+    "an empty transcript root argument fails": (
+        f"{PKG}/cli.py",
+        '        nargs="?",\n',
+        "",
     ),
 }
 

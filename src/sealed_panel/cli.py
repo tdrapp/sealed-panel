@@ -120,6 +120,8 @@ def _parser() -> argparse.ArgumentParser:
         "--transcript-root",
         action="append",
         default=[],
+        nargs="?",
+        const="",
         metavar="DIR",
         help="a folder where the host writes judge transcripts, read only, outside the root "
         "(repeat for several); a transcript elsewhere is refused",

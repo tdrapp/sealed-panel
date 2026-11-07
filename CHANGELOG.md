@@ -49,6 +49,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A frozen configuration with an unknown or dotted key is refused, and runs are compared with a
+  server section by section, a key an older run lacks counting as its default. Markers left by a
+  stopped runner count only in a run with a judge command, under the void cap and a fresh agent
+  id; a planted one on a filled or unknown seat, or one that is a link or not a regular file, is
+  dropped. A library whose folder became a link is refused. A tool call of another block type
+  named like the handback tool is not exempt. A draft replacing a file starts private.
 - `transcript.handback_tool` defaults to `SubagentHandback`, the tool a host imposes in its auto
   mode, where the final text is no longer delivered. A run frozen earlier keeps its value.
 - `record` rejects a transcript reply whose judge called any tool other than the configured

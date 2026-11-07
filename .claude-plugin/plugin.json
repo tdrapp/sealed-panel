@@ -19,7 +19,8 @@
       "type": "directory",
       "title": "Judge transcript folder",
       "description": "Where this host writes subagent transcripts: the projects folder of its configuration directory. Lets the record tool read them as proof. Left empty, the tool refuses transcripts, and replies are pasted (flagged in the report) or come from a judge command.",
-      "required": false
+      "required": false,
+      "default": ""
     }
   }
 }

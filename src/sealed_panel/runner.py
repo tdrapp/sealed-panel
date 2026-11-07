@@ -33,7 +33,7 @@ from typing import Any
 
 from .config import Config
 from .errors import EvalError
-from .ledger import results_by_judge, used_agent_ids
+from .ledger import results_by_judge
 from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys
 from .spec import load_frozen, run_config
 from .store import read_no_follow, round_dir
@@ -135,8 +135,11 @@ def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Conf
     goes. The marker is first moved to a unique name, so two calls never record it twice."""
     path = _marker(rdir, judge)
     try:
-        text = path.read_text(encoding="utf-8")
+        text = read_no_follow(path).decode("utf-8", errors="replace")
     except FileNotFoundError:
+        return
+    except EvalError:
+        path.unlink(missing_ok=True)  # a link or a FIFO: no runner writes one
         return
     try:
         held = json.loads(text)
@@ -154,7 +157,7 @@ def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Conf
         path.rename(taken)
     except FileNotFoundError:
         return  # another call settled it first
-    if taken.read_text(encoding="utf-8") != text:
+    if read_no_follow(taken).decode("utf-8", errors="replace") != text:
         # Another call settled the stale marker and took the seat in between: put its live
         # marker back, unless yet another call holds the seat by now.
         with contextlib.suppress(FileExistsError):
@@ -164,29 +167,47 @@ def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Conf
     _record_stale(run, rnd, judge, sealed, taken, held)
 
 
+# What a void keeps from a marker: who held the seat and since when, nothing it could forge.
+MARKER_KEYS = ("pid", "started", "argv")
+
+
 def _record_stale(
     run: Path, rnd: int, judge: int, sealed: bool, taken: Path, held: dict[str, Any]
 ) -> None:
-    """A stopped runner's attempt, recorded as a void whatever its marker says: an agent id
-    already used gets a fresh one, so a marker can never hide an attempt."""
-    agent = str(held.get("agent_id") or "")
-    if not agent or agent in used_agent_ids(run):
+    """A stopped runner's attempt, recorded as a void under a fresh agent id and the void cap.
+    A marker is a file anyone with access to the run can write, so the void takes nothing from
+    it but its holder and start time. A seat that already has a valid reply takes no void."""
+    try:
+        if any(r["ok"] for r in results_by_judge(taken.parent).get(judge, [])):
+            return
         agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
-    failure = "the runner that started this judge stopped before recording it"
-    proof = {**held, "stale": True, "failure": failure}
-    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
-    taken.unlink(missing_ok=True)
+        failure = "the runner that started this judge stopped before recording it"
+        kept = {k: held[k] for k in MARKER_KEYS if k in held}
+        proof = {**kept, "stale": True, "failure": failure}
+        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
+    finally:
+        taken.unlink(missing_ok=True)
 
 
 def settle_stale_files(run: Path, rnd: int, sealed: bool) -> None:
-    """Markers already moved aside by a runner killed right after the move: record them."""
+    """Markers already moved aside by a runner killed right after the move: record them. Only
+    a run with a judge command has markers; elsewhere such a file is ignored. One for a seat
+    the round does not have is dropped."""
+    cfg = run_config(run)
+    if not cfg.judge["command"]:
+        return
     rdir = round_dir(run, rnd, sealed)
+    seats = {j.get("judge") for j in round_keys(rdir, rnd)["judges"] if isinstance(j, dict)}
     for taken in sorted(rdir.glob(f"{MARKER_PREFIX}*{STALE_SUFFIX}")):
         found = re.match(rf"{MARKER_PREFIX}(\d+)\.json\.", taken.name)
-        if found is None:
+        if found is None or int(found.group(1)) not in seats:
+            taken.unlink(missing_ok=True)
             continue
         try:
-            held = json.loads(taken.read_text(encoding="utf-8"))
+            held = json.loads(read_no_follow(taken))
+        except EvalError:
+            taken.unlink(missing_ok=True)  # a link or a FIFO: no runner writes one
+            continue
         except ValueError:
             held = {}
         held = held if isinstance(held, dict) else {}
