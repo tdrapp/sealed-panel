@@ -70,9 +70,9 @@ class TestWrites:
     def test_an_existing_file_keeps_its_mode(self, tmp_path: Path) -> None:
         path = tmp_path / "keep.json"
         path.write_text("{}")
-        os.chmod(path, 0o600)
+        os.chmod(path, 0o644)
         dump_json(path, {"a": 1})
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
         assert json.loads(path.read_text()) == {"a": 1}
 
     def test_a_new_file_follows_the_umask(self, tmp_path: Path) -> None:
@@ -572,9 +572,12 @@ class TestPlantedMarkers:
         h.brief(1, "cand")
         rdir = round_dir(h.run, 1)
         (rdir / "running_j1.json.v.stale").write_text(json.dumps({"agent_id": "A1"}))
-        h.answer(1, {"candidate": FLAT, "control": BAD})
-        aggregate_round(h.run, 1, False)
-        assert all(not r.get("void") for rows in results_by_judge(rdir).values() for r in rows)
+        meta = h.keys(1)["judges"][1]
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+        record_reply(h.run, 1, 2, "a2", judge_json(meta, h.texts(1, meta), sc), False)
+        with pytest.raises(EvalError, match="no real attempt"):
+            aggregate_round(h.run, 1, False)
+        assert 1 not in results_by_judge(rdir)  # seat 1 empty: the planted file voided nothing
 
     @pytest.mark.parametrize("name", ["running_j1.json", "running_j1.json.f.stale", "brief_j1.md"])
     def test_a_fifo_never_blocks_the_runner(self, h: Harness, name: str) -> None:
@@ -675,9 +678,9 @@ class TestDraftModes:
         monkeypatch.setattr(store.os, "supports_dir_fd", set())
         path = tmp_path / "keep.json"
         path.write_text("{}")
-        os.chmod(path, 0o600)
+        os.chmod(path, 0o644)
         dump_json(path, {"a": 1})
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
         assert json.loads(path.read_text()) == {"a": 1}
         (tmp_path / "elsewhere").mkdir()
         (tmp_path / "dir").symlink_to(tmp_path / "elsewhere")

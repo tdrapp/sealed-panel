@@ -339,11 +339,10 @@ def build_server(
         return where
 
     def readable(p: str) -> Path:
-        """A run a read-only tool may read: well formed and locked, whatever its settings. A
-        read changes nothing, and the report lists the run's own settings next to the grade."""
-        where = path(p)
-        run_config(where)
-        return where
+        """A run a read-only tool may read, whatever its settings (its lock and shape are
+        checked by the read itself): a read changes nothing, and the report lists the run's own
+        settings next to the grade."""
+        return path(p)
 
     def transcript_path(p: str) -> Path:
         """A judge's transcript, read only: under a transcript root, without any link."""

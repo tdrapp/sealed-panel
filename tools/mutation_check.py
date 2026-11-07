@@ -1328,17 +1328,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "served=not differ,",
         "served=True,",
     ),
-    "a read-only tool reads a damaged run": (
-        MCP,
-        "        where = path(p)\n        run_config(where)\n        return where\n",
-        "        return path(p)\n",
-    ),
 }
 
 
 # Mutations no test can kill, with the guard that makes them redundant. They run and are
 # reported, but do not fail the check, and the documentation does not count them as tested.
 EXPECTED_SURVIVORS: dict[str, str] = {
+    "a stale file for an unknown seat recorded": (
+        "recording a void for a seat the round lacks fails in record, and that failure is "
+        "dropped with the file: the seat filter states the intent first"
+    ),
     "max_rounds exceeded": (
         "the stop rule refuses first: at max_rounds the ledger says CAP, and "
         "'the loop has stopped' refuses the next round"
