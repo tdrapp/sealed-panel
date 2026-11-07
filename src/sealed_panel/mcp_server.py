@@ -9,8 +9,9 @@ The caller is the author of the text, so it is trusted with nothing that decides
 configuration is read once at startup from a file outside the root, and every tool that changes
 a run refuses one frozen with other settings (the read-only tools still read it). Paths come
 from the tool parameters and stay under the root (`--root`, `[mcp] root`, or the current
-directory), never from the host. A transcript is proof only under a `--transcript-root`, which
-never overlaps the root: a file the caller could write is no proof. Promoting or rejecting a
+directory), never from the host. A transcript is proof only under a `--transcript-root`; one
+that overlaps the root is turned off, and `status` says why: a file the caller could write is
+no proof. Promoting or rejecting a
 rubric candidate is not a tool: a host can answer a confirmation on its own, so it proves no
 person decided. The tools that touch candidates return the command a person runs instead."""
 
