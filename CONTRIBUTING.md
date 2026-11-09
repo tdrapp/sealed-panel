@@ -69,6 +69,12 @@ push and in CI. The markers are declared in `pyproject.toml` and `--strict-marke
 unknown one; an autouse fixture in `tests/conftest.py` fails an unmarked test that starts any
 other process, so the fast tier stays fast.
 
+The MCP tools' names, annotations and input and output schemas are frozen in
+`tests/mcp_tools.json`, and `tests/test_mcp_schema.py` fails on any difference: a host reads
+them, so a change is an interface change. When it is deliberate, regenerate the snapshot with
+`SEALED_PANEL_UPDATE_MCP_SNAPSHOT=1 .venv/bin/pytest tests/test_mcp_schema.py`, commit it with
+the change, and say so in the CHANGELOG.
+
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.
 
