@@ -14,6 +14,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lines it skipped in the result (`unreadable_lines`). Transcript lines end at a newline only,
   so a line separator inside a JSON string no longer splits an entry.
 
+### Added
+
+- `[judge] model_id`: the model the judges run on, as free text (one printable line, at most
+  200 characters), frozen into the run and printed next to the sealed grade, or "not declared".
+  The docs say to pin a dated model id, never an alias. A run frozen earlier reads as not
+  declared.
+
 ### Changed
 
 - A candidate the injection scan flags no longer reaches CONVERGED or a sealed grade silently:

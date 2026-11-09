@@ -1400,6 +1400,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '        title += f" ({BLOCKED})"',
         "        pass",
     ),
+    # The judge model declared next to the grade.
+    "an unbounded judge model id accepted": (
+        CFG,
+        "if not model_id.isprintable() or len(model_id) > MODEL_ID_MAX_CHARS:",
+        "if False:",
+    ),
+    "the declared judge model hidden": (
+        f"{PKG}/report.py",
+        'return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."',
+        'return "Judge model: not declared."',
+    ),
 }
 
 

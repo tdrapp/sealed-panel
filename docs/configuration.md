@@ -178,13 +178,15 @@ root: the server reads that file once, freezes it into every run it starts and c
 frozen with it, so the caller of a tool never picks its judge. It is frozen into the run like
 every other setting, so the judges cannot change in the middle of a run, and a command that
 differs from the default (empty) is listed in full next to the grade. A run with a judge command
-takes runner replies only.
+takes runner replies only. `model_id` declares the model the judges run on, in host mode as
+well, and is printed next to the sealed grade.
 
 ```toml
 [judge]
 command = ["python", "/path/to/my_judge.py"]
 timeout_s = 300
 env_allow = ["MY_MODEL_API_KEY"]
+model_id = "my-model-2026-01-15"
 ```
 
 | Key | Default | Bounds | Meaning |
@@ -194,6 +196,7 @@ env_allow = ["MY_MODEL_API_KEY"]
 | `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). |
 | `max_reply_bytes` | `1048576` | 1024 to 16777216 | Bytes a judge may write to stdout. Past it, the process is stopped and the attempt is recorded as void; only the bytes up to the cap are kept. |
 | `max_stderr_bytes` | `1048576` | 1024 to 16777216 | The same for stderr, kept in the log beside the brief. |
+| `model_id` | `""` | one printable line, at most 200 characters | The model the judges run on, as free text: frozen into the run and printed next to the sealed grade ("not declared" when empty). Pin a dated model id, never an alias: an alias may point to another model the next day, and two grades under one alias may come from two models. sealed-panel does not check that the command uses it. |
 
 The judge process never inherits the environment of the process that runs sealed-panel. That
 environment often holds credentials (cloud tokens, repository tokens, other API keys) that a
@@ -202,7 +205,8 @@ gets `PATH`, `HOME` and `LANG`, the names you list in `env_allow`, and nothing e
 reaches a judge only when you named it. The names passed are stored with each reply; their
 values never are.
 
-A run frozen before 0.3.0 has no `[judge]` section and is in host mode.
+A run frozen before 0.3.0 has no `[judge]` section and is in host mode. A run frozen before
+0.3.1 has no `model_id` and reads as not declared.
 
 ## `[mcp]`
 

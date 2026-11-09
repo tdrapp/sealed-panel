@@ -48,6 +48,8 @@ JUDGE_TIMEOUT_BOUNDS = (1, 3600)
 REPLY_BYTES_BOUNDS = (1024, 16 << 20)
 # An environment variable name, as passed to a judge process.
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Characters a declared judge model id may hold: one printable line.
+MODEL_ID_MAX_CHARS = 200
 
 
 def _type_ok(default: Any, value: Any) -> bool:
@@ -290,6 +292,11 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     names = judge["env_allow"]
     if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
         errors.append("judge.env_allow must hold environment variable names only")
+    model_id = judge.get("model_id", "")
+    if not model_id.isprintable() or len(model_id) > MODEL_ID_MAX_CHARS:
+        errors.append(
+            f"judge.model_id must be one printable line of at most {MODEL_ID_MAX_CHARS} characters"
+        )
     return errors
 
 

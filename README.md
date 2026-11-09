@@ -22,7 +22,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 335 mutations, 332
+bound or boundary at a time and requires the suite to fail on each. Of its 337 mutations, 334
 are killed; the three that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -288,7 +288,7 @@ The report starts with the sealed grade, every judge's score per dimension, and 
 
 Rubric sha256 `0d16bd433b43`, decision **SEALED**, 4 judge contexts, settings that differ from the defaults: spec.judges_per_persona = 2 (default 3); spec.max_rounds = 1 (default 6).
 
-**Grade (sealed panel): ask 5 (5/5); relevance 4 (4/4); evidence 5 (5/5). Verdict: below 5 on em/relevance.**
+**Grade (sealed panel): ask 5 (5/5); relevance 4 (4/4); evidence 5 (5/5). Verdict: below 5 on em/relevance.** Judge model: not declared.
 ```
 
 Then come the round table, the open findings, the repeat-test line when the sealed text was
@@ -349,7 +349,8 @@ server is in the integrations guide.
 your model's answer, name its API key in `[judge] env_allow`, and call `judge_round` from
 Python or `sealed-panel judge` from a shell. The judge process gets an empty directory and
 only `PATH`, `HOME`, `LANG` and the allowed names from the environment.
-`examples/runner/judge_template.py` is a template to adapt.
+`examples/runner/judge_template.py` is a template to adapt. Declare the judges' model in
+`[judge] model_id`, printed next to the grade: pin a dated model id, never an alias.
 
 ## Configuration
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .config import overrides
+from .config import Config, overrides
 from .decide import (
     BLOCKED,
     INJECTION_ACK,
@@ -82,7 +82,13 @@ def _cell(e: dict[str, Any]) -> str:
     return f"{e['median']:g} ({'/'.join(map(str, e['scores']))})"
 
 
-def _sealed_headline(spec: dict[str, Any], d: dict[str, Any]) -> list[str]:
+def model_line(cfg: Config) -> str:
+    """The judge model the run declared, printed next to the grade."""
+    model_id = str(cfg.judge.get("model_id", ""))
+    return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."
+
+
+def _sealed_headline(spec: dict[str, Any], d: dict[str, Any], model: str) -> list[str]:
     f = d["final"]
     dims = [(pid, did, e) for pid, p in f["personas"].items() for did, e in p["dimensions"].items()]
     lows = [f"{pid}/{did}" for pid, did, e in dims if e["median"] < TOP_SCORE]
@@ -101,7 +107,7 @@ def _sealed_headline(spec: dict[str, Any], d: dict[str, Any]) -> list[str]:
             f"it in a new run, or acknowledge the flag in that run's spec ({INJECTION_ACK}).**",
             "",
         ]
-    out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.**", ""]
+    out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.** {model}", ""]
     moves = [
         f"{did} {e['baseline_median']:g} -> {e['median']:g}"
         for _, did, e in dims
@@ -255,7 +261,7 @@ def render_report(run: Path) -> str:
         "",
     ]
     if sealed_done(d):
-        out += _sealed_headline(spec, d)
+        out += _sealed_headline(spec, d, model_line(cfg))
     out += _round_table(spec, ledger)
     out += _notes(run, ledger, d)
     return "\n".join(out) + "\n"

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
-from conftest import BAD, FLAT, Harness
+import pytest
+
+from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel.aggregate import aggregate_round
+from sealed_panel.config import Config, load_config
+from sealed_panel.errors import ConfigError
 from sealed_panel.record import record_measurement
-from sealed_panel.report import render_report, status
+from sealed_panel.report import model_line, render_report, status
+from sealed_panel.spec import init_run, run_config
 
 THREE = {"clarity": 3, "evidence": 3}
 FIVE = {"clarity": 5, "evidence": 5}
@@ -91,3 +97,51 @@ class TestReport:
         (sibling / "rubric.lock").write_text("x")
         h.full(1, "cand", FLAT)
         assert "1 other run(s)" in render_report(h.run)
+
+
+class TestJudgeModel:
+    MODEL = "judge-model-2026-01-15"
+
+    def seal(self, h: Harness, toml: str = "") -> str:
+        spec = h.tmp / "spec.json"
+        spec.write_text(json.dumps(make_spec()))
+        cfg = None
+        if toml:
+            (h.tmp / "c.toml").write_text(toml)
+            cfg = load_config(h.tmp / "c.toml")
+        init_run(h.run, spec, cfg)
+        h.full(1, "cand", FIVE, sealed=True)
+        return render_report(h.run)
+
+    def grade_line(self, report: str) -> str:
+        return next(x for x in report.splitlines() if x.startswith("**Grade (sealed panel)"))
+
+    def test_an_undeclared_model_is_said_next_to_the_grade(self, h: Harness) -> None:
+        assert self.grade_line(self.seal(h)).endswith(".** Judge model: not declared.")
+
+    def test_a_declared_model_is_frozen_and_printed_next_to_the_grade(self, h: Harness) -> None:
+        rep = self.seal(h, f'[judge]\nmodel_id = "{self.MODEL}"\n')
+        assert self.grade_line(rep).endswith(f".** Judge model: `{self.MODEL}`.")
+        assert run_config(h.run).judge["model_id"] == self.MODEL
+        assert f'judge.model_id = "{self.MODEL}" (default "")' in status(h.run)["overrides"]
+
+    def test_a_run_frozen_without_the_key_reads_as_not_declared(self, h: Harness) -> None:
+        self.seal(h)
+        data = json.loads((h.run / "config.json").read_text())
+        del data["judge"]["model_id"]
+        assert model_line(Config(data)) == "Judge model: not declared."
+
+    @pytest.mark.parametrize(
+        ("value", "why"),
+        [
+            ('"two\\nlines"', "one printable line"),
+            ('"' + "x" * 201 + '"', "at most 200"),
+            ("3", "must be of type str"),
+        ],
+    )
+    def test_a_model_id_is_one_short_line(self, tmp_path: Path, value: str, why: str) -> None:
+        (tmp_path / "c.toml").write_text(f"[judge]\nmodel_id = {value}\n")
+        with pytest.raises(ConfigError, match=why):
+            load_config(tmp_path / "c.toml")
+        (tmp_path / "ok.toml").write_text('[judge]\nmodel_id = "' + "x" * 200 + '"\n')
+        assert load_config(tmp_path / "ok.toml").judge["model_id"] == "x" * 200

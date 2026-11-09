@@ -150,7 +150,9 @@ that reads the brief on stdin and prints the model's answer on stdout, set it in
 command`, and name the variables it needs (your API key) in `[judge] env_allow`. Start from
 `examples/runner/judge_template.py`, which reaches a model through a model command line or an
 HTTP endpoint, both set by environment variables; adapt the one function that speaks to your
-model's API. `examples/runner/judge.toml` is the matching configuration.
+model's API. `examples/runner/judge.toml` is the matching configuration. Declare the model in
+`[judge] model_id`, printed next to the grade: a dated model id, never an alias, which may point
+to another model the next day.
 
 The same steps are a Python library: the functions the command line and the MCP server call.
 

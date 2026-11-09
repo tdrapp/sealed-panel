@@ -223,7 +223,8 @@ Prints the run's report in markdown. A blocked run says `(BLOCKED BY FLAG)` in i
 a blocked sealed grade is preceded by a line saying it does not stand. Then a header with the
 rubric hash, the decision, any `injection_acknowledged` reason, the number
 of judge contexts and the settings that differ from the defaults; the sealed grade per
-dimension with every judge's score and the verdict; the round-1 baseline against the sealed
+dimension with every judge's score, the verdict and the declared judge model (`[judge]
+model_id`, or "not declared"); the round-1 baseline against the sealed
 text, scored by the same sealed panel; the table of rounds with instruments, the informational
 composite, best gain, noise and rejected attempts; the open findings; each rejected judge
 with its reasons, and each void with its label (no reply, or after replying when the brief was

@@ -5,3 +5,5 @@ command = ["python3", "/path/to/sealed-panel/examples/runner/judge_template.py"]
 timeout_s = 300
 # The template reads these; the runner passes nothing else but PATH, HOME and LANG.
 env_allow = ["JUDGE_MODEL_COMMAND", "JUDGE_MODEL_URL", "JUDGE_MODEL_KEY"]
+# The model the judges run on, printed next to the grade. Pin a dated model id, never an alias.
+model_id = "your-model-2026-01-15"
