@@ -63,6 +63,8 @@ dev = [
     "import-linter>=2.1",
     # The complexity ceiling (see CONTRIBUTING.md).
     "xenon>=0.9",
+    # Docstring coverage of the public API.
+    "interrogate>=1.7",
 ]
 # The vulnerability audit, kept apart so it never lands in a test environment.
 audit = ["pip-audit>=2.7"]
@@ -104,22 +106,24 @@ src = ["src", "tests", "tools"]
 
 [tool.ruff.lint]
 # S: the security rules (bandit); T20: no stray print outside the command-line front ends.
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "T20"]
+# D1 and D417: every public module, class and function has a docstring, and an `Args:` section
+# names every argument.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "T20", "D1", "D417"]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests assert, and start git and the judge scripts by name.
-"tests/**" = ["B011", "S101", "S603", "S607"]
+# Tests assert, and start git and the judge scripts by name; test names are their docs.
+"tests/**" = ["B011", "S101", "S603", "S607", "D1"]
 # The stand-in judges speak on stdout: that is their protocol.
 "tests/stub_judge.py" = ["T20"]
 "tests/orphan_judge.py" = ["T20"]
 # The command line prints its results.
 "src/sealed_panel/cli.py" = ["T20"]
-# Mutation anchors are verbatim lines of code.
-"tools/mutation_check.py" = ["E501"]
+# Mutation anchors are verbatim lines of code; another change owns this tool's engine.
+"tools/mutation_check.py" = ["E501", "D1"]
 # Developer tools print, and start the interpreter or the command under test.
 "tools/**" = ["T20", "S603"]
 # The examples print, start a model command, and call the endpoint the user configured.
-"examples/**" = ["T20", "S603", "S310"]
+"examples/**" = ["T20", "S603", "S310", "D1"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -153,6 +157,16 @@ layers = [
     "store",
     "errors",
 ]
+
+# Docstring coverage of the public API (private, semi-private, magic and nested functions are
+# left out); ruff's D1 already requires every public one, so this is a floor, not the target.
+[tool.interrogate]
+fail-under = 80
+ignore-private = true
+ignore-semiprivate = true
+ignore-magic = true
+ignore-nested-functions = true
+verbose = 1
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -21,10 +21,20 @@ def _recorded_field(run: Path, field: str) -> set[str]:
 
 
 def used_agent_ids(run: Path) -> set[str]:
+    """Every agent id recorded in the run.
+
+    Args:
+        run: The run directory.
+    """
     return _recorded_field(run, "agent_id")
 
 
 def used_reply_hashes(run: Path) -> set[str]:
+    """The sha256 of every reply recorded in the run.
+
+    Args:
+        run: The run directory.
+    """
     return _recorded_field(run, "reply_sha256")
 
 

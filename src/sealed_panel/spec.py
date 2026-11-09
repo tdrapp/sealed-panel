@@ -61,6 +61,12 @@ FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "h
 
 
 def dims_for(spec: dict[str, Any], persona_id: str) -> list[dict[str, Any]]:
+    """The dimensions a persona is scored on.
+
+    Args:
+        spec: The spec.
+        persona_id: The persona's id.
+    """
     return [
         d
         for d in spec.get("dimensions") or []
@@ -171,6 +177,12 @@ def todo_paths(value: Any, where: str = "spec") -> list[str]:
 
 
 def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
+    """Every problem with a spec, in shape and in values; empty when it can be frozen.
+
+    Args:
+        spec: The spec as loaded from JSON.
+        cfg: The configuration; the packaged defaults when None.
+    """
     cfg = resolve(cfg)
     errors = shape_errors(spec)
     if errors:
@@ -256,6 +268,11 @@ def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
 
 
 def rubric_hash(spec: dict[str, Any]) -> str:
+    """The sha256 of what the rubric asks: the hashed keys of the spec.
+
+    Args:
+        spec: The spec.
+    """
     core = {k: spec.get(k) for k in RUBRIC_KEYS if k not in OPTIONAL_HASH_KEYS or k in spec}
     canon = json.dumps(core, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
@@ -327,7 +344,15 @@ def init_run(
     facts_root: Path | None = None,
 ) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash.
-    With `facts_root`, a `facts_file` must resolve under it (the MCP server's root)."""
+    With `facts_root`, a `facts_file` must resolve under it (the MCP server's root).
+
+    Args:
+        run: A new or empty directory for the run.
+        spec_path: The spec file.
+        cfg: The configuration; the packaged defaults when None.
+        library: The user rubric library; the default one when None.
+        facts_root: A folder a `facts_file` must resolve under, or None.
+    """
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
@@ -367,6 +392,11 @@ def init_run(
 
 
 def load_frozen(run: Path) -> dict[str, Any]:
+    """The run's spec, refused when it changed after the freeze.
+
+    Args:
+        run: The run directory.
+    """
     lock = run / "rubric.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")

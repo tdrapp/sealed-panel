@@ -87,6 +87,11 @@ def _lines(template: str, **values: str) -> list[str]:
 
 
 def anchor_lines(d: dict[str, Any]) -> list[str]:
+    """The anchor lines of one dimension, 5 down to 1, with the defaults for 4 and 2.
+
+    Args:
+        d: The dimension, with its `anchors`.
+    """
     a = d["anchors"]
     return [
         f"- 5: {a['5']}{ANCHOR_5_SUFFIX}",
@@ -105,6 +110,16 @@ def build_brief(
     nonce: str = "",
     cfg: Config | None = None,
 ) -> str:
+    """The text of one blind brief: persona, stance, facts, rubric, items and reply shape.
+
+    Args:
+        spec: The frozen spec.
+        persona: The persona this judge reads as.
+        framing: The reading stance given to this judge.
+        items: (label, text) pairs, in the order the judge sees them.
+        nonce: The brief id written into the brief, so a transcript can be tied to it.
+        cfg: The configuration; the packaged defaults when None.
+    """
     cfg = resolve(cfg)
     dims = dims_for(spec, persona["id"])
     lines = _lines(
@@ -206,7 +221,16 @@ def _check_loop(
 def write_briefs(
     run: Path, rnd: int, artefact: Path, control: Path, good: Path | None, sealed: bool
 ) -> list[Path]:
-    """Write one blind brief per judge for round `rnd` and return their paths."""
+    """Write one blind brief per judge for round `rnd` and return their paths.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        artefact: The candidate text.
+        control: The deliberately bad version planted in every brief.
+        good: An optional known-good text, validated by the user.
+        sealed: Whether to brief the sealed panel.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     ledger = load_json(run / "ledger.json")

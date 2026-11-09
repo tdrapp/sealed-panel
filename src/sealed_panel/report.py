@@ -49,17 +49,33 @@ def feedback_for_author(entry: dict[str, Any]) -> str:
 
 
 def feedback_path(run: Path, rnd: int) -> Path:
+    """Where the author's findings after a loop round are written.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+    """
     return run / "feedback" / f"after_r{rnd}.md"
 
 
 def write_feedback(run: Path, entry: dict[str, Any]) -> Path:
+    """Write the author's findings for a loop round and return their path.
+
+    Args:
+        run: The run directory.
+        entry: The round's ledger entry.
+    """
     path = feedback_path(run, entry["round"])
     write_file(path, feedback_for_author(entry))
     return path
 
 
 def status(run: Path) -> dict[str, Any]:
-    """The decision for the run, read-only. On CONTINUE, names the author's findings file."""
+    """The decision for the run, read-only. On CONTINUE, names the author's findings file.
+
+    Args:
+        run: The run directory.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     ledger = load_json(run / "ledger.json")
@@ -225,7 +241,11 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
 
 
 def render_report(run: Path) -> str:
-    """The run's report in markdown: the sealed grade, the round table and the notes."""
+    """The run's report in markdown: the sealed grade, the round table and the notes.
+
+    Args:
+        run: The run directory.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     ledger = load_json(run / "ledger.json")

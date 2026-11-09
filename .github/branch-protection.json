@@ -15,7 +15,8 @@
       "actionlint",
       "gitleaks",
       "imports",
-      "complexity"
+      "complexity",
+      "docstrings"
     ]
   },
   "enforce_admins": true,

@@ -311,6 +311,11 @@ def _run(a: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the `sealed-panel` command and return its exit status.
+
+    Args:
+        argv: The arguments; the process's own when None.
+    """
     a = _parser().parse_args(argv)
     try:
         _run(a)

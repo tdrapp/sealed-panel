@@ -14,6 +14,11 @@ from .errors import EvalError
 
 
 def load_json(path: Path) -> Any:
+    """The JSON in a file, refused when it is not valid JSON.
+
+    Args:
+        path: The file.
+    """
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -21,6 +26,12 @@ def load_json(path: Path) -> Any:
 
 
 def dump_json(path: Path, data: Any) -> None:
+    """Write data as indented JSON, through the one file-writing helper.
+
+    Args:
+        path: The file.
+        data: What to write.
+    """
     write_file(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -115,6 +126,11 @@ def read_no_follow(path: Path) -> bytes:
 
 
 def read_text(path: Path) -> str:
+    """A file's text, read as UTF-8.
+
+    Args:
+        path: The file.
+    """
     return path.read_text(encoding="utf-8")
 
 

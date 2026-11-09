@@ -140,6 +140,7 @@ def _checked(t: Any, where: str) -> dict[str, Any]:
 
 
 def builtin_templates() -> dict[str, dict[str, Any]]:
+    """The packaged rubric templates, by id."""
     folder = resources.files("sealed_panel").joinpath("rubrics")
     found = {}
     for entry in sorted(folder.iterdir(), key=lambda e: e.name):
@@ -190,6 +191,12 @@ def all_templates(lib: Path) -> tuple[dict[str, Served], list[str]]:
 
 
 def get_template(lib: Path, tid: str) -> Served:
+    """One template the library serves, with its source; refused when unknown.
+
+    Args:
+        lib: The user rubric library.
+        tid: The template id.
+    """
     found, _ = all_templates(lib)
     if tid not in found:
         raise EvalError(f"no template {tid!r}; `sealed-panel rubrics list` shows them")
@@ -200,6 +207,11 @@ def get_template(lib: Path, tid: str) -> Served:
 
 
 def normalise_kind(kind: str) -> str:
+    """A kind of text in the form templates use: folded case, dashes for spaces.
+
+    Args:
+        kind: The kind as the user wrote it.
+    """
     return re.sub(r"[\s_]+", "-", kind.strip().casefold())
 
 
@@ -277,6 +289,14 @@ def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None)
 
 
 def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = None) -> Path:
+    """Write a spec skeleton from a template; its TODO markers stop `init` until filled.
+
+    Args:
+        lib: The user rubric library.
+        tid: The template id.
+        out: Where to write the spec; refused when it exists.
+        persona_file: A JSON list of personas to put in the skeleton, or None.
+    """
     if out.exists():
         raise EvalError(f"{out} already exists: choose another path or remove it first")
     t = get_template(lib, tid)["template"]
@@ -302,16 +322,31 @@ def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = N
 
 
 def inbox_dir(lib: Path) -> Path:
+    """The library's inbox of open candidates.
+
+    Args:
+        lib: The user rubric library.
+    """
     refuse_links(lib, lib / "inbox")
     return lib / "inbox"
 
 
 def history_dir(lib: Path) -> Path:
+    """The library's history of closed candidates.
+
+    Args:
+        lib: The user rubric library.
+    """
     refuse_links(lib, lib / "history")
     return lib / "history"
 
 
 def check_candidate_id(cid: str) -> str:
+    """The candidate id, refused unless it has the candidate shape.
+
+    Args:
+        cid: The id to check.
+    """
     if not CANDIDATE_ID.match(cid):
         raise EvalError(f"{cid!r} is not a candidate id (c- and 12 hex characters)")
     return cid
@@ -365,6 +400,11 @@ def _load_candidates(folder: Path) -> tuple[list[dict[str, Any]], list[str]]:
 
 
 def open_candidates(lib: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """The open candidates of the inbox, and a warning per unreadable file.
+
+    Args:
+        lib: The user rubric library.
+    """
     rows, warnings = _load_candidates(inbox_dir(lib))
     return [c for c in rows if c.get("status") == "open"], warnings
 
@@ -624,10 +664,24 @@ def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
 
 
 def promote(lib: Path, cid: str, into: str | None = None) -> Path:
+    """Apply a candidate to a user template and close it; a person decides this.
+
+    Args:
+        lib: The user rubric library.
+        cid: The candidate id.
+        into: The template to change; the candidate's own when None.
+    """
     return apply_promotion(lib, plan_promotion(lib, cid, into))
 
 
 def reject(lib: Path, cid: str, reason: str) -> Path:
+    """Close a candidate as rejected, with the person's reason.
+
+    Args:
+        lib: The user rubric library.
+        cid: The candidate id.
+        reason: Why it is rejected.
+    """
     if not reason.strip():
         raise EvalError("--reason is required: say why the candidate is rejected")
     c = _open_candidate(lib, cid)

@@ -35,6 +35,7 @@ uv run --no-sync actionlint
 uv run --no-sync lint-imports
 uv run --no-sync xenon --max-absolute F --max-modules D --max-average B src tools examples
 uv run --no-sync python tools/complexity_check.py
+uv run --no-sync interrogate src
 uv export --locked --all-extras --all-groups --no-emit-project -o audit.txt
 uv run --locked --only-group audit pip-audit --strict --require-hashes --disable-pip -r audit.txt
 ```
@@ -45,7 +46,7 @@ pull request, so a red `pip-audit` is fixed in its own pull request.
 
 | Job | What it checks |
 |---|---|
-| `lint`, `types` | ruff (lint and format) and mypy strict |
+| `lint`, `types` | ruff (lint, format, the security rules, docstrings) and mypy strict |
 | `test (3.11)` to `test (3.13)` | the test suite with the `mcp` extra, and the coverage floor |
 | `test (3.11, core)` to `test (3.13, core)` | the test suite without the extra: the MCP tests skip |
 | `mutation` | every seeded defect of `tools/mutation_check.py` is caught |
@@ -54,6 +55,7 @@ pull request, so a red `pip-audit` is fixed in its own pull request.
 | `gitleaks` | secrets in the whole history, with a pinned release checked by its sha256; `.gitleaks.toml` allowlists only the sha256 digests of the test fixtures and the lock |
 | `imports` | the import contract in `pyproject.toml`: the command line and the MCP server above the core, `store` and `errors` at the bottom; a new module must be placed in a layer |
 | `complexity` | xenon caps the ranks at their 0.3.1 level (worst block F, worst module D, average B), and `tools/complexity_check.py` holds every function above rank B at its complexity in `tools/complexity_baseline.json`; a new function stays at rank B (complexity 10 or less) |
+| `docstrings` | interrogate: at least 80% of the public functions, classes and modules of the package have a docstring |
 | `pip-audit` | known vulnerabilities in every locked package, by hash |
 
 When a refactor lowers a function's complexity, run `tools/complexity_check.py --update` and
@@ -144,9 +146,12 @@ A known-good equal to the candidate made the calibration check pass by construct
   scores, kept as written, so never re-wrap them.
 - Examples are synthetic. Do not commit real CVs, messages or other personal material.
 - Code: typed (mypy strict on `src`, `tools` and `examples`), formatted by ruff, standard
-  library only at runtime. A setting goes in `defaults.toml` and `docs/configuration.md`; a
-  setting that guards the protocol also gets a hard bound in `config.py`. The brief texts stay
-  in `brief.py`: they are the instrument.
+  library only at runtime. Every public module, class and function of the package has a
+  docstring (ruff `D1`). Each function of the public API (`sealed_panel.__all__`) has an `Args:`
+  section (`tests/test_docstrings.py`), and an `Args:` section anywhere names every argument
+  (ruff `D417`); give a new public function one. A setting goes in `defaults.toml` and
+  `docs/configuration.md`; a setting that guards the protocol also gets a hard bound in
+  `config.py`. The brief texts stay in `brief.py`: they are the instrument.
 
 ## Vendor names
 

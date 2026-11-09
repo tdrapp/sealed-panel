@@ -18,6 +18,12 @@ INJECTION_ACK = "injection_acknowledged"
 
 
 def measured_ok(spec: dict[str, Any], entry: dict[str, Any]) -> bool:
+    """Whether every measured criterion passed in this round.
+
+    Args:
+        spec: The frozen spec.
+        entry: The round's ledger entry.
+    """
     if not spec.get("measured"):
         return True
     got = {m["id"]: m["pass"] for m in entry.get("measured", [])}
@@ -25,6 +31,11 @@ def measured_ok(spec: dict[str, Any], entry: dict[str, Any]) -> bool:
 
 
 def all_top(entry: dict[str, Any]) -> bool:
+    """Whether every median of the round is the top score.
+
+    Args:
+        entry: The round's ledger entry.
+    """
     return all(
         e["median"] == TOP_SCORE
         for p in entry["personas"].values()
@@ -61,6 +72,12 @@ def _gate(spec: dict[str, Any], entry: dict[str, Any], d: dict[str, Any]) -> dic
 
 
 def decide(spec: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
+    """The stop rule: what the ledger says comes next.
+
+    Args:
+        spec: The frozen spec.
+        ledger: The run's ledger: the aggregated rounds.
+    """
     n = PLATEAU_ROUNDS
     rounds = ledger["rounds"]
     sealed = [r for r in rounds if r.get("sealed")]

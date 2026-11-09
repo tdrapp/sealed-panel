@@ -184,6 +184,19 @@ jobs:
       - run: uv run --no-sync xenon --max-absolute F --max-modules D --max-average B src tools examples
       - run: uv run --no-sync python tools/complexity_check.py
 
+  # Docstring coverage of the public API ([tool.interrogate]); ruff's D1 and D417 run in lint.
+  docstrings:
+    name: docstrings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.12.1"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run --no-sync interrogate src
+
   # Every mutation on every pull request, in four shards of two workers each; the job named
   # mutation, the required check, passes only when every shard ran and the merged outcomes
   # keep the rule (CONTRIBUTING.md, "The mutation check").

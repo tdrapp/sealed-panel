@@ -27,7 +27,12 @@ def normalise_with(text: str, punctuation: dict[str, str], strip_chars: str) -> 
 
 
 def normalise(text: str, cfg: Config | None = None) -> str:
-    """The quote check's normalisation, with the run's `[text]` settings."""
+    """The quote check's normalisation, with the run's `[text]` settings.
+
+    Args:
+        text: The text.
+        cfg: The run's configuration.
+    """
     cfg = resolve(cfg)
     return normalise_with(text, cfg.punctuation, cfg.strip_chars)
 
@@ -47,6 +52,12 @@ def fixed_normalise(text: str) -> str:
 
 
 def quote_parts(quote: str, cfg: Config | None = None) -> list[str]:
+    """The fragments of a quote, split on an ellipsis and normalised.
+
+    Args:
+        quote: The quote.
+        cfg: The run's configuration.
+    """
     q = normalise(quote or "", cfg)
     q = re.sub(_ELLIPSIS_FORMS, "...", q)
     parts = [p.strip(_FRAGMENT_EDGES) for p in q.split("...")]
@@ -54,12 +65,23 @@ def quote_parts(quote: str, cfg: Config | None = None) -> list[str]:
 
 
 def text_hash(text: str) -> str:
+    """A short hash of a text, normalised with the built-in settings.
+
+    Args:
+        text: The text.
+    """
     digest = hashlib.sha256(fixed_normalise(text).encode("utf-8")).hexdigest()
     return digest[:TEXT_HASH_CHARS]
 
 
 def quote_found(quote: str, source: str, cfg: Config | None = None) -> bool:
-    """True when every fragment of the quote (split on an ellipsis) appears, in order."""
+    """True when every fragment of the quote (split on an ellipsis) appears, in order.
+
+    Args:
+        quote: The judge's quote.
+        source: The item it quotes.
+        cfg: The run's configuration.
+    """
     cfg = resolve(cfg)
     whole = "...".join(quote_parts(quote, cfg))
     if len(whole) >= cfg.min_quote_chars and whole in "...".join(quote_parts(source, cfg)):
@@ -80,6 +102,12 @@ def quote_found(quote: str, source: str, cfg: Config | None = None) -> bool:
 
 
 def injection_flags(text: str, cfg: Config | None = None) -> list[str]:
+    """The injection patterns the text matches, after the built-in normalisation.
+
+    Args:
+        text: The text.
+        cfg: The run's configuration, which may add patterns.
+    """
     cfg = resolve(cfg)
     low = fixed_normalise(text)
     return [p for p in cfg.injection_patterns if re.search(p, low)]

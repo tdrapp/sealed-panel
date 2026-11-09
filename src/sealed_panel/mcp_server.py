@@ -169,6 +169,8 @@ class ReportResult(BaseModel):
 
 
 class TemplateRow(BaseModel):
+    """A rubric template the library serves."""
+
     id: str
     version: int
     source: str
@@ -176,6 +178,8 @@ class TemplateRow(BaseModel):
 
 
 class CandidateRow(BaseModel):
+    """An open rubric candidate in the library's inbox."""
+
     id: str
     kind: str
     template: str | None
@@ -195,6 +199,8 @@ class RubricsList(BaseModel):
 
 
 class Suggestion(BaseModel):
+    """A template for the kind of text: when to use it, its dimensions."""
+
     id: str
     version: int
     source: str

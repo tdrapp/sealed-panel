@@ -229,7 +229,16 @@ def open_seats(
     """The judge slots of a round without a valid reply and not being judged by another call,
     in order (only those in `only` when given). A marker a stopped runner left is recorded as
     a void first. Every refusal is checked here, before any process starts. `expected` is the
-    judge section the caller must match (see check_judge)."""
+    judge section the caller must match (see check_judge).
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+        only: The judge slots to consider, or None for all.
+        expected: The judge section the caller must match (the MCP server's own), or None to take
+            the run's.
+    """
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     settle_stale_files(run, rnd, sealed)
     slots = [j["judge"] for j in keys["judges"] if isinstance(j, dict)]
@@ -357,7 +366,16 @@ def judge_seat(
     """Start one fresh judge process on one brief and record what it gave: a reply (valid or
     rejected), or a void when it failed, timed out, wrote nothing or too much, or its reply was
     refused. The seat is held by an in-progress marker from the check to the record, so two
-    calls never judge it at once; every process started ends recorded. Returns the result."""
+    calls never judge it at once; every process started ends recorded. Returns the result.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        judge: The judge slot.
+        sealed: Whether the round is the sealed panel's.
+        expected: The judge section the caller must match (the MCP server's own), or None to take
+            the run's.
+    """
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):
         raise EvalError(f"no judge {judge} in {rdir}/keys.json")
@@ -462,7 +480,16 @@ def judge_round(
 ) -> list[dict[str, Any]]:
     """Run the judge command once for every open seat of a round, one after the other, and
     return each recorded result. A seat another call takes meanwhile is skipped; any other
-    refusal stops the round, and what was recorded stays."""
+    refusal stops the round, and what was recorded stays.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+        only: The judge slots to run, or None for every open one.
+        expected: The judge section the caller must match (the MCP server's own), or None to take
+            the run's.
+    """
     results = []
     for seat in open_seats(run, rnd, sealed, only, expected):
         try:

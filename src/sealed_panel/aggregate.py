@@ -147,7 +147,13 @@ def _check_complete(
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
-    panel, write learned candidates to the user library's inbox (listed under `inbox`)."""
+    panel, write learned candidates to the user library's inbox (listed under `inbox`).
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)

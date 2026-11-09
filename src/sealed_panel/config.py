@@ -301,6 +301,7 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
 
 
 def default_data() -> dict[str, Any]:
+    """The packaged defaults, read from defaults.toml."""
     text = resources.files("sealed_panel").joinpath("defaults.toml").read_text("utf-8")
     return tomllib.loads(text)
 
@@ -309,6 +310,11 @@ class Config:
     """The effective configuration: defaults merged with an optional override."""
 
     def __init__(self, data: Mapping[str, Any]) -> None:
+        """Check the settings against their bounds and keep a copy.
+
+        Args:
+            data: The settings, shaped like the defaults.
+        """
         self.data: dict[str, Any] = json.loads(json.dumps(data))
         errors = bound_errors(self.data)
         if errors:
@@ -316,75 +322,97 @@ class Config:
 
     @property
     def fingerprint(self) -> str:
+        """The sha256 of the settings, frozen into a run."""
         canon = json.dumps(self.data, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
     def section(self, name: str) -> dict[str, Any]:
+        """One table of the settings.
+
+        Args:
+            name: The table's name, such as `run` or `judge`.
+        """
         value: dict[str, Any] = self.data[name]
         return value
 
     @property
     def run_defaults(self) -> dict[str, Any]:
+        """The per-run defaults a spec may override."""
         return self.section("run")
 
     @property
     def framings(self) -> list[str]:
+        """The reading stances rotated across judges."""
         return list(self.section("run")["framings"])
 
     @property
     def min_judges_per_persona(self) -> int:
+        """The lowest judges_per_persona a spec may ask."""
         return int(self.section("limits")["min_judges_per_persona"])
 
     @property
     def min_max_rounds(self) -> int:
+        """The lowest max_rounds a spec may ask."""
         return int(self.section("limits")["min_max_rounds"])
 
     @property
     def min_valid_judges(self) -> int:
+        """Valid judges needed per persona to aggregate."""
         return int(self.section("limits")["min_valid_judges"])
 
     @property
     def max_replacements(self) -> int:
+        """Rejected attempts allowed per judge slot and round."""
         return int(self.section("limits")["max_replacements"])
 
     @property
     def severity_caps(self) -> dict[str, int]:
+        """The highest score each severity allows."""
         return {k: int(v) for k, v in self.section("severity")["caps"].items()}
 
     @property
     def severities(self) -> tuple[str, ...]:
+        """The severities a judge may give."""
         return tuple(self.severity_caps)
 
     @property
     def findings(self) -> tuple[str, ...]:
+        """The severities written to the author's findings."""
         return tuple(self.section("severity")["findings"])
 
     @property
     def min_quote_chars(self) -> int:
+        """The shortest quote that counts as evidence."""
         return int(self.section("quotes")["min_chars"])
 
     @property
     def min_fragment_chars(self) -> int:
+        """The shortest fragment of a quote split on '...'."""
         return int(self.section("quotes")["min_fragment_chars"])
 
     @property
     def max_bad_share(self) -> Fraction:
+        """The share of unverified quotes that discards a judge."""
         return Fraction(self.section("quotes")["max_bad_share"])
 
     @property
     def strip_chars(self) -> str:
+        """The characters quote matching removes."""
         return str(self.section("text")["strip_chars"])
 
     @property
     def punctuation(self) -> dict[str, str]:
+        """The punctuation map quote matching applies."""
         return dict(self.section("text")["punctuation"])
 
     @property
     def injection_patterns(self) -> list[str]:
+        """The patterns of text addressed to a judge."""
         return list(self.section("injection")["patterns"])
 
     @property
     def transcript(self) -> dict[str, Any]:
+        """The field names read in a judge's transcript."""
         return self.section("transcript")
 
     @property
@@ -402,11 +430,16 @@ class Config:
 
 @cache
 def default_config() -> Config:
+    """The packaged defaults, as a Config."""
     return Config(default_data())
 
 
 def load_config(path: Path | None = None) -> Config:
-    """The defaults, or the defaults merged with the TOML file at `path`."""
+    """The defaults, or the defaults merged with the TOML file at `path`.
+
+    Args:
+        path: A TOML file of settings, or None.
+    """
     if path is None:
         return default_config()
     try:
@@ -417,6 +450,11 @@ def load_config(path: Path | None = None) -> Config:
 
 
 def resolve(cfg: Config | None) -> Config:
+    """The configuration given, or the packaged defaults.
+
+    Args:
+        cfg: A configuration, or None.
+    """
     return default_config() if cfg is None else cfg
 
 
@@ -604,7 +642,12 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
     """Every setting that differs from the packaged defaults, as `key = value (default x)`.
 
     Per-run keys are read from the frozen spec when one is given, since that is the value
-    the run uses; the other keys come from the configuration."""
+    the run uses; the other keys come from the configuration.
+
+    Args:
+        cfg: The configuration.
+        spec: The frozen spec, or None.
+    """
     defaults = _flatten(default_data())
     current = _flatten(cfg.data)
     out = []

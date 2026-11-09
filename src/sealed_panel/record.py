@@ -195,7 +195,12 @@ def last_reply(transcript: Path, cfg: Config | None = None) -> str:
     delivered or refused, raises MalformedReply; no reply at all is an error, never a guess.
 
     A last line that is not a JSON object raises MalformedReply: a transcript cut off while
-    being written may have lost the final reply, and the text before it is not that reply."""
+    being written may have lost the final reply, and the text before it is not that reply.
+
+    Args:
+        transcript: The judge's JSONL transcript.
+        cfg: The run's configuration.
+    """
     lines = _lines(transcript)
     if lines and lines[-1][1] is None:
         raise MalformedReply(
@@ -246,7 +251,15 @@ def check_output(
     dim_ids: list[str],
     cfg: Config | None = None,
 ) -> dict[str, Any]:
-    """Validate one judge's JSON against its label key. Scores are kept per ROLE, never label."""
+    """Validate one judge's JSON against its label key. Scores are kept per ROLE, never label.
+
+    Args:
+        out: The judge's parsed JSON.
+        key: The brief's label key: label to role.
+        texts: The text of each role, for the quote check.
+        dim_ids: The dimensions the persona is scored on.
+        cfg: The configuration; the packaged defaults when None.
+    """
     cfg = resolve(cfg)
     caps = cfg.severity_caps
     errors: list[str] = []
@@ -327,6 +340,11 @@ def check_output(
 
 
 def safe_name(s: str) -> str:
+    """A string fit for a file name, cut short.
+
+    Args:
+        s: The string.
+    """
     return re.sub(r"[^A-Za-z0-9_.-]", "_", s)[:SAFE_NAME_CHARS]
 
 
@@ -470,6 +488,12 @@ def _runner_void(
 
 
 def round_keys(rdir: Path, rnd: int) -> dict[str, Any]:
+    """The round's keys.json, refused when the round is not briefed or the file is damaged.
+
+    Args:
+        rdir: The round directory.
+        rnd: The round number, from 1.
+    """
     path = rdir / "keys.json"
     if not path.exists():
         raise EvalError(f"round {rnd} is not briefed ({path} is missing)")
@@ -511,7 +535,20 @@ def record_reply(
 ) -> dict[str, Any]:
     """Validate and store one judge's reply, or a void attempt. Returns the result. A
     non-empty `malformed` records the attempt as rejected with that reason. A runner reply is
-    recorded only by the runner itself, which wrote the brief and read the reply."""
+    recorded only by the runner itself, which wrote the brief and read the reply.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        judge: The judge slot.
+        agent_id: The id of the judge's context, new for every reply in the run.
+        raw: The reply as the judge wrote it.
+        sealed: Whether the round is the sealed panel's.
+        source: Where the reply came from: output, transcript or void.
+        transcript: The judge's transcript, when the reply was read there.
+        void: Record an attempt that never replied.
+        malformed: A reason to record the attempt as rejected, or empty.
+    """
     if source == RUNNER:
         raise EvalError("a runner reply is recorded by `sealed-panel judge` only, with its proof")
     return _record_reply(
@@ -650,7 +687,18 @@ def record_from(
     void: bool = False,
 ) -> dict[str, Any]:
     """Record one judge as the `record` command does: from its transcript (or as a void on
-    it), or from a pasted reply. The command line and the MCP server both call this."""
+    it), or from a pasted reply. The command line and the MCP server both call this.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        judge: The judge slot.
+        agent_id: The id of the judge's context, new for every reply in the run.
+        sealed: Whether the round is the sealed panel's.
+        transcript: The judge's transcript, or None.
+        output: The pasted reply, or None.
+        void: Record the transcript's agent as an attempt that never replied.
+    """
     _refuse_in_a_runner_run(run_config(run))
     if void and transcript is None:
         raise EvalError("--void needs --transcript")
@@ -679,7 +727,16 @@ def record_from(
 def record_measurement(
     run: Path, rnd: int, mid: str, value: str, passed: bool | None, sealed: bool
 ) -> bool:
-    """Record one instrument reading. A numeric threshold decides pass or fail."""
+    """Record one instrument reading. A numeric threshold decides pass or fail.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        mid: The measured criterion's id.
+        value: The reading.
+        passed: Pass or fail, for a criterion without a numeric threshold; else None.
+        sealed: Whether the round is the sealed panel's.
+    """
     spec = load_frozen(run)
     run_config(run)
     m = next((x for x in spec.get("measured") or [] if x["id"] == mid), None)
