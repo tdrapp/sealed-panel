@@ -33,21 +33,31 @@ checks, and gitleaks on what is staged) and on push (the test suite).
 .venv/bin/python tools/mutation_check.py --jobs 4
 uv run --no-sync actionlint
 uv run --no-sync lint-imports
+uv run --no-sync xenon --max-absolute F --max-modules D --max-average B src tools examples
+uv run --no-sync python tools/complexity_check.py
 uv export --locked --all-extras --all-groups --no-emit-project -o audit.txt
 uv run --locked --only-group audit pip-audit --strict --require-hashes --disable-pip -r audit.txt
 ```
 
-CI runs the same: lint, types, tests on Python 3.11 to 3.13 with and without the `mcp` extra,
-the mutation check, a build of the sdist and the wheel (the wheel installed in a fresh
-environment, `sealed-panel --version`, and the MCP server answering `initialize`, through
-`tools/smoke_mcp.py`), `actionlint` on the workflows (with shellcheck on each step's script),
-`gitleaks` on the whole history (a pinned release checked by its sha256; `.gitleaks.toml`
-allowlists only the sha256 digests of the test fixtures and the lock), `pip-audit` on every
-locked package, and `lint-imports`: the import contract in `pyproject.toml` keeps the command
-line and the MCP server above the core, and `store` and `errors` at the bottom; a new module
-must be placed in a layer. Every job but `pip-audit` is a required check: a vulnerability
-published tomorrow must not block an unrelated pull request, so a red `pip-audit` is fixed in
-its own pull request.
+CI runs the same checks, one job each. Every job but `pip-audit` is a required check in
+`.github/branch-protection.json`: a vulnerability published tomorrow must not block an unrelated
+pull request, so a red `pip-audit` is fixed in its own pull request.
+
+| Job | What it checks |
+|---|---|
+| `lint`, `types` | ruff (lint and format) and mypy strict |
+| `test (3.11)` to `test (3.13)` | the test suite with the `mcp` extra, and the coverage floor |
+| `test (3.11, core)` to `test (3.13, core)` | the test suite without the extra: the MCP tests skip |
+| `mutation` | every seeded defect of `tools/mutation_check.py` is caught |
+| `build` | the sdist and the wheel build; the wheel installs in a fresh environment with the lock's versions, `sealed-panel --version` names the package version, and the MCP server answers `initialize` (`tools/smoke_mcp.py`) |
+| `actionlint` | the workflows, with shellcheck on each step's script |
+| `gitleaks` | secrets in the whole history, with a pinned release checked by its sha256; `.gitleaks.toml` allowlists only the sha256 digests of the test fixtures and the lock |
+| `imports` | the import contract in `pyproject.toml`: the command line and the MCP server above the core, `store` and `errors` at the bottom; a new module must be placed in a layer |
+| `complexity` | xenon caps the ranks at their 0.3.1 level (worst block F, worst module D, average B), and `tools/complexity_check.py` holds every function above rank B at its complexity in `tools/complexity_baseline.json`; a new function stays at rank B (complexity 10 or less) |
+| `pip-audit` | known vulnerabilities in every locked package, by hash |
+
+When a refactor lowers a function's complexity, run `tools/complexity_check.py --update` and
+commit the lower baseline; never raise the baseline to let a change in.
 
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.

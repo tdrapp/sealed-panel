@@ -393,6 +393,7 @@ sealed-panel/
   tools/
     mutation_check.py    seeded defects the tests must catch
     smoke_mcp.py         the installed MCP server answers initialize (build job)
+    complexity_check.py  no function grows past complexity_baseline.json
   skill/
     SKILL.md             the procedure an agent follows (the one source of the skill)
     judge.md             the judge instructions
@@ -423,7 +424,7 @@ sealed-panel/
   .github/
     workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
                          extra, mutation check, build, actionlint, pip-audit, gitleaks,
-                         import contracts
+                         import contracts, complexity
     workflows/release.yml  a tag v* publishes through trusted publishing
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/

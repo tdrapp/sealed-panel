@@ -61,6 +61,8 @@ dev = [
     "shellcheck-py>=0.10",
     # The import contract below.
     "import-linter>=2.1",
+    # The complexity ceiling (see CONTRIBUTING.md).
+    "xenon>=0.9",
 ]
 # The vulnerability audit, kept apart so it never lands in a test environment.
 audit = ["pip-audit>=2.7"]
@@ -127,6 +129,11 @@ strict = true
 python_version = "3.11"
 files = ["src", "tools", "examples"]
 mypy_path = "src"
+
+# radon (the complexity check's measure) ships no type information.
+[[tool.mypy.overrides]]
+module = ["radon.*"]
+ignore_missing_imports = true
 
 # The command line and the MCP server sit above the core; store and errors sit at the bottom, so
 # the core never reaches for an interface and the files layer never reaches for the protocol.

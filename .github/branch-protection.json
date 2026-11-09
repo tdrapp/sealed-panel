@@ -14,7 +14,8 @@
       "build",
       "actionlint",
       "gitleaks",
-      "imports"
+      "imports",
+      "complexity"
     ]
   },
   "enforce_admins": true,

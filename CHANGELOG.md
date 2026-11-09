@@ -33,6 +33,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An import contract (import-linter, a required CI job `imports`): `cli` and `mcp_server` sit
   above the core, `store` and `errors` at the bottom, and every module of the package must be
   placed in a layer.
+- A complexity ceiling (a required CI job `complexity`): xenon caps the ranks at their current
+  level, and `tools/complexity_check.py` freezes every function above rank B at its current
+  complexity (`tools/complexity_baseline.json`); a new function must stay at rank B.
 
 ### Changed
 
