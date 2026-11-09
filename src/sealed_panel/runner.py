@@ -305,7 +305,8 @@ def _launch(
         stdin.write(brief)
         stdin.seek(0)
         try:
-            proc = subprocess.Popen(
+            # The user's judge command, as an argument list and never through a shell.
+            proc = subprocess.Popen(  # noqa: S603
                 argv,
                 stdin=stdin,
                 stdout=subprocess.PIPE,
@@ -316,7 +317,7 @@ def _launch(
             )
         except OSError as exc:
             raise EvalError(f"cannot start the judge command {argv[0]!r}: {exc}") from exc
-        assert proc.stdout is not None and proc.stderr is not None
+        assert proc.stdout is not None and proc.stderr is not None  # noqa: S101 (typing only)
         chunks: list[bytes] = []
         over_out, over_err = threading.Event(), threading.Event()
         reader = threading.Thread(

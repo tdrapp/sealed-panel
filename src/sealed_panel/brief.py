@@ -245,7 +245,8 @@ def write_briefs(
         write_file(rdir / f"{role}.md", text)
     framings = spec.get("framings") or cfg.framings
     seed = secrets.randbits(SEED_BITS)
-    rng = random.Random(seed)
+    # Shuffling, not secrecy: the seed comes from `secrets` and is kept in keys.json.
+    rng = random.Random(seed)  # noqa: S311
     offset = rng.randrange(len(framings))  # which judge gets which stance changes per round
     paths, judges, j = [], [], 0
     for persona in spec["personas"]:

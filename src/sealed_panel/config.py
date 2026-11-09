@@ -448,7 +448,7 @@ def _git_local_env_vars() -> frozenset[str]:
     moves to another repository (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and the like)."""
     clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     done = subprocess.run(
-        ["git", "rev-parse", "--local-env-vars"],
+        ["git", "rev-parse", "--local-env-vars"],  # noqa: S607 (the user's own git, from PATH)
         capture_output=True,
         text=True,
         check=True,
@@ -466,9 +466,9 @@ def _git_ignored(top: Path, path: Path) -> bool:
     `-c core.excludesFile` is dropped with them: the user's durable configuration decides."""
     try:
         local = _git_local_env_vars()
-        done = subprocess.run(
+        done = subprocess.run(  # noqa: S603 (a fixed argument list, no shell)
             # A trailing slash: the library is a directory, even before it exists.
-            ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],
+            ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],  # noqa: S607
             capture_output=True,
             check=False,
             env={k: v for k, v in os.environ.items() if k not in local},
