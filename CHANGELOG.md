@@ -32,6 +32,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   new spec key `injection_acknowledged`: a reason, frozen and hashed with the rubric (a spec
   without it keeps its hash), and shown in the report and in `status`. `feedback` is refused
   on a blocked grade, which does not stand.
+- The development tools moved from the `dev` extra to `[dependency-groups]` (`test`, `dev`,
+  `audit`), and `uv.lock` is committed: contributors and CI install with `uv sync --locked`. The
+  `mcp` extra is unchanged. A `dev` extra holding the test requirements stays for the mutation
+  job until it moves to the lock as well. Dependabot follows the lock.
 
 - The mutation check runs each mutation against the tests that execute its lines, picked from
   a coverage map built in each run, and confirms every survivor on the whole suite. CI runs it

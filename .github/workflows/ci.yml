@@ -18,23 +18,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: "0.12.1"
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
-      - run: ruff check .
-      - run: ruff format --check .
+      - run: uv sync --locked
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
 
   types:
     name: types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: "0.12.1"
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
-      - run: mypy
+      - run: uv sync --locked
+      - run: uv run --no-sync mypy
 
   test:
     name: test (${{ matrix.python-version }})
@@ -45,11 +47,12 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: "0.12.1"
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e ".[dev]"
-      - run: pytest --cov-report=xml
+      - run: uv sync --locked
+      - run: uv run --no-sync pytest --cov-report=xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: matrix.python-version == '3.12'
         with:
@@ -67,12 +70,13 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: "0.12.1"
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e . "pytest>=8"
-      - run: python -c "import importlib.util as u, sys; sys.exit(u.find_spec('fastmcp') is not None)"
-      - run: pytest -o addopts="-q -rs"
+      - run: uv sync --locked --no-default-groups --group test
+      - run: uv run --no-sync python -c "import importlib.util as u, sys; sys.exit(u.find_spec('fastmcp') is not None)"
+      - run: uv run --no-sync pytest -o addopts="-q -rs"
 
   # Every mutation on every pull request, in four shards of two workers each; the job named
   # mutation, the required check, passes only when every shard ran and the merged outcomes

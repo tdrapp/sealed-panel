@@ -432,8 +432,7 @@ sealed-panel/
 ## Development
 
 ```sh
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
+uv sync --locked --python 3.12
 .venv/bin/pre-commit install
 .venv/bin/pre-commit run --all-files
 .venv/bin/pytest

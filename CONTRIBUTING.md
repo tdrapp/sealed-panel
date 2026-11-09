@@ -5,16 +5,21 @@ code, with a test for every refusal. Changes that keep it that way are welcome.
 
 ## Setup
 
-You need Python 3.11 or later and [uv](https://docs.astral.sh/uv/) (or plain `pip` and
-`venv`).
+You need Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 git clone https://github.com/tdrapp/sealed-panel
 cd sealed-panel
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
+uv sync --locked --python 3.12
 .venv/bin/pre-commit install
 ```
+
+`uv sync --locked` installs the package and the `dev` dependency group into `.venv`, at the
+versions `uv.lock` pins, and fails if the lock no longer matches `pyproject.toml`. The
+development tools live in `[dependency-groups]`: `test` (what the tests need), `dev` (`test`
+plus the linters, the type checker and the MCP server's package) and `audit` (the vulnerability
+audit). After changing a dependency, run `uv lock` and commit `uv.lock` with it. The `mcp` extra
+stays for users who install the package.
 
 `pre-commit install` installs two hooks: on commit (ruff lint and format, mypy, file
 checks) and on push (the test suite).
