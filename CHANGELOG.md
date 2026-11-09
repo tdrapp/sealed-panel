@@ -48,6 +48,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Test tiers: a `slow` marker on every test that starts a process other than git, declared in
   `pyproject.toml` with `--strict-markers`; `pytest -m "not slow"` is the fast tier. A fixture
   fails an unmarked test that starts such a process.
+- The judge runner's proof holds, per attempt, the sha256 of the value of each `[judge]
+  env_allow` name it passed (never the value), and `aggregate` and the report flag a round whose
+  attempts ran under different values (`runner_env_changed`): a model read from an allowed
+  variable could change between a rejected attempt and its replacement, unseen.
 
 ### Changed
 
@@ -65,6 +69,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ruff also runs its security rules (`S`, from bandit) and `T20` (no stray `print`). The
   exceptions are per file (the command line, tools, examples, the stand-in judges, tests'
   asserts and subprocesses) or carry their reason inline.
+- `examples/runner/judge_template.py` takes the model on its own command line (`-- MODEL
+  ARGV...` or `--url URL`), and `examples/runner/judge.toml` puts it in `judge.command`, where
+  the run freezes it and the report shows it next to the grade, with `model_id` beside it; the
+  environment carries the credential only. The template still reads `JUDGE_MODEL_COMMAND` or
+  `JUDGE_MODEL_URL` when it gets no argument.
 
 - The mutation check runs each mutation against the tests that execute its lines, picked from
   a coverage map built in each run, and confirms every survivor on the whole suite. CI runs it

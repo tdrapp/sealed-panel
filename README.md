@@ -22,7 +22,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 337 mutations, 334
+bound or boundary at a time and requires the suite to fail on each. Of its 339 mutations, 336
 are killed; the three that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -482,9 +482,13 @@ aggregating. Pasted replies (`--output`) carry no proof that the judge received 
 verbatim, or that no other judge was asked and discarded; the report flags such rounds. The
 judge runner proves what sealed-panel wrote and read, not what the judge command did between the
 two: a command that asks a model several times and prints the best answer is a re-roll it cannot
-see, so the command is frozen into the run and listed next to the grade. `record` calls for one
-round must be made one after the other, not in parallel, because each call reads the files the
-previous one wrote; `judge` calls may overlap, since a marker holds each seat.
+see, so the command is frozen into the run and listed next to the grade. What the command reads
+from the environment is not frozen: the run keeps a hash of each allowed value and the report
+flags a round whose attempts ran under different values, but cannot say which model each used,
+so the shipped example puts the model in the command and keeps the environment for credentials.
+`record` calls for one round must be made one after the other, not in parallel, because each
+call reads the files the previous one wrote; `judge` calls may overlap, since a marker holds
+each seat.
 
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and

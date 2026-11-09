@@ -1411,6 +1411,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."',
         'return "Judge model: not declared."',
     ),
+    # The values the judge command ran under.
+    "a changed judge environment not flagged": (
+        AGG,
+        "return sorted(n for n in names if len({hashes.get(n) for hashes in seen}) > 1)",
+        "return []",
+    ),
+    "the judge environment left out of the proof": (
+        RUN,
+        '"env_sha256": env_hashes(cfg, env),',
+        '"env_sha256": {},',
+    ),
 }
 
 

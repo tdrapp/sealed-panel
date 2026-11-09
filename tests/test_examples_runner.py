@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -14,7 +15,9 @@ from typing import Any
 import pytest
 
 from conftest import Harness, make_spec
+from sealed_panel.aggregate import aggregate_round
 from sealed_panel.config import load_config
+from sealed_panel.report import render_report
 from sealed_panel.runner import judge_round
 from sealed_panel.spec import init_run
 
@@ -68,7 +71,7 @@ def test_the_template_without_a_model_is_a_void(
     r = judge_round(h.run, 1, False, [1])[0]
     assert r["void"] and r["errors"] == ["the judge command exited with status 2"]
     log = (h.run / "rounds" / "r1" / r["runner"]["stderr_log"]).read_text()
-    assert "set JUDGE_MODEL_COMMAND or JUDGE_MODEL_URL" in log
+    assert "name the model: -- MODEL ARGV... or --url URL" in log
 
 
 @pytest.fixture
@@ -209,3 +212,62 @@ def test_an_http_failure_is_a_void_never_a_reply(
     assert hits == ["/judge"], "one call: asking again would be a re-roll"
     log = (h.run / "rounds" / "r1" / r["runner"]["stderr_log"]).read_text()
     assert logged in log
+
+
+def test_the_shipped_configuration_names_the_model_in_the_command() -> None:
+    cfg = load_config(ROOT / "examples" / "runner" / "judge.toml")
+    command = cfg.judge["command"]
+    assert "--" in command and command[command.index("--") + 1 :]
+    assert cfg.judge["env_allow"] == ["JUDGE_MODEL_KEY"]  # a credential only, never the model
+    assert cfg.judge["model_id"]
+
+
+def test_the_template_takes_the_model_on_its_command_line(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ENV:
+        monkeypatch.delenv(name, raising=False)
+    cfg = h.tmp / "argv.toml"
+    command = [sys.executable, str(TEMPLATE), "--", sys.executable, str(STUB)]
+    cfg.write_text(f"[judge]\ncommand = {json.dumps(command)}\n")
+    init_run(h.run, spec_file(h), load_config(cfg))
+    h.brief(1, "cand")
+    assert [r["ok"] for r in judge_round(h.run, 1, False)] == [True, True]
+    report = render_report_after(h)
+    assert "ran under different values" not in report
+
+
+def render_report_after(h: Harness) -> str:
+    aggregate_round(h.run, 1, False)
+    return render_report(h.run)
+
+
+def test_a_model_changed_through_the_environment_is_flagged(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's scenario: the model lives in an allowed variable, a first attempt is
+    rejected, the variable is changed, and the replacement judges under the other model."""
+    for name in ENV:
+        monkeypatch.delenv(name, raising=False)
+    first = json.dumps([sys.executable, str(STUB), "--low", "no-such-word"])
+    monkeypatch.setenv("JUDGE_MODEL_COMMAND", first)
+    init_run(h.run, spec_file(h), load_config(template_config(h)))
+    h.brief(1, "cand")
+    rejected = judge_round(h.run, 1, False, [1])[0]
+    assert not rejected["ok"] and not rejected.get("void")  # the control scored too high
+    monkeypatch.setenv("JUDGE_MODEL_COMMAND", json.dumps([sys.executable, str(STUB)]))
+    assert [r["ok"] for r in judge_round(h.run, 1, False)] == [True, True]
+    entry = aggregate_round(h.run, 1, False)
+    assert entry["runner_env_changed"] == ["JUDGE_MODEL_COMMAND"]
+    report = render_report(h.run)
+    assert "ran under different values of JUDGE_MODEL_COMMAND across attempts" in report
+    stored = "".join(p.read_text() for p in (h.run / "rounds" / "r1").glob("*.json"))
+    assert "no-such-word" not in stored  # a hash of the value, never the value
+    assert hashlib.sha256(first.encode()).hexdigest() in stored
+
+
+def test_one_model_through_the_environment_is_not_flagged(h: Harness, model_command: None) -> None:
+    init_run(h.run, spec_file(h), load_config(template_config(h)))
+    h.brief(1, "cand")
+    judge_round(h.run, 1, False)
+    assert aggregate_round(h.run, 1, False)["runner_env_changed"] == []

@@ -18,14 +18,21 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import runner
-from sealed_panel.aggregate import aggregate_round
+from sealed_panel.aggregate import aggregate_round, env_changes
 from sealed_panel.cli import main
 from sealed_panel.config import Config, ConfigError, default_data, load_config, merge, overrides
 from sealed_panel.errors import EvalError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import MAX_VOIDS, _record_reply, record_from, record_reply
 from sealed_panel.report import render_report, status
-from sealed_panel.runner import SeatTaken, child_env, judge_round, judge_seat, open_seats
+from sealed_panel.runner import (
+    SeatTaken,
+    child_env,
+    env_hashes,
+    judge_round,
+    judge_seat,
+    open_seats,
+)
 from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import round_dir
 
@@ -592,3 +599,20 @@ def test_a_live_marker_moved_by_a_late_settle_is_put_back(
     assert marker.read_text() == live
     assert results_by_judge(round_dir(h.run, 1)) == {}
     assert not list(round_dir(h.run, 1).glob("running_j1.json.*"))
+
+
+class TestEnvironmentHashes:
+    def test_attempts_under_one_value_are_not_flagged(self) -> None:
+        a = {"runner": {"env_sha256": {"KEY": "1", "MODEL": "m"}}}
+        host = {"source": "transcript"}  # no runner proof: left out
+        assert env_changes({1: [a, host], 2: [dict(a)]}) == []
+
+    def test_a_changed_or_dropped_value_is_flagged(self) -> None:
+        a = {"runner": {"env_sha256": {"KEY": "1", "MODEL": "m"}}}
+        b = {"runner": {"env_sha256": {"KEY": "2"}}}
+        assert env_changes({1: [a], 2: [b]}) == ["KEY", "MODEL"]
+
+    def test_the_proof_holds_a_hash_per_allowed_value(self) -> None:
+        cfg = Config(merge(default_data(), {"judge": {"env_allow": ["KEY", "UNSET"]}}))
+        hashes = env_hashes(cfg, {"KEY": "secret", "PATH": "/bin"})
+        assert hashes == {"KEY": hashlib.sha256(b"secret").hexdigest()}

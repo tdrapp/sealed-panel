@@ -2,10 +2,11 @@
 
 sealed-panel writes the brief and reads the reply itself, so a runner reply carries its own
 proof, stored with it: the sha256 of the brief bytes written, the argument list, the exit
-status, the duration, and the sha256 of what came back. The process is started from an
-argument list (never a shell), in an empty temporary directory, with an explicit minimal
-environment: PATH, HOME and LANG, plus the names in `[judge] env_allow`. Its stderr goes to a
-log file beside the brief, never into the reply.
+status, the duration, the sha256 of what came back, and the sha256 of the value of each
+name in `[judge] env_allow` it passed (never the value: it may be a credential). The process is
+started from an argument list (never a shell), in an empty temporary directory, with an
+explicit minimal environment: PATH, HOME and LANG, plus the names in `[judge] env_allow`. Its
+stderr goes to a log file beside the brief, never into the reply.
 
 A process that exits with a non-zero status, runs past `[judge] timeout_s`, writes nothing, or
 writes more than `[judge] max_reply_bytes` gives no reply: the attempt is recorded as void,
@@ -75,6 +76,23 @@ def child_env(cfg: Config, environ: Mapping[str, str] | None = None) -> dict[str
     source = os.environ if environ is None else environ
     names = [*BASE_ENV, *cfg.judge["env_allow"]]
     return {n: source[n] for n in names if n in source}
+
+
+def env_hashes(cfg: Config, env: Mapping[str, str]) -> dict[str, str]:
+    """The sha256 of the value of each `[judge] env_allow` name the judge process gets.
+
+    The value is never stored: it may be a credential. Two attempts whose hashes differ ran
+    under different values (another model, another key), which the report flags.
+
+    Args:
+        cfg: The run's configuration.
+        env: The judge process's environment.
+
+    Returns:
+        The hash of each allowed name that is set, by name.
+    """
+    allowed = cfg.judge["env_allow"]
+    return {n: hashlib.sha256(env[n].encode("utf-8")).hexdigest() for n in allowed if n in env}
 
 
 def _runnable(judge: int, prior: list[dict[str, Any]], cfg: Config) -> None:
@@ -418,6 +436,7 @@ def judge_seat(
         "max_reply_bytes": cap,
         "max_stderr_bytes": cap_err,
         "env_names": sorted(env),
+        "env_sha256": env_hashes(cfg, env),
         "stderr_log": log.name,
     }
     try:

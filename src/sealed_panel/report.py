@@ -230,13 +230,27 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 f"- {name}: judge {j} quoted the same words for every dimension of the "
                 "candidate; its scores may not rest on distinct evidence"
             )
-        if "output" in r.get("sources", []):
-            out.append(f"- {name}: some replies were pasted, not read from a transcript")
-        if RUNNER in r.get("sources", []):
-            out.append(
-                f"- {name}: some replies were read by sealed-panel from the judge command "
-                "(judge.command in the settings above)"
-            )
+        out += _source_notes(name, r)
+    return out
+
+
+def _source_notes(name: str, r: dict[str, Any]) -> list[str]:
+    """What the report says about where a round's replies came from."""
+    out = []
+    if "output" in r.get("sources", []):
+        out.append(f"- {name}: some replies were pasted, not read from a transcript")
+    if RUNNER in r.get("sources", []):
+        out.append(
+            f"- {name}: some replies were read by sealed-panel from the judge command "
+            "(judge.command in the settings above)"
+        )
+    changed = r.get("runner_env_changed") or []
+    if changed:
+        out.append(
+            f"- {name}: the judge command ran under different values of {', '.join(changed)} "
+            "across attempts (another model or key between judges): the declared judge model "
+            "does not cover every attempt; put the model in judge.command to freeze it"
+        )
     return out
 
 

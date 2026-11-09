@@ -1,9 +1,15 @@
 # Give this file to `sealed-panel init RUN --spec SPEC.json --config judge.toml`.
 # The runner starts the command in an empty directory: use absolute paths.
 [judge]
-command = ["python3", "/path/to/sealed-panel/examples/runner/judge_template.py"]
+# The model is part of the command, so the run freezes it and the report shows it next to the
+# grade. For an HTTP endpoint: [..., "judge_template.py", "--url", "https://..."].
+command = [
+    "python3", "/path/to/sealed-panel/examples/runner/judge_template.py",
+    "--", "my-model", "--model", "my-model-2026-01-15", "--no-tools",
+]
 timeout_s = 300
-# The template reads these; the runner passes nothing else but PATH, HOME and LANG.
-env_allow = ["JUDGE_MODEL_COMMAND", "JUDGE_MODEL_URL", "JUDGE_MODEL_KEY"]
+# Only credentials go through the environment, by name: the run keeps a hash of each value,
+# never the value, and the report flags a round whose attempts ran under different values.
+env_allow = ["JUDGE_MODEL_KEY"]
 # The model the judges run on, printed next to the grade. Pin a dated model id, never an alias.
-model_id = "your-model-2026-01-15"
+model_id = "my-model-2026-01-15"

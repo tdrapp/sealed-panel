@@ -26,7 +26,7 @@
   "src/sealed_panel/record.py:handback_messages": 22,
   "src/sealed_panel/record.py:record_from": 12,
   "src/sealed_panel/record.py:record_measurement": 18,
-  "src/sealed_panel/report.py:_notes": 29,
+  "src/sealed_panel/report.py:_notes": 27,
   "src/sealed_panel/report.py:_round_table": 14,
   "src/sealed_panel/report.py:_sealed_headline": 13,
   "src/sealed_panel/runner.py:_launch": 14,

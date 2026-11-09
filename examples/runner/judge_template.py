@@ -2,15 +2,20 @@
 
 The judge runner starts this script once per brief, writes the brief on its stdin, and records
 what it prints on stdout as the judge's reply. This template sends the brief to your model in
-one of two ways, chosen by environment variables (name them in `[judge] env_allow`, or the
-runner does not pass them):
+one of two ways, given on its own command line, so that `[judge] command` names the model and
+the run freezes it:
 
-- JUDGE_MODEL_COMMAND: a JSON list, the argument list of a model command line that reads a
-  prompt on stdin and prints the model's answer, for example `["my-model", "--no-tools"]`.
-  The prompt is the judge instructions, a blank line, and the brief.
-- JUDGE_MODEL_URL: an HTTP endpoint that takes `{"system": ..., "prompt": ...}` as JSON and
-  answers `{"text": ...}`. JUDGE_MODEL_KEY, when set, is sent as a bearer token. Your model's
-  API will want another shape: change `ask_http`, and only it.
+- `-- MODEL ARGV...`: the argument list of a model command line that reads a prompt on stdin
+  and prints the model's answer, for example `-- my-model --model my-model-2026-01-15
+  --no-tools`. The prompt is the judge instructions, a blank line, and the brief.
+- `--url URL`: an HTTP endpoint that takes `{"system": ..., "prompt": ...}` as JSON and answers
+  `{"text": ...}`. JUDGE_MODEL_KEY, when set (name it in `[judge] env_allow`), is sent as a
+  bearer token. Your model's API will want another shape: change `ask_http`, and only it.
+
+Without either, the template falls back to the environment: JUDGE_MODEL_COMMAND (a JSON list)
+or JUDGE_MODEL_URL. Prefer the command line: a run freezes `judge.command` and shows it next to
+the grade, while of an environment variable it keeps only a hash of the value, so a model
+changed there is flagged in the report but not named.
 
 Exit status: 0 with the reply on stdout, or non-zero with the reason on stderr; the runner then
 records a void, never a reply. Call the model once: asking several times and printing the best
@@ -66,20 +71,50 @@ def ask_http(url: str, key: str, brief: str) -> str:
     return text
 
 
-def main() -> int:
-    brief = sys.stdin.read()
+def model_from(args: list[str]) -> tuple[list[str], str]:
+    """The model command line or the endpoint, from the arguments, else from the environment.
+
+    Args:
+        args: This script's arguments: `-- MODEL ARGV...` or `--url URL`.
+
+    Returns:
+        The model's argument list (empty for an endpoint) and the endpoint URL (empty for a
+        command line).
+
+    Raises:
+        RuntimeError: The arguments or the environment do not name one model.
+    """
+    if args[:1] == ["--"] and len(args) > 1:
+        return args[1:], ""
+    if args[:1] == ["--url"] and len(args) == 2:
+        return [], args[1]
+    if args:
+        raise RuntimeError("usage: judge_template.py (-- MODEL ARGV... | --url URL)")
+    return _model_from_env()
+
+
+def _model_from_env() -> tuple[list[str], str]:
+    """The older form: JUDGE_MODEL_COMMAND (a JSON list) or JUDGE_MODEL_URL."""
     command = os.environ.get("JUDGE_MODEL_COMMAND", "")
+    if command:
+        argv = json.loads(command)
+        if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv) or not argv:
+            raise RuntimeError("JUDGE_MODEL_COMMAND must be a JSON list of strings")
+        return argv, ""
     url = os.environ.get("JUDGE_MODEL_URL", "")
+    if url:
+        return [], url
+    raise RuntimeError("name the model: -- MODEL ARGV... or --url URL")
+
+
+def main(args: list[str] | None = None) -> int:
+    brief = sys.stdin.read()
     try:
-        if command:
-            argv = json.loads(command)
-            if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
-                raise RuntimeError("JUDGE_MODEL_COMMAND must be a JSON list of strings")
+        argv, url = model_from(sys.argv[1:] if args is None else args)
+        if argv:
             reply = ask_command(argv, brief)
-        elif url:
-            reply = ask_http(url, os.environ.get("JUDGE_MODEL_KEY", ""), brief)
         else:
-            raise RuntimeError("set JUDGE_MODEL_COMMAND or JUDGE_MODEL_URL")
+            reply = ask_http(url, os.environ.get("JUDGE_MODEL_KEY", ""), brief)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
         print(f"judge_template: {exc}", file=sys.stderr)
         return 2
