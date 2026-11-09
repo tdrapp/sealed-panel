@@ -157,10 +157,11 @@ three kinds of proof, and the report says which one each round used.
   brief in its prompt; text added around it is counted and reported, and an agent that holds a
   brief id but was never recorded blocks the aggregation. A transcript showing that the judge
   called any tool other than the configured handback tool is rejected: a judge with a tool
-  could have read the run's keys and known which item is the candidate. Through MCP a
-  transcript counts only under a `--transcript-root`, away from the root: a file the author
-  wrote in its workspace is no proof. An author with shell access to that folder can still
-  forge one, so the runner stays the strong proof.
+  could have read the run's keys and known which item is the candidate. A transcript whose
+  last line is cut off is rejected, never read back to the reply before it, which may be a
+  draft the judge replaced. Through MCP a transcript counts only under a `--transcript-root`,
+  away from the root: a file the author wrote in its workspace is no proof. An author with
+  shell access to that folder can still forge one, so the runner stays the strong proof.
 - **Pasted (`record --output`).** Nothing shows that the judge received the brief verbatim,
   or that no other judge was asked and discarded. The report flags such rounds.
 

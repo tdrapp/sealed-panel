@@ -1358,6 +1358,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '                    "; ".join(turned_off)\n                    if turned_off\n',
         '                    ""\n                    if turned_off\n',
     ),
+    # A transcript cut off on its last line.
+    "a cut-off last line read as the earlier reply": (
+        REC,
+        "if lines and lines[-1][1] is None:",
+        "if False:",
+    ),
+    "a line separator inside a string splits the line": (
+        REC,
+        'read_text(transcript).split("\\n")',
+        "read_text(transcript).splitlines()",
+    ),
 }
 
 

@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A transcript whose last line was cut off while being written no longer yields the assistant
+  text before it as the reply: `record` rejects it as malformed, and counts the other unreadable
+  lines it skipped in the result (`unreadable_lines`). Transcript lines end at a newline only,
+  so a line separator inside a JSON string no longer splits an entry.
+
 ### Changed
 
 - The mutation check runs each mutation against the tests that execute its lines, picked from

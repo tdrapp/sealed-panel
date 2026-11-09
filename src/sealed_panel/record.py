@@ -43,16 +43,29 @@ def transcript_agent_id(transcript: Path, cfg: Config | None = None) -> str | No
     return m.group(1) if m else None
 
 
-def _entries(transcript: Path) -> list[dict[str, Any]]:
-    rows = []
-    for line in read_text(transcript).splitlines():
+def _lines(transcript: Path) -> list[tuple[int, dict[str, Any] | None]]:
+    """(line number, entry) for every non-empty line; None for a line that is not a JSON object.
+    Lines end at a newline only: a JSON string may hold other line separators."""
+    out: list[tuple[int, dict[str, Any] | None]] = []
+    for n, line in enumerate(read_text(transcript).split("\n"), start=1):
+        if not line.strip():
+            continue
         try:
             e = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(e, dict):
-            rows.append(e)
-    return rows
+        except (ValueError, RecursionError):
+            e = None
+        out.append((n, e if isinstance(e, dict) else None))
+    return out
+
+
+def _entries(transcript: Path) -> list[dict[str, Any]]:
+    return [e for _, e in _lines(transcript) if e is not None]
+
+
+def unreadable_lines(transcript: Path) -> list[int]:
+    """The numbers of the transcript's non-empty lines that are not a JSON object. Reading
+    skips them; `record` counts them in its result."""
+    return [n for n, e in _lines(transcript) if e is None]
 
 
 def _block_text(content: Any, t: dict[str, Any]) -> str:
@@ -179,7 +192,16 @@ def last_reply(transcript: Path, cfg: Config | None = None) -> str:
     """A transcript's reply: its last delivered handback message, since that is what its
     caller received; else its last non-empty assistant text; else, when nothing was delivered
     at all, its last refused handback, which the judge still wrote. A malformed last handback,
-    delivered or refused, raises MalformedReply; no reply at all is an error, never a guess."""
+    delivered or refused, raises MalformedReply; no reply at all is an error, never a guess.
+
+    A last line that is not a JSON object raises MalformedReply: a transcript cut off while
+    being written may have lost the final reply, and the text before it is not that reply."""
+    lines = _lines(transcript)
+    if lines and lines[-1][1] is None:
+        raise MalformedReply(
+            f"the last line of {transcript} (line {lines[-1][0]}) is not a readable entry: the "
+            "transcript may have been cut off before its final reply"
+        )
     handed = handback_messages(transcript, cfg)
     if handed:
         last = handed[-1]
@@ -589,6 +611,7 @@ def _record_reply(
             "source": source,
             "transcript": str(transcript) if transcript else None,
             "prompt_extra_chars": extra_chars,
+            "unreadable_lines": len(unreadable_lines(transcript)) if transcript else 0,
         }
     )
     if runner is not None:
