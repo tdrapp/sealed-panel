@@ -392,6 +392,7 @@ sealed-panel/
   tests/                 the behaviour contract (pytest), one file per concern
   tools/
     mutation_check.py    seeded defects the tests must catch
+    smoke_mcp.py         the installed MCP server answers initialize (build job)
   skill/
     SKILL.md             the procedure an agent follows (the one source of the skill)
     judge.md             the judge instructions
@@ -421,11 +422,11 @@ sealed-panel/
     integrations.md      MCP server, plugin, host configuration, API pipelines
   .github/
     workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
-                         extra, mutation check
+                         extra, mutation check, build, actionlint, pip-audit
     workflows/release.yml  a tag v* publishes through trusted publishing
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
-  pyproject.toml, .pre-commit-config.yaml, .editorconfig
+  pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig
   README.md, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md, LICENSE, NOTICE
 ```
 

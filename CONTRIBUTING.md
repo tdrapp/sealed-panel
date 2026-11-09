@@ -31,9 +31,18 @@ checks) and on push (the test suite).
 .venv/bin/pytest
 .venv/bin/mypy
 .venv/bin/python tools/mutation_check.py --jobs 4
+uv run --no-sync actionlint
+uv export --locked --all-extras --all-groups --no-emit-project -o audit.txt
+uv run --locked --only-group audit pip-audit --strict --require-hashes --disable-pip -r audit.txt
 ```
 
-CI runs the same: lint, types, tests on Python 3.11 to 3.13, and the mutation check.
+CI runs the same: lint, types, tests on Python 3.11 to 3.13 with and without the `mcp` extra,
+the mutation check, a build of the sdist and the wheel (the wheel installed in a fresh
+environment, `sealed-panel --version`, and the MCP server answering `initialize`, through
+`tools/smoke_mcp.py`), `actionlint` on the workflows (with shellcheck on each step's script),
+and `pip-audit` on every locked package. Every job but `pip-audit` is a required check: a
+vulnerability published tomorrow must not block an unrelated pull request, so a red
+`pip-audit` is fixed in its own pull request.
 
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.

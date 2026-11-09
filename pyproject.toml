@@ -56,6 +56,9 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.7",
     "fastmcp>=4.1.6,<4.2",
+    # The workflow linter, and the shell checker it runs on each step's script.
+    "actionlint-py>=1.7",
+    "shellcheck-py>=0.10",
 ]
 # The vulnerability audit, kept apart so it never lands in a test environment.
 audit = ["pip-audit>=2.7"]

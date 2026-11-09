@@ -78,6 +78,62 @@ jobs:
       - run: uv run --no-sync python -c "import importlib.util as u, sys; sys.exit(u.find_spec('fastmcp') is not None)"
       - run: uv run --no-sync pytest -o addopts="-q -rs"
 
+  # The package as users get it: the sdist and the wheel build, the wheel installs in a fresh
+  # environment with the versions of the lock, the command runs and the MCP server starts.
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.12.1"
+          python-version: "3.12"
+      - run: uv build --sdist --wheel --out-dir dist
+      - name: Install the wheel in a fresh environment
+        run: |
+          uv export --locked --extra mcp --no-default-groups --no-emit-project --no-hashes \
+            --format requirements-txt --output-file "$RUNNER_TEMP/constraints.txt"
+          uv venv "$RUNNER_TEMP/wheel-env"
+          wheel="$(ls dist/*.whl)"
+          uv pip install --python "$RUNNER_TEMP/wheel-env/bin/python" \
+            --constraints "$RUNNER_TEMP/constraints.txt" "sealed-panel[mcp] @ file://$PWD/$wheel"
+      - name: The command reports the package version
+        run: |
+          version="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          test "$("$RUNNER_TEMP/wheel-env/bin/sealed-panel" --version)" = "sealed-panel $version"
+      - name: The MCP server answers initialize
+        run: python3 tools/smoke_mcp.py "$RUNNER_TEMP/wheel-env/bin/sealed-panel"
+
+  # Known vulnerabilities in every locked package: runtime, the mcp extra and the tools.
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.12.1"
+          python-version: "3.12"
+      - run: |
+          uv export --locked --all-extras --all-groups --no-emit-project \
+            --format requirements-txt --output-file "$RUNNER_TEMP/audit.txt"
+      - run: |
+          uv run --locked --only-group audit pip-audit --strict --require-hashes --disable-pip \
+            --requirement "$RUNNER_TEMP/audit.txt"
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.12.1"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run --no-sync actionlint
+
   # Every mutation on every pull request, in four shards of two workers each; the job named
   # mutation, the required check, passes only when every shard ran and the merged outcomes
   # keep the rule (CONTRIBUTING.md, "The mutation check").

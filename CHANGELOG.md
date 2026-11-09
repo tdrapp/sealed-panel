@@ -22,6 +22,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   declared.
 - Tests for the HTTP path of `examples/runner/judge_template.py`: a 429, a 500, a body that is
   not JSON, or an answer without a text field each end as a void after one call, never a reply.
+- CI jobs `build` (the sdist and the wheel build; the wheel installs in a fresh environment with
+  the lock's versions, `sealed-panel --version` names the package version, and the MCP server
+  answers `initialize`, through `tools/smoke_mcp.py`), `actionlint` (with shellcheck) and
+  `pip-audit` (every locked package, by hash). `build` and `actionlint` join the required
+  checks in `.github/branch-protection.json`; `pip-audit` stays advisory.
 
 ### Changed
 
