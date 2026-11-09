@@ -3,6 +3,8 @@
 [![CI](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+Version 0.3.0. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+
 Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final
 grade.
 
@@ -422,6 +424,9 @@ sealed-panel/
     cli.md               every command and flag
     protocol.md          why each rule exists
     integrations.md      MCP server, plugin, host configuration, API pipelines
+    runbook.md           run, release, recovery (yank, interrupted run, stale markers)
+    decisions/           dated records of the choices that hold the design
+    plans/               a large change starts from a plan here
   .github/
     workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
                          extra, mutation check, build, actionlint, pip-audit, gitleaks,
@@ -431,6 +436,7 @@ sealed-panel/
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
   pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig
   README.md, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md, LICENSE, NOTICE
+  AGENTS.md              the rules for a coding agent, each with what enforces it
 ```
 
 ## Development

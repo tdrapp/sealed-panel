@@ -54,6 +54,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variable could change between a rejected attempt and its replacement, unseen.
 - A snapshot of the MCP tools (names, annotations, input and output schemas) in
   `tests/mcp_tools.json`, and a test that fails on any drift, in both protocol modes.
+- Repository docs: a version line in the README linking this file (a test keeps it on the
+  package version); `AGENTS.md`, the rules for a coding agent with what enforces each, and the
+  neutrality rule; `docs/runbook.md` (run, release, moved from CONTRIBUTING, and recovery:
+  yanking a release, an interrupted run, stale markers); dated decision records in
+  `docs/decisions/` (zero runtime dependency, briefs built in code, MCP over stdio only, the
+  judge command only from the server's configuration); and `docs/plans/`, where a large change
+  starts.
 
 ### Changed
 

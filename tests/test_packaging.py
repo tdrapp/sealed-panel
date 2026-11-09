@@ -110,6 +110,14 @@ def test_the_docs_pin_every_install_line_to_this_release() -> None:
         assert found and set(found) == {__version__}, name
 
 
+def test_the_readme_names_this_version() -> None:
+    path = ROOT / "README.md"
+    if not path.exists():
+        pytest.skip("not a checkout")
+    found = re.search(r"^Version (\d+\.\d+\.\d+)\. .*\(CHANGELOG\.md\)", path.read_text(), re.M)
+    assert found and found[1] == __version__
+
+
 def test_no_uvx_line_runs_an_unpinned_server() -> None:
     for name in ("README.md", "docs/integrations.md"):
         path = ROOT / name
