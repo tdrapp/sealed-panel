@@ -40,6 +40,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   public API's carry an `Args:` section naming each argument (ruff `D417` and
   `tests/test_docstrings.py`), and interrogate holds the public coverage at 80% or more (a
   required CI job `docstrings`; it is 100% today).
+- A commit-msg hook, `tools/check_commit_msg.py`: a Conventional Commits subject under 72
+  characters, then a blank line. `pre-commit install` installs it with the other hooks.
 
 ### Changed
 

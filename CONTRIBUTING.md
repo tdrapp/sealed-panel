@@ -21,8 +21,9 @@ plus the linters, the type checker and the MCP server's package) and `audit` (th
 audit). After changing a dependency, run `uv lock` and commit `uv.lock` with it. The `mcp` extra
 stays for users who install the package.
 
-`pre-commit install` installs two hooks: on commit (ruff lint and format, mypy, file
-checks, and gitleaks on what is staged) and on push (the test suite).
+`pre-commit install` installs three hooks: on commit (ruff lint and format, mypy, file
+checks, and gitleaks on what is staged), on the commit message (the rule below), and on push
+(the test suite).
 
 ## Checks
 
@@ -126,8 +127,13 @@ mutation each night, so a fault in the selection shows within a day.
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
-`test:`, `ci:`, `build:`, `chore:`, `refactor:`. Imperative mood, a subject under 72
-characters, and a short body when the reason is not obvious from the subject.
+`test:`, `ci:`, `build:`, `chore:`, `refactor:`, `style:`, `perf:`, with an optional
+`(scope)` and `!` for a breaking change. Imperative mood, a subject under 72 characters, a blank
+line after it, and a short body when the reason is not obvious from the subject.
+
+The commit-msg hook enforces it (`tools/check_commit_msg.py`, installed by `pre-commit
+install`); `fixup!` and `squash!` commits are read past their prefix. Pull requests are merged
+with squash, so the pull request title follows the same rule: it becomes the commit on `main`.
 
 ```
 fix: refuse a known-good identical to the candidate

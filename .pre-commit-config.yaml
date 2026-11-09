@@ -1,4 +1,4 @@
-default_install_hook_types: [pre-commit, pre-push]
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
 default_stages: [pre-commit]
 
 repos:
@@ -35,6 +35,12 @@ repos:
 
   - repo: local
     hooks:
+      # Conventional Commits, subject under 72 characters (CONTRIBUTING.md).
+      - id: commit-msg
+        name: commit message
+        entry: python tools/check_commit_msg.py
+        language: python
+        stages: [commit-msg]
       - id: pytest
         name: pytest
         entry: pytest

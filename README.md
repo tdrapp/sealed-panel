@@ -394,6 +394,7 @@ sealed-panel/
     mutation_check.py    seeded defects the tests must catch
     smoke_mcp.py         the installed MCP server answers initialize (build job)
     complexity_check.py  no function grows past complexity_baseline.json
+    check_commit_msg.py  the commit-msg hook: Conventional Commits, subject under 72
   skill/
     SKILL.md             the procedure an agent follows (the one source of the skill)
     judge.md             the judge instructions
@@ -442,9 +443,10 @@ uv sync --locked --python 3.12
 .venv/bin/python tools/mutation_check.py
 ```
 
-`pre-commit install` sets up two stages: lint, format, types and a secret scan on commit; the
-test suite on push. CI runs the same checks on Python 3.11, 3.12 and 3.13, and the tests once
-more without the `mcp` extra, where the MCP tests skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
+`pre-commit install` sets up three stages: lint, format, types and a secret scan on commit; a
+Conventional Commits check on the message; the test suite on push. CI runs the same checks on
+Python 3.11, 3.12 and 3.13, and the tests once more without the `mcp` extra, where the MCP tests
+skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
