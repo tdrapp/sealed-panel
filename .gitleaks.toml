@@ -1,0 +1,14 @@
+# gitleaks: the default rules, plus one allowlist. Used by the pre-commit hook and the CI job.
+title = "sealed-panel"
+
+[extend]
+useDefault = true
+
+# The test fixtures and the lock hold sha256 digests (of texts, briefs, replies, packages), never
+# a secret. Only a 64-character hex digest in those files is allowed; every other match there,
+# and every match elsewhere, is still reported.
+[[allowlists]]
+description = "sha256 digests in test fixtures and the lock"
+condition = "AND"
+paths = ['''^tests/fixtures/''', '''^uv\.lock$''']
+regexes = ['''^(sha256:)?[0-9a-f]{64}$''']

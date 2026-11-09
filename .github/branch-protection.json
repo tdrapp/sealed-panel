@@ -12,7 +12,8 @@
       "test (3.13, core)",
       "mutation",
       "build",
-      "actionlint"
+      "actionlint",
+      "gitleaks"
     ]
   },
   "enforce_admins": true,

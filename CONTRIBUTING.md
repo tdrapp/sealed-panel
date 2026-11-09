@@ -22,7 +22,7 @@ audit). After changing a dependency, run `uv lock` and commit `uv.lock` with it.
 stays for users who install the package.
 
 `pre-commit install` installs two hooks: on commit (ruff lint and format, mypy, file
-checks) and on push (the test suite).
+checks, and gitleaks on what is staged) and on push (the test suite).
 
 ## Checks
 
@@ -40,7 +40,9 @@ CI runs the same: lint, types, tests on Python 3.11 to 3.13 with and without the
 the mutation check, a build of the sdist and the wheel (the wheel installed in a fresh
 environment, `sealed-panel --version`, and the MCP server answering `initialize`, through
 `tools/smoke_mcp.py`), `actionlint` on the workflows (with shellcheck on each step's script),
-and `pip-audit` on every locked package. Every job but `pip-audit` is a required check: a
+`gitleaks` on the whole history (a pinned release checked by its sha256; `.gitleaks.toml`
+allowlists only the sha256 digests of the test fixtures and the lock), and `pip-audit` on every
+locked package. Every job but `pip-audit` is a required check: a
 vulnerability published tomorrow must not block an unrelated pull request, so a red
 `pip-audit` is fixed in its own pull request.
 

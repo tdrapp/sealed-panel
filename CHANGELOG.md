@@ -27,6 +27,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answers `initialize`, through `tools/smoke_mcp.py`), `actionlint` (with shellcheck) and
   `pip-audit` (every locked package, by hash). `build` and `actionlint` join the required
   checks in `.github/branch-protection.json`; `pip-audit` stays advisory.
+- gitleaks scans what is staged (a pre-commit hook) and the whole history (a required CI job,
+  from a pinned release checked by its sha256). `.gitleaks.toml` allowlists only the sha256
+  digests of the test fixtures and the lock.
 
 ### Changed
 

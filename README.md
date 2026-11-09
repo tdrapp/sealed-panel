@@ -440,10 +440,9 @@ uv sync --locked --python 3.12
 .venv/bin/python tools/mutation_check.py
 ```
 
-`pre-commit install` sets up two stages: lint, format and types on commit; the test suite on
-push. CI runs the same checks on Python 3.11, 3.12 and 3.13, and the tests once more without
-the `mcp` extra, where the MCP tests skip. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+`pre-commit install` sets up two stages: lint, format, types and a secret scan on commit; the
+test suite on push. CI runs the same checks on Python 3.11, 3.12 and 3.13, and the tests once
+more without the `mcp` extra, where the MCP tests skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
