@@ -121,8 +121,16 @@ mutation each night, so a fault in the selection shows within a day.
 1. Branch from `main`: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`.
 2. Keep a pull request to one logical change. Update `docs/` and the `Unreleased` section of
    `CHANGELOG.md` in the same pull request.
-3. Open the pull request with the template filled in. CI must be green.
-4. Pull requests are merged with squash, so the title becomes the commit on `main`.
+3. Open the pull request with the template filled in, its trade-offs included. CI must be
+   green.
+4. Every pull request carries the verdict of an independent cold review, linked or pasted in
+   the template's "Independent review" section: a reviewer who did not write the change reads
+   the diff and the description cold and says SHIP, SHIP WITH FIXES or DO NOT SHIP, with
+   findings. Each finding is fixed or answered before the merge. `main` requires no approving
+   review on GitHub (`required_approving_review_count` is 0 in
+   `.github/branch-protection.json`), because the project has one maintainer, who cannot
+   approve their own pull request; the review verdict is what stands in for that approval.
+5. Pull requests are merged with squash, so the title becomes the commit on `main`.
 
 ## Commit messages
 

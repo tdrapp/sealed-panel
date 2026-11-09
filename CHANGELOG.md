@@ -42,6 +42,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   required CI job `docstrings`; it is 100% today).
 - A commit-msg hook, `tools/check_commit_msg.py`: a Conventional Commits subject under 72
   characters, then a blank line. `pre-commit install` installs it with the other hooks.
+- The pull request template asks for the trade-offs and for the verdict of an independent cold
+  review, which every pull request carries; `main` still requires no approving review on GitHub,
+  with one maintainer (CONTRIBUTING).
 
 ### Changed
 
