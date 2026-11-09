@@ -422,7 +422,8 @@ sealed-panel/
     integrations.md      MCP server, plugin, host configuration, API pipelines
   .github/
     workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
-                         extra, mutation check, build, actionlint, pip-audit
+                         extra, mutation check, build, actionlint, pip-audit, gitleaks,
+                         import contracts
     workflows/release.yml  a tag v* publishes through trusted publishing
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/

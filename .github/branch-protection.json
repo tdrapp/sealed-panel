@@ -13,7 +13,8 @@
       "mutation",
       "build",
       "actionlint",
-      "gitleaks"
+      "gitleaks",
+      "imports"
     ]
   },
   "enforce_admins": true,

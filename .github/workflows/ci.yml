@@ -155,6 +155,20 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
       - run: '"$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .'
 
+  # The layers in [tool.importlinter]: the command line and the MCP server above the core,
+  # store and errors at the bottom.
+  imports:
+    name: imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.12.1"
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run --no-sync lint-imports
+
   # Every mutation on every pull request, in four shards of two workers each; the job named
   # mutation, the required check, passes only when every shard ran and the merged outcomes
   # keep the rule (CONTRIBUTING.md, "The mutation check").

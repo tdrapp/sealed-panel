@@ -32,6 +32,7 @@ checks, and gitleaks on what is staged) and on push (the test suite).
 .venv/bin/mypy
 .venv/bin/python tools/mutation_check.py --jobs 4
 uv run --no-sync actionlint
+uv run --no-sync lint-imports
 uv export --locked --all-extras --all-groups --no-emit-project -o audit.txt
 uv run --locked --only-group audit pip-audit --strict --require-hashes --disable-pip -r audit.txt
 ```
@@ -41,10 +42,12 @@ the mutation check, a build of the sdist and the wheel (the wheel installed in a
 environment, `sealed-panel --version`, and the MCP server answering `initialize`, through
 `tools/smoke_mcp.py`), `actionlint` on the workflows (with shellcheck on each step's script),
 `gitleaks` on the whole history (a pinned release checked by its sha256; `.gitleaks.toml`
-allowlists only the sha256 digests of the test fixtures and the lock), and `pip-audit` on every
-locked package. Every job but `pip-audit` is a required check: a
-vulnerability published tomorrow must not block an unrelated pull request, so a red
-`pip-audit` is fixed in its own pull request.
+allowlists only the sha256 digests of the test fixtures and the lock), `pip-audit` on every
+locked package, and `lint-imports`: the import contract in `pyproject.toml` keeps the command
+line and the MCP server above the core, and `store` and `errors` at the bottom; a new module
+must be placed in a layer. Every job but `pip-audit` is a required check: a vulnerability
+published tomorrow must not block an unrelated pull request, so a red `pip-audit` is fixed in
+its own pull request.
 
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.

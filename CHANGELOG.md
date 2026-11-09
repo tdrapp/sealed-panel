@@ -30,6 +30,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - gitleaks scans what is staged (a pre-commit hook) and the whole history (a required CI job,
   from a pinned release checked by its sha256). `.gitleaks.toml` allowlists only the sha256
   digests of the test fixtures and the lock.
+- An import contract (import-linter, a required CI job `imports`): `cli` and `mcp_server` sit
+  above the core, `store` and `errors` at the bottom, and every module of the package must be
+  placed in a layer.
 
 ### Changed
 

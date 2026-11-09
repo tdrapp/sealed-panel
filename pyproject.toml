@@ -59,6 +59,8 @@ dev = [
     # The workflow linter, and the shell checker it runs on each step's script.
     "actionlint-py>=1.7",
     "shellcheck-py>=0.10",
+    # The import contract below.
+    "import-linter>=2.1",
 ]
 # The vulnerability audit, kept apart so it never lands in a test environment.
 audit = ["pip-audit>=2.7"]
@@ -125,6 +127,25 @@ strict = true
 python_version = "3.11"
 files = ["src", "tools", "examples"]
 mypy_path = "src"
+
+# The command line and the MCP server sit above the core; store and errors sit at the bottom, so
+# the core never reaches for an interface and the files layer never reaches for the protocol.
+[tool.importlinter]
+root_package = "sealed_panel"
+
+[[tool.importlinter.contracts]]
+name = "cli and mcp_server above the core, store and errors at the bottom"
+type = "layers"
+containers = ["sealed_panel"]
+exhaustive = true
+layers = [
+    "__main__",
+    "cli",
+    "mcp_server",
+    "aggregate : brief : config : decide : learn : ledger : library : record : report : runner : spec : text",
+    "store",
+    "errors",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
