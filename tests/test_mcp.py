@@ -117,6 +117,7 @@ class TestTools:
 
 
 class TestEndToEnd:
+    @pytest.mark.slow
     async def test_a_full_run_through_the_runner(self, h: Harness, mode: str) -> None:
         cfg = runner_config(h, "--score", "5")
         progress: list[tuple[float, float | None, str | None]] = []
@@ -273,6 +274,7 @@ class TestStdio:
         src = str(Path(__file__).resolve().parent.parent / "src")
         return {**os.environ, "PYTHONPATH": src + os.pathsep + os.environ.get("PYTHONPATH", "")}
 
+    @pytest.mark.slow
     def test_the_server_answers_on_stdout_and_exits_when_stdin_closes(self, h: Harness) -> None:
         hello = {
             "jsonrpc": "2.0",
@@ -542,6 +544,7 @@ class TestTranscriptRoots:
 
 
 class TestConcurrentJudges:
+    @pytest.mark.slow
     async def test_concurrent_judge_calls_give_one_reply_per_seat(
         self, h: Harness, mode: str
     ) -> None:
@@ -561,6 +564,7 @@ class TestConcurrentJudges:
         )
         assert {j: len(rows) for j, rows in by.items()} == {1: 1, 2: 1, 3: 1}, detail
 
+    @pytest.mark.slow
     async def test_a_retry_after_a_cancelled_call_never_judges_the_seat_twice(
         self, h: Harness, mode: str
     ) -> None:
@@ -682,6 +686,7 @@ class TestRunnerRefusalsThroughTools:
         await call(c, "init", run="run", spec="spec.json")
         await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
 
+    @pytest.mark.slow
     async def test_voids_are_capped_and_no_other_reply_gets_in(self, h: Harness, mode: str) -> None:
         async with Client(build_server(h.tmp, runner_config(h, "--exit", "3")), mode=mode) as c:
             await self.setup_run(c, h)
@@ -701,6 +706,7 @@ class TestRunnerRefusalsThroughTools:
                 assert "--transcript-root" in msg
             assert "never fills a seat" in await error(c, "aggregate", run="run", round=1)
 
+    @pytest.mark.slow
     async def test_a_filled_seat_takes_no_second_reply(self, h: Harness, mode: str) -> None:
         async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
             await self.setup_run(c, h)
@@ -709,6 +715,7 @@ class TestRunnerRefusalsThroughTools:
             assert seat["status"] == "VALID"
             assert "already has a valid reply" in await error(c, "judge", **args)
 
+    @pytest.mark.slow
     async def test_replacements_are_capped(self, h: Harness, mode: str) -> None:
         cfg = runner_config(h, "--low", "absent-word")
         async with Client(build_server(h.tmp, cfg), mode=mode) as c:
@@ -750,6 +757,7 @@ class TestRoundThreeProbes:
             assert status["decision"] == "CONTINUE" and status["served"] is True
             await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
 
+    @pytest.mark.slow
     async def test_a_library_replaced_by_a_link_takes_no_feedback(
         self, h: Harness, mode: str
     ) -> None:
@@ -769,6 +777,7 @@ class TestRoundThreeProbes:
         assert "a link was put in its place" in msg
         assert list(outside.iterdir()) == []
 
+    @pytest.mark.slow
     async def test_planted_stale_files_never_fail_a_judge_call(self, h: Harness, mode: str) -> None:
         cfg = runner_config(h)
         write_spec(h)

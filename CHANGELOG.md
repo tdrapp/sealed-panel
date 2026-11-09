@@ -45,6 +45,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The pull request template asks for the trade-offs and for the verdict of an independent cold
   review, which every pull request carries; `main` still requires no approving review on GitHub,
   with one maintainer (CONTRIBUTING).
+- Test tiers: a `slow` marker on every test that starts a process other than git, declared in
+  `pyproject.toml` with `--strict-markers`; `pytest -m "not slow"` is the fast tier. A fixture
+  fails an unmarked test that starts such a process.
 
 ### Changed
 

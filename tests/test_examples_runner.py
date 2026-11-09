@@ -18,6 +18,9 @@ from sealed_panel.config import load_config
 from sealed_panel.runner import judge_round
 from sealed_panel.spec import init_run
 
+# Every test here starts a judge command or a model endpoint.
+pytestmark = pytest.mark.slow
+
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "examples" / "runner" / "judge_template.py"
 USAGE = ROOT / "examples" / "runner" / "library_usage.py"

@@ -29,6 +29,9 @@ from sealed_panel.runner import SeatTaken, child_env, judge_round, judge_seat, o
 from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import round_dir
 
+# Every test here starts a judge command or a model endpoint.
+pytestmark = pytest.mark.slow
+
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
 ORPHAN = Path(__file__).resolve().parent / "orphan_judge.py"
 

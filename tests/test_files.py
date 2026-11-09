@@ -141,6 +141,7 @@ class TestLibraryLinks:
         with pytest.raises(EvalError, match="symbolic link"):
             (library.inbox_dir if name == "inbox" else library.history_dir)(lib)
 
+    @pytest.mark.slow
     def test_no_candidate_is_written_through_a_linked_inbox(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB), "--score", "5"], max_rounds=1)
         h.brief(1, "cand", sealed=True)
@@ -191,6 +192,7 @@ class TestRunnerStreams:
         assert not list(round_dir(h.run, 1).glob("runner_j*.log"))
         assert not list(round_dir(h.run, 1).glob("running_j*"))
 
+    @pytest.mark.slow
     def test_stderr_past_its_cap_is_a_void(self, h: Harness) -> None:
         argv = [sys.executable, str(STUB), "--flood-stderr", "8"]
         init_judge(h, argv, extra="max_stderr_bytes = 1024\n")
@@ -201,6 +203,7 @@ class TestRunnerStreams:
         ]
         assert (round_dir(h.run, 1) / r["runner"]["stderr_log"]).stat().st_size <= 1024
 
+    @pytest.mark.slow
     def test_stderr_under_its_cap_is_kept_whole(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB), "--noise"])
         h.brief(1, "cand")
@@ -215,6 +218,7 @@ class TestRunnerStreams:
         with pytest.raises(ConfigError, match=r"judge\.max_stderr_bytes"):
             Config(merge(default_data(), {"judge": {"max_stderr_bytes": value}}))
 
+    @pytest.mark.slow
     def test_an_interruption_stops_the_judge_and_records_it(
         self, h: Harness, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -250,6 +254,7 @@ class TestLeftovers:
         assert void["agent_id"] != "runner-dead"  # never an id the marker names
         assert not path.exists()
 
+    @pytest.mark.slow
     def test_a_marker_moved_aside_becomes_a_void_at_aggregate(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB)])
         h.brief(1, "cand")
@@ -261,6 +266,7 @@ class TestLeftovers:
         assert void["void"] and "stopped before recording it" in void["errors"][0]
         assert not path.exists()
 
+    @pytest.mark.slow
     def test_a_marker_on_a_filled_seat_gives_no_void(self, h: Harness) -> None:
         """A runner never starts on a filled seat, so the marker is planted: a void there would
         let the author veto a reply it has seen."""
@@ -272,6 +278,7 @@ class TestLeftovers:
         assert [r["ok"] for r in results_by_judge(round_dir(h.run, 1))[1]] == [True]
         assert not path.exists()
 
+    @pytest.mark.slow
     def test_a_marker_with_a_used_agent_still_gives_a_void(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB)])
         h.brief(1, "cand")
@@ -289,6 +296,7 @@ class TestLeftovers:
         open_seats(h.run, 1, False)
         assert results_by_judge(round_dir(h.run, 1))[1][0]["void"]
 
+    @pytest.mark.slow
     def test_a_stale_attempt_counts_against_the_void_cap(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB), "--exit", "1"])
         h.brief(1, "cand")
@@ -316,6 +324,7 @@ class TestHostileReplies:
         ],
         ids=["open", "closed", "bigint"],
     )
+    @pytest.mark.slow
     def test_a_reply_built_to_break_the_parser_is_rejected(self, h: Harness, code: str) -> None:
         self.judge_script(h, code)
         r = judge_seat(h.run, 1, 1, False)
@@ -439,6 +448,7 @@ class TestCommandLineEdges:
         out = capsys.readouterr().out
         assert out.startswith("SKIPPED judge 1: judge 1 is being judged")
 
+    @pytest.mark.slow
     def test_a_killed_runner_leaves_a_void_for_the_next_call(self, h: Harness) -> None:
         """The judge blocks until killed, so the runner is always killed mid-judge, however slow
         the machine. The judge runs in a session of its own, out of reach of the runner's death:
@@ -608,6 +618,7 @@ class TestPlantedMarkers:
             aggregate_round(h.run, 1, False)
         assert 1 not in results_by_judge(rdir)  # seat 1 empty: the planted file voided nothing
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("name", ["running_j1.json", "running_j1.json.f.stale", "brief_j1.md"])
     def test_a_fifo_never_blocks_the_runner(self, h: Harness, name: str) -> None:
         rdir = self.run_mode(h)

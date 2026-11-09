@@ -62,6 +62,13 @@ pull request, so a red `pip-audit` is fixed in its own pull request.
 When a refactor lowers a function's complexity, run `tools/complexity_check.py --update` and
 commit the lower baseline; never raise the baseline to let a change in.
 
+Two test tiers. A test that starts a process other than git (a judge command, the MCP server
+over stdio, a model endpoint) is marked `@pytest.mark.slow`; `.venv/bin/pytest -m "not slow"`
+runs the fast tier in seconds, and the full suite (both tiers, with the coverage floor) runs on
+push and in CI. The markers are declared in `pyproject.toml` and `--strict-markers` refuses an
+unknown one; an autouse fixture in `tests/conftest.py` fails an unmarked test that starts any
+other process, so the fast tier stays fast.
+
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.
 
