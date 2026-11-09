@@ -16,7 +16,14 @@ from sealed_panel.cli import main
 from sealed_panel.config import load_config
 from sealed_panel.errors import EvalError, MalformedReply
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import MAX_VOIDS, extract_json, handback_messages, last_reply, record_reply
+from sealed_panel.record import (
+    MAX_VOIDS,
+    extract_json,
+    handback_messages,
+    last_reply,
+    record_from,
+    record_reply,
+)
 from sealed_panel.report import render_report, status
 from sealed_panel.spec import init_run
 from sealed_panel.store import round_dir
@@ -401,3 +408,95 @@ class TestRefusedOnly:
         p.write_text(json.dumps({"type": "assistant", "message": {"content": [call]}}) + "\n")
         with pytest.raises(EvalError, match="no assistant reply"):
             last_reply(p)
+
+
+class TestDefaultHandback:
+    """A transcript shaped like one from a host that imposes a handback tool: the judge's only
+    assistant entry is one tool call, answered by a tool result, between attachment entries."""
+
+    def real_shape(
+        self, h: Harness, agent: str, reply: str, tool: str = "SubagentHandback"
+    ) -> Path:
+        brief = brief_text(h, 1)
+        common = {"agentId": agent, "isSidechain": True}
+        call = {"type": "tool_use", "id": "toolu_1", "name": tool, "input": {"message": reply}}
+        result = {"type": "tool_result", "tool_use_id": "toolu_1",
+                  "content": [{"type": "text", "text": '{"success":true}'}]}  # fmt: skip
+        rows = [
+            {**common, "type": "user", "message": {"role": "user", "content": brief}},
+            {**common, "type": "attachment", "attachment": {"type": "date", "date": "2026-11-06"}},
+            {"type": "api-request", "agentId": agent, "params": {"model": "m"}},
+            {**common, "type": "assistant", "message": {"role": "assistant", "content": [call]}},
+            {**common, "type": "user", "message": {"role": "user", "content": [result]}},
+        ]
+        folder = h.tmp / "subagents"
+        folder.mkdir(exist_ok=True)
+        path = folder / f"agent-{agent}.jsonl"
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        return path
+
+    def a_reply(self, h: Harness) -> str:
+        meta = h.keys(1)["judges"][0]
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+        return judge_json(meta, h.texts(1, meta), sc)
+
+    def test_the_handback_records_as_a_valid_reply_with_defaults(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        t = self.real_shape(h, "a04d", self.a_reply(h))
+        args = ["record", str(h.run), "--round", "1", "--judge", "1", "--agent-id", "a04d"]
+        assert main([*args, "--transcript", str(t)]) == 0
+        [r] = results_by_judge(round_dir(h.run, 1))[1]
+        assert r["ok"] and r["source"] == "transcript"
+
+    def test_a_judge_that_handed_back_cannot_be_voided(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        t = self.real_shape(h, "a04d", self.a_reply(h))
+        with pytest.raises(EvalError, match="cannot be voided"):
+            void(h, "a04d", t)
+        assert results_by_judge(round_dir(h.run, 1)) == {}
+
+    def test_any_tool_call_counts_as_a_reply_for_a_void(self, h: Harness) -> None:
+        """Fails closed: a runtime may hand back through a tool no setting names."""
+        h.init()
+        h.brief(1, "cand")
+        t = self.real_shape(h, "a04d", self.a_reply(h), tool="SomeFutureHandback")
+        with pytest.raises(EvalError, match="cannot be voided"):
+            void(h, "a04d", t)
+
+    def test_a_tool_call_without_a_reply_is_rejected_not_stuck(self, h: Harness) -> None:
+        """It cannot be voided, so it must be recordable, or the round would stay blocked."""
+        h.init()
+        h.brief(1, "cand")
+        t = self.real_shape(h, "a04d", self.a_reply(h), tool="Read")
+        rows = [json.loads(ln) for ln in t.read_text().splitlines()]
+        rows[3]["message"]["content"][0]["input"] = {"file_path": "keys.json"}
+        t.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        r = record_from(h.run, 1, 1, "a04d", False, t)
+        assert not r["ok"] and "the judge used a tool (Read)" in r["errors"][0]
+
+    def test_silence_can_still_be_voided(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        assert void(h, "quiet", transcript(h, "quiet", brief_text(h, 1)))["void"]
+
+    def test_a_run_frozen_without_the_handback_keeps_its_value(self, h: Harness) -> None:
+        cfg = h.tmp / "c.toml"
+        cfg.write_text('[transcript]\nhandback_tool = ""\n')
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        init_run(h.run, sp, load_config(cfg))
+        h.brief(1, "cand")
+        t = self.real_shape(h, "a04d", self.a_reply(h))
+        r = record_from(h.run, 1, 1, "a04d", False, t)
+        assert not r["ok"] and "SubagentHandback" in r["errors"][0]
+
+
+def test_an_empty_handback_setting_reads_no_tool(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[transcript]\nhandback_tool = ""\n')
+    block = {"type": "tool_use", "id": "t1", "name": "", "input": {"message": "a reply"}}
+    t = tmp_path / "t.jsonl"
+    t.write_text(json.dumps({"type": "assistant", "message": {"content": [block]}}) + "\n")
+    assert handback_messages(t, load_config(cfg)) == []

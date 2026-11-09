@@ -17,9 +17,10 @@ from .config import (
     library_dir,
     resolve,
     run_value_error,
+    schema_errors,
 )
 from .errors import EvalError
-from .store import dump_json, load_json, read_text
+from .store import dump_json, load_json, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -267,12 +268,14 @@ def looks_like_path(text: str) -> bool:
     return len(stripped.splitlines()) == 1 and bool(re.search(ext, stripped, re.IGNORECASE))
 
 
-def _freeze_facts(spec: dict[str, Any], base: Path) -> None:
+def _freeze_facts(spec: dict[str, Any], base: Path, root: Path | None = None) -> None:
     facts_file = spec.pop("facts_file", None)
     if facts_file is not None:
         path = Path(facts_file).expanduser()
         if not path.is_absolute():
             path = base / path  # relative to the spec file's folder
+        if root is not None and not path.resolve().is_relative_to(root):
+            raise EvalError(f"facts_file {facts_file!r} is outside the root {root}")
         if not path.is_file():
             raise EvalError(f"facts_file does not exist: {facts_file!r}")
         spec["facts"] = read_text(path)  # frozen by content, not by path
@@ -310,19 +313,29 @@ def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
 
 
 def init_run(
-    run: Path, spec_path: Path, cfg: Config | None = None, library: Path | None = None
+    run: Path,
+    spec_path: Path,
+    cfg: Config | None = None,
+    library: Path | None = None,
+    facts_root: Path | None = None,
 ) -> str:
-    """Validate the spec, freeze it and the configuration into `run`, return the rubric hash."""
+    """Validate the spec, freeze it and the configuration into `run`, return the rubric hash.
+    With `facts_root`, a `facts_file` must resolve under it (the MCP server's root)."""
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
+    if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
+        raise EvalError(
+            f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
+            "directory, so it never writes over another program's files"
+        )
     spec = load_json(spec_path)
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
-    _freeze_facts(spec, Path(spec_path).parent)
+    _freeze_facts(spec, Path(spec_path).parent, facts_root)
     lib = library_dir(library, cfg)  # resolved before anything is written: a refusal leaves no run
     if isinstance(spec.get("template"), dict):
         _check_template_ref(spec, cfg, lib)
@@ -338,10 +351,10 @@ def init_run(
     frozen["library"] = {**cfg.library, "path": str(lib)}
     cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
-    (run / "config.lock").write_text(cfg.fingerprint + "\n", encoding="utf-8")
+    write_file(run / "config.lock", cfg.fingerprint + "\n")
     dump_json(run / "spec.json", spec)
     digest = rubric_hash(spec)
-    (run / "rubric.lock").write_text(digest + "\n", encoding="utf-8")
+    write_file(run / "rubric.lock", digest + "\n")
     dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
 
@@ -360,9 +373,24 @@ def load_frozen(run: Path) -> dict[str, Any]:
 
 
 def run_library(run: Path) -> Path:
-    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now."""
+    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now. A frozen
+    path that resolves elsewhere now (it, or a folder above it, became a link) is refused."""
     frozen = run_config(run).data.get("library") or {}
-    return guard_library(Path(frozen["path"])) if frozen.get("path") else library_dir()
+    if not frozen.get("path"):
+        return library_dir()
+    path = Path(frozen["path"])
+    if path.resolve() != path:
+        raise EvalError(
+            f"the library {path} frozen into this run now resolves to {path.resolve()}: a "
+            "link was put in its place; restore the folder"
+        )
+    return guard_library(path)
+
+
+def library_for(flag: Path | None, run: Path | None) -> Path:
+    """The library a rubrics command reads: the flag, else the one frozen into the run, else
+    the user library (environment, setting, or user-level default)."""
+    return library_dir(flag) if flag or not run else run_library(run)
 
 
 def run_config(run: Path) -> Config:
@@ -370,7 +398,11 @@ def run_config(run: Path) -> Config:
     lock = run / "config.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    frozen = Config(load_json(run / "config.json"))
+    data = load_json(run / "config.json")
+    shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
+    if shape:
+        raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
+    frozen = Config(data)
     if frozen.fingerprint != read_text(lock).strip():
         raise EvalError(
             "the configuration changed after the freeze: scores are no longer comparable. "

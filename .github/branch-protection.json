@@ -1,7 +1,17 @@
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["lint", "types", "test (3.11)", "test (3.12)", "test (3.13)", "mutation"]
+    "contexts": [
+      "lint",
+      "types",
+      "test (3.11)",
+      "test (3.12)",
+      "test (3.13)",
+      "test (3.11, core)",
+      "test (3.12, core)",
+      "test (3.13, core)",
+      "mutation"
+    ]
   },
   "enforce_admins": true,
   "required_pull_request_reviews": {

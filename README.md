@@ -22,19 +22,26 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 218 mutations, 216
-are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
+bound or boundary at a time and requires the suite to fail on each. Of its 327 mutations, 324
+are killed; the three that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
 
 It is a Python package with no runtime dependencies and a CLI, plus an agent skill that drives
-it.
+it. An optional MCP server serves the same commands to an agent host, and a judge runner can
+start a judge command of your choice once per brief.
 
 ## Use cases
 
 Anything a reader judges and you can describe with a persona and a purpose: CVs and cover
 letters, pitches, emails and messages, essays, plans and design docs, and the outputs of a
 prompt you are tuning.
+
+Three ways to drive it. A person or an agent at a terminal runs the `sealed-panel` command. An
+agent host calls the same steps as MCP tools (`sealed-panel mcp`) and launches its own judges,
+or lets the judge runner do it. A pipeline with no agent at all calls the Python library, and
+the runner sends each brief to your model's API through a judge command you write. See
+[Integrations](#integrations).
 
 ## When not to use it
 
@@ -99,20 +106,30 @@ per run.
 
 ## Install
 
-sealed-panel needs Python 3.11 or later and has no runtime dependencies. It is not on PyPI yet;
-install it from GitHub.
+sealed-panel needs Python 3.11 or later and has no runtime dependencies. The MCP server is an
+optional extra. It runs on macOS and Linux; Windows is not supported yet (the judge runner
+relies on POSIX process groups and directory descriptors, untested there).
 
-With pipx:
-
-```sh
-pipx install git+https://github.com/tdrapp/sealed-panel
-```
-
-With pip, in a virtual environment:
+From GitHub, at a release tag:
 
 ```sh
-pip install git+https://github.com/tdrapp/sealed-panel
+pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+# plus the MCP server:
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+# run the server without installing it:
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0' sealed-panel mcp
 ```
+
+From the package index, once published:
+
+```sh
+pip install sealed-panel
+pip install 'sealed-panel[mcp]'
+uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp
+```
+
+Pin a `uvx` line to an exact version or tag, as above: an unpinned one runs whatever is newest
+the day it starts, and this tool decides which judge reads your text.
 
 From source, with uv:
 
@@ -175,6 +192,11 @@ python examples/announcement/play_judges.py runs/announcement --round 1 --out re
 replies/r1_j1.json
 replies/r1_j2.json
 ```
+
+With a judge command configured (`[judge] command`, given to `init --config`),
+`sealed-panel judge runs/announcement --round 1` replaces this step and the next: it starts one
+fresh process per brief, writes the brief to its stdin and records its stdout as the reply,
+with the proof that sealed-panel wrote one and read the other. See `examples/runner/`.
 
 You can also play the judge by hand: read `brief_j1.md` and write the JSON it asks for. Labels
 are drawn again for every brief, so check them each time
@@ -298,6 +320,37 @@ directory, install the package so the `sealed-panel` command is on the agent's p
 agent to grade a text. Run judges as fresh contexts with no tools, and paste each brief as their
 whole prompt.
 
+## Integrations
+
+[docs/integrations.md](docs/integrations.md) covers each in full.
+
+**Agent hosts, through MCP.** `sealed-panel mcp` serves the commands as tools over stdio:
+`init`, `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
+`rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`. Every tool calls the same
+function as the command, so every refusal holds. Promoting or rejecting a rubric candidate is
+not a tool: a host can answer a confirmation by itself, so the tools return the command a
+person runs.
+
+**As a plugin.** The repository is a plugin and its own marketplace for agent hosts that
+install plugins from git. It starts the MCP server with `uvx`, and brings the skill and a judge
+agent. It works out of the box: it reads judge transcripts from the host's own folder under your
+home, and you can change that folder in the plugin's settings (`/config`). Start the host from
+a project directory, not from your home folder:
+
+```
+/plugin marketplace add tdrapp/sealed-panel
+/plugin install sealed-panel@sealed-panel
+```
+
+Hosts that read `.agents/skills/` find the skill there; their TOML configuration for the
+server is in the integrations guide.
+
+**API pipelines.** Set `[judge] command` to a script that reads the brief on stdin and prints
+your model's answer, name its API key in `[judge] env_allow`, and call `judge_round` from
+Python or `sealed-panel judge` from a shell. The judge process gets an empty directory and
+only `PATH`, `HOME`, `LANG` and the allowed names from the environment.
+`examples/runner/judge_template.py` is a template to adapt.
+
 ## Configuration
 
 The settings live in [`src/sealed_panel/defaults.toml`](src/sealed_panel/defaults.toml): run
@@ -320,6 +373,8 @@ sealed-panel/
     config.py            load, merge and bound the settings; list overrides
     rubrics/             the built-in rubric templates (JSON)
     library.py           templates, suggest, skeletons, candidates, promotion
+    runner.py            the judge runner: one process per brief, with its proof
+    mcp_server.py        the MCP server (the mcp extra)
     learn.py             candidates learned from a sealed run, and user feedback
     errors.py            EvalError and ConfigError
     store.py             JSON and text files, round directories
@@ -337,10 +392,15 @@ sealed-panel/
   tools/
     mutation_check.py    seeded defects the tests must catch
   skill/
-    SKILL.md             the procedure an agent follows
+    SKILL.md             the procedure an agent follows (the one source of the skill)
     judge.md             the judge instructions
     spec.example.json    a spec to start from
     spec-reference.md    every spec key
+  skills/sealed-panel/   copy of skill/ for the plugin (a test keeps them equal)
+  .agents/skills/sealed-panel/  copy of skill/ for hosts that read .agents/skills
+  agents/eval-judge.md   the plugin's judge agent, from skill/judge.md
+  .mcp.json              the plugin's MCP server, started with uvx
+  plugin folder          plugin.json and marketplace.json, at the root
   examples/announcement/
     spec.json            the example rubric
     facts.md             the facts the judges may trust
@@ -348,13 +408,20 @@ sealed-panel/
     control.md           the deliberately bad version
     play_judges.py       demo judges with fixed scores, for the walk-through only
     README.md            the example explained
+  examples/runner/
+    judge_template.py    a judge command to adapt to your model (command line or HTTP)
+    judge.toml           its [judge] configuration
+    library_usage.py     a one-shot sealed grade from Python
   docs/
     configuration.md     every setting and its bounds
     rubrics.md           the rubric library: format, suggest, candidates, promotion
     cli.md               every command and flag
     protocol.md          why each rule exists
+    integrations.md      MCP server, plugin, host configuration, API pipelines
   .github/
-    workflows/ci.yml     lint, types, tests on 3.11 to 3.13, mutation check
+    workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
+                         extra, mutation check
+    workflows/release.yml  a tag v* publishes through trusted publishing
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
   pyproject.toml, .pre-commit-config.yaml, .editorconfig
@@ -373,8 +440,21 @@ uv pip install --python .venv/bin/python -e '.[dev]'
 ```
 
 `pre-commit install` sets up two stages: lint, format and types on commit; the test suite on
-push. CI runs the same checks on Python 3.11, 3.12 and 3.13. See
+push. CI runs the same checks on Python 3.11, 3.12 and 3.13, and the tests once more without
+the `mcp` extra, where the MCP tests skip. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Upgrading
+
+A run frozen by an older version keeps the settings it was frozen with. A setting added later
+counts as its default for such a run, now and in later versions, so a new setting never locks
+an old run out. A setting whose default changed does not: a 0.2.x run keeps
+`transcript.handback_tool = ""`. The MCP server's read-only tools (`status`, `report`,
+`rubrics_*`) read any locked run; the tools that change one need the server's configuration to
+match the run's, so change such a run with the command line, or through a server started with
+`--config` setting that value. In a host's auto mode, where the judge answers through its
+`SubagentHandback` tool, a run frozen with an empty `handback_tool` rejects every judge it
+records: start a new run, or freeze one with `[transcript] handback_tool = "SubagentHandback"`.
 
 ## Limits
 
@@ -392,12 +472,15 @@ also shift the panel.
 Whether the planted control lifts the candidate by contrast is unmeasured; runs with and
 without it would measure it.
 
-The refusals hold for the CLI used as documented. They do not hold against someone who starts
-a new run directory, edits the spec and its lock together, or deletes a transcript before
+The refusals hold for the CLI used as documented. They do not hold against someone who starts a
+new run directory, edits the spec and its lock together, or deletes a transcript before
 aggregating. Pasted replies (`--output`) carry no proof that the judge received the brief
-verbatim, or that no other judge was asked and discarded; the report flags such rounds.
-`record` calls for one round must be made one after the other, not in parallel, because each
-call reads the files the previous one wrote.
+verbatim, or that no other judge was asked and discarded; the report flags such rounds. The
+judge runner proves what sealed-panel wrote and read, not what the judge command did between the
+two: a command that asks a model several times and prints the best answer is a re-roll it cannot
+see, so the command is frozen into the run and listed next to the grade. `record` calls for one
+round must be made one after the other, not in parallel, because each call reads the files the
+previous one wrote; `judge` calls may overlap, since a marker holds each seat.
 
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and

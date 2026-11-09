@@ -1,0 +1,26 @@
+{
+  "name": "sealed-panel",
+  "version": "0.3.0",
+  "description": "Grade a text with blind panels of fresh LLM judges and a sealed final panel, never by its author.",
+  "author": {
+    "name": "Thibaut Drapp"
+  },
+  "homepage": "https://github.com/tdrapp/sealed-panel",
+  "repository": "https://github.com/tdrapp/sealed-panel",
+  "license": "Apache-2.0",
+  "keywords": [
+    "evaluation",
+    "llm-as-judge",
+    "rubric",
+    "writing"
+  ],
+  "userConfig": {
+    "transcript_root": {
+      "type": "directory",
+      "title": "Judge transcript folder",
+      "description": "The folder where the host writes its session and subagent transcripts: ~/.claude/projects under your home, or the projects folder of your configuration directory if you moved it. The record tool reads a judge's transcript as proof only there. Change it later in this plugin's settings (/config). Left empty, transcripts are refused, and replies are pasted (flagged in the report) or come from a judge command.",
+      "required": false,
+      "default": "~/.claude/projects"
+    }
+  }
+}

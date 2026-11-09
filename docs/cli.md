@@ -16,8 +16,8 @@ malformed input (a file that is not JSON, a spec or run file of the wrong shape)
 names the problem, never a traceback. A rejected judge reply is not a refusal: `record` stores
 it, prints `REJECTED`, and exits 0.
 
-`record` calls for one round must run one after the other, not in parallel: each call reads
-the files the previous one wrote.
+`record` calls for one round must run one after the other, not in parallel: each call reads the
+files the previous one wrote. `judge` calls may overlap, since a marker holds each seat.
 
 ## init
 
@@ -28,7 +28,8 @@ sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
 content, and refuses a spec whose own text addresses the judges. Writes `spec.json`,
 `rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and an empty `ledger.json`.
-Refuses if `RUN` is already initialised: a new rubric is a new run.
+Refuses if `RUN` is already initialised (a new rubric is a new run), or if it holds other files:
+`init` takes a new or empty directory, so it never writes over another program's files.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,
@@ -76,7 +77,8 @@ panel, the round-1 text rides along as a blind baseline when it differs from the
 
 Refused: a round number below 1, a round already briefed, a text already judged in this run, a
 round past `max_rounds`, a loop round after the loop stopped or after a seal, a second sealed
-panel, a control identical to the candidate, a text containing the item tag.
+panel, a control identical to the candidate, a text containing the item tag, a symbolic link
+where the round writes (the round directory, its parent, or an entry inside it).
 
 ## record
 
@@ -93,21 +95,69 @@ Validates one judge's reply and stores it as `out_j<J>_<id>_<hash>.json`. Prints
 | `--agent-id ID` | The judge context. Must be new in this run. |
 | `--transcript FILE` | A JSONL transcript of the judge. The reply is the message of its last handback tool call when `transcript.handback_tool` is set and the agent handed back (a malformed one is recorded as rejected), else its last assistant text, else (nothing delivered at all) its last refused handback. A handback the runtime refused (its tool result is an error) was never delivered and is skipped as a reply; for `--void` it still counts as a reply, since the judge answered. The transcript's first user entry must contain the whole brief file, normalised with the built-in settings; characters beyond the brief are counted, stored, and reported. When the file carries an agent id, it must equal `--agent-id`. |
 | `--output FILE` | The reply as a file, or `-` for stdin. The report flags rounds with such replies. |
-| `--void` | The agent received the brief but never replied. Needs `--transcript`, which must contain the brief id somewhere (a judge pointed at the brief file counts); a run whose briefs carry no brief id cannot void. Recorded as a void attempt (not valid, source `void`): it clears the block an unrecorded agent puts on the round, but never fills a seat. Every assistant text and handback message is read: when the prompt holds the whole brief and the agent left any reply, the void is refused ("cannot be voided"); when the prompt does not hold the brief, the void is recorded and labelled "voided after replying (brief not verbatim)", and that seat's next reply must come from a transcript holding the pasted brief: `--output` is refused on it. At most 3 voids per slot and round; they do not count toward `max_replacements`. |
+| `--void` | The agent received the brief but never replied. Needs `--transcript`, which must contain the brief id somewhere (a judge pointed at the brief file counts); a run whose briefs carry no brief id cannot void. Recorded as a void attempt (not valid, source `void`): it clears the block an unrecorded agent puts on the round, but never fills a seat. Every assistant text and every tool call, whichever its name, counts as a reply: when the prompt holds the whole brief and the agent left any of those, the void is refused ("cannot be voided"); when the prompt does not hold the brief, the void is recorded and labelled "voided after replying (brief not verbatim)", and that seat's next reply must come from a transcript holding the pasted brief: `--output` is refused on it. At most 3 voids per slot and round; they do not count toward `max_replacements`. |
 | `--sealed` | Record for the sealed panel. |
 
 A reply is rejected (stored, but not counted) when it is not JSON, misses an item or a
 dimension, has a score that is not an integer from 1 to 5 (`true` included), a severity outside
 the configured list, an empty reasoning, more than a third of quotes not found in the items, a
-control mean above `control_max`, or a known-good mean below `good_min`. Scores above the
-severity cap are lowered to the cap. A quote that is not found voids that score. A judge that
-quoted the same words on every dimension of the candidate is noted for the report.
+control mean above `control_max`, a known-good mean below `good_min`, or, from a transcript, any
+tool call by the judge other than the configured handback tool (a judge gets no tools). Scores
+above the severity cap are lowered to the cap. A quote that is not found voids that score. A
+judge that quoted the same words on every dimension of the candidate is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
-used in the run, a reply already recorded, a judge slot that already has a valid reply, a slot
+used in the run, a reply already recorded, a judge slot that already has a valid reply, any
+reply or void in a run with a judge command (the runner records those), a slot
 with `max_replacements + 1` attempts, a round already aggregated, a transcript whose prompt
 does not contain the whole brief, `--void` without `--transcript` or on a transcript without
 the brief id.
+
+## judge
+
+```
+sealed-panel judge RUN --round N [--judge J ...] [--sealed]
+```
+
+Runs the judge command frozen into the run (`[judge] command`, set with `init --config`; see
+[configuration.md](configuration.md)) once for every judge slot of the round that has no valid
+reply, one after the other, or only for the slots given with `--judge`. For each slot it starts
+one fresh process from the argument list (never through a shell), in an empty temporary
+directory, with an environment holding only `PATH`, `HOME`, `LANG` and the names in `[judge]
+env_allow`. It writes the brief file's exact bytes to the process's stdin, closes it, and reads
+stdout as the reply; stderr goes to `runner_j<J>_<id>.log` beside the brief, never into the
+reply. A brief file that is a symbolic link is refused. The reply is recorded as `record` would,
+with source `runner`, under an agent id the runner draws (`runner-<12 hex>`), with its proof
+(see [protocol.md](protocol.md)). Prints one line per slot: `VALID judge J`, `REJECTED judge J:
+<reasons>`, `VOID judge J: <why>` (then the duration and the log file), or `SKIPPED judge J` for
+a slot another call took meanwhile.
+
+A process that exits with a non-zero status, runs past `[judge] timeout_s` (it is stopped, with
+every process it started in its session), writes nothing, or writes more than `[judge]
+max_reply_bytes` to stdout or `[judge] max_stderr_bytes` to stderr gives no reply: the attempt
+is recorded as void, under the cap of 3 voids per slot and round, and never fills a seat. What
+it wrote (up to the cap) is stored for a human and never read as a reply. A process that leaves
+another process holding its output is stopped at the timeout. Run `judge` again to fill a void
+or rejected slot with a fresh process.
+
+One process per slot at a time: from the slot's check to its record, the runner holds the
+slot with `running_j<J>.json` beside the brief, created only when absent. A second call skips
+a held slot, `judge --judge J` on it is refused, and `aggregate` refuses the round while a slot
+is held. A marker whose runner stopped (its process is gone, or it is older than the timeout
+plus 60 seconds) is recorded as a void by the next `judge`, never reused silently. That void
+counts against the void cap, gets a fresh agent id and keeps only the holder's pid, start time
+and command from the marker; a marker on a slot that already holds a valid reply, or for a slot
+the round does not have, is dropped without one, and so is a marker that is a link or not a
+regular file. Markers exist only in a run with a judge command; elsewhere such a file means
+nothing. Every process started ends recorded: a reply the record refuses (one already recorded)
+and an interrupted run are recorded as voids.
+
+Refused before any process starts: a run without a judge command (host mode), a round not
+briefed or already aggregated, a slot not in the round, every asked slot already holding a
+valid reply or held by another call, a slot at its replacement cap or at its void cap. A command
+that cannot be started records nothing.
+A run with a judge command takes runner replies only: `record`, pasted, from a transcript or
+as a void, is refused on every slot. A run without one stays in host mode.
 
 ## measure
 
@@ -193,6 +243,51 @@ sealed-panel learn RUN
 Writes the candidates of a sealed run to its library's inbox, as `aggregate --sealed` does.
 Use it when aggregate printed "learning skipped". Evidence already recorded is not added again.
 Refused before the run is sealed, or when learning fails again.
+
+## mcp
+
+```
+sealed-panel mcp [--root DIR] [--config CONFIG.toml] [--transcript-root DIR ...]
+```
+
+Serves the commands as MCP tools over stdio, for an agent host, and exits when stdin closes.
+Needs the `mcp` extra; without it, the command says so, with the install line, and exits with
+status 2. stdout carries the protocol only; logs go to stderr. Every path a tool takes must
+resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in the
+configuration, else the directory the server starts in. A path outside it, or one starting with
+`~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too.
+
+`--config` is the configuration of every run the server changes, and the only place a
+`[judge] command` comes from. It is read once at startup and must live outside the root, or the
+server does not start. The `init` tool freezes it and takes no configuration from the caller.
+The read-only tools (`status`, `report` and the `rubrics_*` tools) read any run whose lock and
+shape hold; every tool that changes a run refuses one whose settings differ from the server's
+(the path of its library aside, and a setting the run lacks counting as its default), and
+`status` says whether the run is `served`. A run from another configuration, or one whose
+setting changed default since it was frozen, is changed through the command line or a server
+started with that configuration.
+
+`--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. A
+leading `~`, `$HOME` or `${HOME}` is the user's home. It is read only, for the transcript of
+`record` and `void`. Through MCP a transcript is accepted only there, with no symbolic link on
+the way: a file the caller can write is no proof. A transcript root that overlaps the root (a
+host started from the home folder, whose transcripts sit under it) is turned off rather than
+stopping the server: `status` and every transcript refusal say why. Start the host from a
+project directory to read transcripts again.
+
+The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
+(`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,
+`rubrics_suggest`, `rubrics_show`, `feedback`. Each calls the same function as the command, so
+every refusal is the same; a refusal, a missing file or a file of the wrong shape comes back as
+a tool error with its reason, and any other error is masked. Each returns a structured result
+(and the same object as text). `record` takes exactly one of `transcript`, `reply_file` or
+`reply` (the reply text, flagged as pasted). `judge` reports progress after each judge and
+stops after an hour; a judge already started then still finishes and is recorded.
+
+`rubrics promote` and `rubrics reject` are not tools: a host can answer a confirmation by
+itself, so a tool call proves no person decided. `rubrics_show`, `rubrics_list` and `feedback`
+return the command a person runs instead. `rubrics use` and `learn` stay on the command line.
+See [integrations.md](integrations.md) for host configuration.
 
 ## rubrics
 

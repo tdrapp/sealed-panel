@@ -24,7 +24,9 @@ normalise away letters, digits or spaces before quotes are compared.
 
 At `init`, the effective configuration is written to `config.json` in the run directory and its
 sha256 to `config.lock`. Every later command reads that frozen copy and refuses if it was
-edited. The report header and the output of `status` list every setting that differs from the
+edited, or if it holds a key the defaults do not know or a key with a dot (the open
+`text.punctuation` table aside); a key it lacks, from an older version, counts as its
+default. The report header and the output of `status` list every setting that differs from the
 packaged defaults, including the per-run keys of the spec, so a loosened or tightened setting
 is always visible next to the grade.
 
@@ -133,7 +135,7 @@ rather than guess.
 | `text_block_type` | `"text"` | not empty | Block type that carries text. |
 | `text_key` | `"text"` | not empty | Block field holding the text. |
 | `agent_id_key` | `"agentId"` | not empty | Field holding the agent id. When present, it must equal `--agent-id`. |
-| `handback_tool` | `""` | | Some agent runtimes return a subagent's answer as a tool call rather than as a final text. Name that tool here and the message of its last call is read as the reply, before any text. Empty means no tool is read. A call whose message is not one non-empty string is recorded as a rejected, malformed reply. |
+| `handback_tool` | `"SubagentHandback"` | | Some agent runtimes return a subagent's answer as a tool call rather than as a final text. Name that tool here and the message of its last call is read as the reply, before any text. A runtime without this tool is unaffected. Empty means no tool is read; a run frozen earlier keeps the value it has. A call whose message is not one non-empty string is recorded as a rejected, malformed reply. |
 | `tool_block_type` | `"tool_use"` | not empty | Block type of a tool call. |
 | `tool_name_key` | `"name"` | not empty | Block field holding the tool name. |
 | `tool_input_key` | `"input"` | not empty | Block field holding the call's input. |
@@ -143,9 +145,9 @@ rather than guess.
 | `tool_result_id_key` | `"tool_use_id"` | not empty | Tool result field naming the call it answers. |
 | `tool_error_key` | `"is_error"` | not empty | Tool result field set to true when the runtime refused the call. A refused handback was never delivered, so the reader prefers a delivered handback, then the last assistant text; only when nothing was delivered at all is the last refused handback the reply (a malformed one is recorded as rejected). For `--void`, a refused handback still counts as a reply. |
 
-`record --void` reads every assistant text and every handback message of the transcript, not
-only the last one: a judge whose prompt held the whole brief and that left any non-empty reply
-cannot be voided.
+`record --void` fails closed: any non-empty assistant text and any tool call, whichever its
+name, counts as a reply, because a runtime may deliver the answer through a tool no setting
+names. A judge whose prompt held the whole brief and that left any of those cannot be voided.
 
 ## Why each section is a setting
 
@@ -165,12 +167,54 @@ cannot be voided.
 - `[injection]`: texts in other languages need more patterns; the defaults always stay.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.
+- `[judge]`: which program judges, how long it may take, and which credentials it may see,
+  depend on the machine and the model; they are frozen so a run keeps one judge.
+
+## `[judge]`
+
+The judge runner (`sealed-panel judge`, see [cli.md](cli.md)). Set it in the file given to `init
+--config`, or, for the MCP server, in the file given to `sealed-panel mcp --config`, outside its
+root: the server reads that file once, freezes it into every run it starts and changes only runs
+frozen with it, so the caller of a tool never picks its judge. It is frozen into the run like
+every other setting, so the judges cannot change in the middle of a run, and a command that
+differs from the default (empty) is listed in full next to the grade. A run with a judge command
+takes runner replies only.
+
+```toml
+[judge]
+command = ["python", "/path/to/my_judge.py"]
+timeout_s = 300
+env_allow = ["MY_MODEL_API_KEY"]
+```
+
+| Key | Default | Bounds | Meaning |
+|---|---|---|---|
+| `command` | `[]` | a list of non-empty strings | The judge command as an argument list, started once per brief without a shell. It reads the brief on stdin and prints the reply on stdout. Empty means host mode: your agent host runs the judges and `record` stores their replies. The list is stored with every reply and shown in the report: never put a credential in it. |
+| `timeout_s` | `300` | 1 to 3600 | Seconds a judge process may run. Past it, the process and every process it started are stopped, and the attempt is recorded as void. |
+| `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). |
+| `max_reply_bytes` | `1048576` | 1024 to 16777216 | Bytes a judge may write to stdout. Past it, the process is stopped and the attempt is recorded as void; only the bytes up to the cap are kept. |
+| `max_stderr_bytes` | `1048576` | 1024 to 16777216 | The same for stderr, kept in the log beside the brief. |
+
+The judge process never inherits the environment of the process that runs sealed-panel. That
+environment often holds credentials (cloud tokens, repository tokens, other API keys) that a
+judge has no use for, and a judge is a program that reads text written by someone else. So it
+gets `PATH`, `HOME` and `LANG`, the names you list in `env_allow`, and nothing else: a key
+reaches a judge only when you named it. The names passed are stored with each reply; their
+values never are.
+
+A run frozen before 0.3.0 has no `[judge]` section and is in host mode.
+
+## `[mcp]`
+
+| Key | Default | Bounds | Meaning |
+|---|---|---|---|
+| `root` | `""` | absolute or starting with `~` | The MCP server's root, read from the file given to `sealed-panel mcp --config`: every path a tool takes must resolve under it, symbolic links followed. Empty means the directory the server starts in; `--root` overrides it. It places files and changes no grade, so it is not listed among the settings that differ from the defaults. |
 
 ## `[library]`
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `path` | `""` | absolute or starting with `~`; never inside the package, nor inside a git working tree that does not ignore it | The user rubric library. Empty means the user-level default (`~/.local/share/sealed-panel/rubrics`, or the platform equivalent), never the current directory. `SEALED_PANEL_RUBRICS` overrides it, `~` is expanded, and `init` freezes the resolved path into the run; it is not listed among the settings that differ from the defaults. See [rubrics.md](rubrics.md). |
+| `path` | `""` | absolute or starting with `~`; never inside the package, inside a run, nor inside a git working tree that does not ignore it | The user rubric library. Empty means the user-level default (`~/.local/share/sealed-panel/rubrics`, or the platform equivalent), never the current directory. `SEALED_PANEL_RUBRICS` overrides it, `~` is expanded, and `init` freezes the resolved path into the run; it is not listed among the settings that differ from the defaults. See [rubrics.md](rubrics.md). |
 | `learn` | `true` | | After a sealed panel aggregates, write learned candidates to the library inbox. |
 | `control_min_candidate` | `4.0` | 1 to 5 | `control_too_close` fires only when the sealed candidate's mean raw score on the dimension is at least this. |
 | `control_gap` | `1.0` | 0 to 4 | ... and the control's mean raw score is within this of it. |
@@ -185,6 +229,10 @@ as named constants:
   every run with the same version of sealed-panel asks the judges the same thing;
 - the size of the brief id (6 random bytes) and of the shuffle seed (64 bits) (`brief.py`);
 - the cap of 3 void attempts per judge slot and round (`record.py`);
+- the judge runner's base environment (`PATH`, `HOME`, `LANG`), the size of its agent ids (6
+  random bytes), the grace period after it stops a process (5 seconds), the size of a read
+  (64 KiB), and the margin past the timeout after which an in-progress marker whose runner
+  still runs counts as stale (60 seconds) (`runner.py`);
 - the length above which the report shows a value by hash (80 characters) (`config.py`);
 - the score scale, integers 1 to 5, with 5 as the convergence target, and the required anchors
   1, 3 and 5 (`decide.py`, `spec.py`);

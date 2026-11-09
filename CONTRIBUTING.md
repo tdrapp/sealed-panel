@@ -68,7 +68,42 @@ A known-good equal to the candidate made the calibration check pass by construct
   setting that guards the protocol also gets a hard bound in `config.py`. The brief texts stay
   in `brief.py`: they are the instrument.
 
+## Vendor names
+
+The project stays vendor-neutral: docs, code and commit messages say "a model CLI" or "your
+agent host". One path is the single accepted exception: the plugin folder at the repository
+root, whose name the host requires.
+
 ## Maintainers
+
+Releases go to the package index through trusted publishing, so no token exists anywhere. The
+workflows pin every action by commit, with the version in a trailing comment that Dependabot
+keeps up to date.
+
+The first release, in this order:
+
+1. Make the repository public: the plugin marketplace and the git install need it.
+2. On the index, add a pending trusted publisher for this repository with the workflow
+   `release.yml` and the environment `pypi`. In the repository settings, create the `pypi`
+   environment with a required reviewer, before any tag.
+3. In a release commit, move `[Unreleased]` in `CHANGELOG.md` to `[0.3.0]` with its compare
+   link.
+4. Tag `v0.1.0` on `0d1bb9e`, `v0.2.0` on `bf103bb` and `v0.2.1` on `a7ba6dc`, and push them
+   together: none of these commits holds `release.yml`, so nothing publishes.
+5. Tag the release commit of step 3 `v0.3.0` and push it alone: GitHub creates no event when
+   more than three tags are pushed at once.
+
+A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
+version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace
+file, `.mcp.json` and the install lines (`tests/test_packaging.py` checks they agree), merge,
+and push a tag `v<version>`. The workflow checks that the tag names the package version, builds
+the sdist and the wheel, and publishes them.
+
+After the first publish, the docs' index lines apply: the
+hint `sealed-panel mcp` prints without the extra (`cli.py`) may then name the index. Until then
+it names the tag, because an agent reading it would install whatever holds that free name.
+`.mcp.json` may then move from the git form to `sealed-panel[mcp]==<version>`, and
+`tests/test_packaging.py` moves with it.
 
 Branch protection for `main` is kept in `.github/branch-protection.json` (required checks,
 strict status, pull request required, linear history, no force push, no deletion, resolved

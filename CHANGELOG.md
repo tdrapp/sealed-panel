@@ -7,6 +7,89 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-07
+
+### Added
+
+- A judge runner: `sealed-panel judge RUN --round N` starts one fresh process per open judge
+  slot from the `[judge] command` argument list (never a shell), writes the brief file's bytes
+  to its stdin and records its stdout as the reply, with source `runner` and its proof: the
+  sha256 of the brief bytes and of the reply, the argument list, the exit status, the duration
+  and the names of the variables passed. stderr goes to a log file beside the brief. The process
+  starts in an empty directory with `PATH`, `HOME`, `LANG` and the names in `[judge] env_allow`
+  only. A non-zero exit, a timeout (`[judge] timeout_s`, 1 to 3600 s), no output, or output past
+  `[judge] max_reply_bytes` or `max_stderr_bytes` (1 MiB by default, 1 KiB to 16 MiB) is
+  recorded as a void, under the void cap; every seat refusal is checked before a process starts.
+  A marker holds each seat from its check to its record, so concurrent or retried calls never
+  judge it twice; a marker a stopped runner left becomes a void; every process started ends
+  recorded. A run with a judge command takes runner replies only, and only the runner can record
+  one. The library exposes `judge_round`, `judge_seat`, `open_seats` and `record_from`.
+- An MCP server, `sealed-panel mcp`, in the optional `mcp` extra: stdio only, tools `init`,
+  `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
+  `rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`, each calling the same
+  function as the command. Structured results, strict input validation, refusals as tool errors
+  and other errors masked. The settings come only from the file given to `sealed-panel mcp
+  --config`, read once and kept outside the root, never from a tool call, and every tool that
+  changes a run refuses one frozen with others (the read-only tools read it, and `status` says
+  whether it is served). Every path, a spec's `facts_file` included, must resolve under the root
+  (`--root`, `[mcp] root`, or the starting directory). A transcript counts only under a
+  `--transcript-root`, away from the root. Promoting and rejecting candidates stay with a
+  person.
+- The repository is a plugin and its own marketplace for agent hosts that install plugins
+  from git: an MCP server started with `uvx`, the skill under `skills/sealed-panel/`, and an
+  `eval-judge` agent with an empty tool list that also denies every built-in tool. It asks for
+  the host's transcript folder when it is enabled. The skill is also under
+  `.agents/skills/sealed-panel/`. `skill/` stays the one source, and a test fails when a copy
+  drifts.
+- `docs/integrations.md`: MCP hosts, the plugin, TOML host configuration, API pipelines.
+  `examples/runner/`: a provider-neutral judge command template, its configuration and a
+  library example.
+- A release workflow: a tag `v*` builds the sdist and the wheel and publishes them through
+  trusted publishing. Every workflow pins its actions by commit. The sdist holds everything its
+  tests read.
+- CI runs the tests on Python 3.11 to 3.13 without the `mcp` extra as well, where the MCP
+  tests skip.
+
+### Changed
+
+- A frozen configuration with an unknown or dotted key is refused, and runs are compared with a
+  server section by section, a key an older run lacks counting as its default. Markers left by a
+  stopped runner count only in a run with a judge command, under the void cap and a fresh agent
+  id; a planted one on a filled or unknown seat, or one that is a link or not a regular file, is
+  dropped. A library whose folder became a link is refused. A tool call of another block type
+  named like the handback tool is not exempt. A draft replacing a file starts private.
+- `transcript.handback_tool` defaults to `SubagentHandback`, the tool a host imposes in its auto
+  mode, where the final text is no longer delivered. A run frozen earlier keeps its value.
+- `record` rejects a transcript reply whose judge called any tool other than the configured
+  handback tool, of any block type ending in `tool_use`: a judge with a tool could have read the
+  run's keys. `--void` counts any tool call as a reply, so a judge that replied through a tool
+  cannot be voided. A judge with tool calls and no reply is recorded as rejected.
+- A reply is read in linear time, and one built to break the parser (deep nesting, a huge
+  integer) is rejected.
+- `init` refuses a non-empty directory that is not a run. Every file of a run goes through one
+  helper: written whole under a temporary name, moved into place, never through a link, keeping
+  the mode of the file it replaces. A symbolic link on a run's folders, on a library's `inbox`
+  or `history`, or on a brief, template or candidate that is read, stops the command or is
+  skipped with a warning. A rubric library inside a run is refused.
+- The report labels a void by the runner with its reason, and notes rounds whose replies the
+  runner read; the judge command is always shown in full. `aggregate` counts voids in its
+  "rejected or void" line.
+- `SECURITY.md` covers the judge runner and the MCP server.
+- A run frozen before 0.3.0 has no `[judge]` section and stays in host mode, and keeps
+  `transcript.handback_tool = ""`. In a host's auto mode, where the judge answers through
+  `SubagentHandback`, such a run rejects every judge it records: start a new run (or freeze one
+  with `[transcript] handback_tool = "SubagentHandback"`).
+- Through MCP, the read-only tools (`status`, `report`, `rubrics_*`) read any locked run, and
+  `status` says whether the server serves it; the tools that change a run need the server's
+  configuration to match it. A setting added in a later version counts as its default for an
+  older run, so a new setting never locks one out; a 0.2.x run, whose `handback_tool` default
+  changed, is changed through the command line or a server whose configuration sets it.
+- A transcript root that overlaps the server's root (a host started from the home folder) is
+  turned off instead of stopping the server, and `status` and every transcript refusal say
+  why. A leading `~`, `$HOME` or `${HOME}` in a transcript root is the user's home. The plugin's
+  transcript folder defaults to the host's own, so it works out of the box.
+- Declared for macOS and Linux; Windows is not supported yet.
+
 ## [0.2.1] - 2026-11-04
 
 ### Fixed
@@ -78,7 +161,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Agent skill in `skill/`, synthetic example with demo judges in `examples/announcement/`.
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
-[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tdrapp/sealed-panel/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tdrapp/sealed-panel/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tdrapp/sealed-panel/releases/tag/v0.1.0

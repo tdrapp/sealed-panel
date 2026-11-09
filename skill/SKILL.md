@@ -17,6 +17,13 @@ give.
 Set `RUN` to a new directory per evaluation (for example `runs/<slug>`). Give the run a neutral
 title: judges see it.
 
+**Tools or commands.** When the sealed-panel MCP tools are available, use them: each carries
+the name of the command below (`init`, `brief`, `record`, `measure`, `aggregate`, `status`,
+`report`, `feedback`, `rubrics_list`, `rubrics_suggest`, `rubrics_show`), with `seal` for
+`brief --sealed`, `void` for `record --void`, and `judge` for `sealed-panel judge`. Otherwise
+run the `sealed-panel` command. Never promote or reject a rubric candidate yourself, through
+any tool or command: show the user the command and let them run it.
+
 ## 0. Scope
 
 One line each: the text and its kind; the persona or personas who will read it and what they
@@ -59,8 +66,9 @@ sealed-panel init RUN --spec spec.json
 ```
 
 Every later command refuses if the rubric or the configuration changed. A new rubric is a new
-run. A configuration file, if any, is given here (`init --config FILE`) and nowhere else; the
-report lists every setting that differs from the defaults.
+run. A configuration file, if any, is given here (`init --config FILE`) and nowhere else (the
+MCP `init` tool takes none: it freezes the file the server was started with); the report lists
+every setting that differs from the defaults.
 
 ## 3. The control, and a known-good if one exists
 
@@ -77,11 +85,25 @@ only.
 sealed-panel brief RUN --round N --artefact draft.md --control control.md [--good good.md]
 ```
 
-Launch all judges at once. Each judge is a **fresh** agent context, with no tools, whose whole
-prompt is the brief file's text pasted verbatim, preceded by the instructions in `judge.md`
-when your tool supports a system prompt or an agent definition. Never reuse a judge, never add
-your reasoning, an earlier score, or which item is which. Never use an agent that can read the
-run directory.
+When the run has a judge command (`status` lists `judge.command` among its settings), run
+
+```
+sealed-panel judge RUN --round N
+```
+
+instead of launching judges: each brief goes to one fresh process, and its reply is recorded
+with its proof. Run it again to replace a rejected or void judge, then go to step 5's
+instruments and aggregation. Such a run takes runner replies only: `record` is refused on it.
+A judge can take a minute and they run one after the other, so through the MCP tool, split a
+panel with its `judges` parameter (`judges: [1, 2]`, then `[3, 4]`) to keep each call under your
+host's tool timeout. A seat another call holds is skipped, never judged twice.
+
+Otherwise launch all judges at once. Each judge is a **fresh** agent context, with no tools,
+whose whole prompt is the brief file's text pasted verbatim, preceded by the instructions in
+`judge.md` when your tool supports a system prompt or an agent definition (an `eval-judge`
+agent, when your host provides one, carries them). Never reuse a judge, never add your
+reasoning, an earlier score, or which item is which. Never use an agent that can read the run
+directory.
 
 ## 5. Record and aggregate
 
@@ -94,7 +116,9 @@ sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jso
 
 The transcript's first user entry must contain the whole brief file: paste the brief verbatim,
 or `record` refuses it. Text you add around the brief is counted and reported, so add nothing.
-Otherwise save the reply to a file, unchanged, and use `--output reply.json`.
+Otherwise save the reply to a file, unchanged, and use `--output reply.json`. Through the MCP
+tools, a transcript is read only from a folder the server was started with
+(`--transcript-root`); elsewhere `record` refuses it, so say so to the user, or paste the reply.
 
 Without JSONL transcripts, every reply is pasted: the report flags each round, and the defence
 against selective recording (an agent briefed but never recorded blocks the aggregation) does
@@ -109,13 +133,13 @@ reply is recorded as void, so the round can be aggregated:
 sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jsonl --void
 ```
 
-A void clears the block but never fills the seat: brief a fresh judge on the same brief
-and record it under the same `--judge` number. A judge whose prompt held the whole brief and
-that left any reply, in any message, cannot be voided: record its reply. Voids have their own
-cap of 3 per slot and round. If your agent runtime returns a subagent's answer as a tool call,
-set `transcript.handback_tool` in the configuration given to `init`. A REJECTED judge (control
-too high, known-good too low, quotes not found, malformed) is replaced by a fresh judge on the
-same brief file, recorded under the same `--judge` number.
+A void clears the block but never fills the seat: brief a fresh judge on the same brief and
+record it under the same `--judge` number. A judge whose prompt held the whole brief and that
+left any reply, in any message, or called any tool, cannot be voided: record it. Voids have
+their own cap of 3 per slot and round. If your agent runtime returns a subagent's answer through
+a tool other than `SubagentHandback`, set `transcript.handback_tool` in the configuration given
+to `init`. A REJECTED judge (control too high, known-good too low, quotes not found, malformed)
+is replaced by a fresh judge on the same brief file, recorded under the same `--judge` number.
 
 Instruments, before aggregating:
 
@@ -148,9 +172,13 @@ sealed-panel status RUN
 sealed-panel brief RUN --sealed --artefact final.md --control control.md [--good good.md]
 ```
 
-With `--sealed`, `--round` defaults to 1. Fresh judges, then `record ... --sealed`,
-`measure ... --sealed` (every measured criterion, before aggregating), `aggregate ... --sealed`,
-and:
+With `--sealed`, `--round` defaults to 1. Then the judges, one way or the other:
+
+- With a judge command: `sealed-panel judge RUN --sealed`. `record` is refused on such a run.
+- Otherwise: fresh judges, then `record ... --sealed` for each.
+
+Then `measure ... --sealed` (every measured criterion, before aggregating),
+`aggregate ... --sealed`, and:
 
 ```
 sealed-panel report RUN

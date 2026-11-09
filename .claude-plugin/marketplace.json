@@ -1,0 +1,15 @@
+{
+  "name": "sealed-panel",
+  "owner": {
+    "name": "Thibaut Drapp"
+  },
+  "description": "The sealed-panel plugin: blind judge panels and a sealed final grade for a text.",
+  "plugins": [
+    {
+      "name": "sealed-panel",
+      "source": "./",
+      "description": "Grade a text with blind panels of fresh LLM judges and a sealed final panel, never by its author.",
+      "version": "0.3.0"
+    }
+  ]
+}

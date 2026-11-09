@@ -97,8 +97,9 @@ text_key = "text"
 # Key holding the agent id. When present, it must equal --agent-id.
 agent_id_key = "agentId"
 # Some agent runtimes return a subagent's answer as a tool call rather than as a final text.
-# Name that tool here to read its message as the reply; empty means no tool is read.
-handback_tool = ""
+# Name that tool here to read its message as the reply; empty means no tool is read. A
+# runtime without this tool is unaffected. A run frozen earlier keeps the value it has.
+handback_tool = "SubagentHandback"
 tool_block_type = "tool_use"
 tool_name_key = "name"
 tool_input_key = "input"
@@ -108,6 +109,28 @@ tool_id_key = "id"
 tool_result_type = "tool_result"
 tool_result_id_key = "tool_use_id"
 tool_error_key = "is_error"
+
+[judge]
+# The judge runner. `sealed-panel judge` starts one process per brief with this argument list
+# (never through a shell), writes the brief file's bytes to its stdin and reads its stdout as
+# the reply. Empty means host mode: your agent host runs the judges and `record` stores their
+# replies. The argument list is stored with every reply: keep credentials out of it.
+command = []
+# Seconds a judge process may run; past it, the process is stopped and the brief gets no reply.
+timeout_s = 300
+# Bytes a judge may write to stdout; past it, the process is stopped and the brief gets no reply.
+max_reply_bytes = 1048576
+# Bytes it may write to stderr, kept in the log beside the brief; past it, the same.
+max_stderr_bytes = 1048576
+# Names of environment variables passed to the judge process, besides PATH, HOME and LANG.
+# Nothing else from the environment reaches it.
+env_allow = []
+
+[mcp]
+# The MCP server's root: every path a tool takes must resolve under it (symlinks followed).
+# Empty means the directory the server starts in; `sealed-panel mcp --root` overrides it.
+# Absolute or starting with ~. Not a grading setting: it is not listed with the overrides.
+root = ""
 
 [library]
 # The user rubric library: user templates, inbox/ and history/. Empty means the user-level

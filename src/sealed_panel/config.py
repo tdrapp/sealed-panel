@@ -42,6 +42,12 @@ SEVERITY_CEILINGS = {"blocking": 3, "material": 4}
 MAX_JUDGES_PER_PERSONA = 9
 # Transcript keys that may be empty: an empty handback tool means none is read.
 OPTIONAL_TRANSCRIPT_KEYS = frozenset({"handback_tool"})
+# Seconds a judge process may run, at least and at most.
+JUDGE_TIMEOUT_BOUNDS = (1, 3600)
+# Bytes a judge may write to stdout, at least and at most.
+REPLY_BYTES_BOUNDS = (1024, 16 << 20)
+# An environment variable name, as passed to a judge process.
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _type_ok(default: Any, value: Any) -> bool:
@@ -162,6 +168,10 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
         errors.append("library.control_gap must be between 0 and 4")
     errors += _injection_errors(data["injection"])
+    errors += _judge_errors(data.get("judge") or default_data()["judge"])
+    root = str((data.get("mcp") or {}).get("root", ""))
+    if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
+        errors.append(f"mcp.root must be an absolute path or start with ~, got {root!r}")
     transcript = data["transcript"]
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
@@ -262,6 +272,27 @@ def _injection_errors(injection: Mapping[str, Any]) -> list[str]:
     return errors
 
 
+def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
+    """The judge runner: an argument list of non-empty strings (empty: host mode), a bounded
+    timeout, and environment variable names."""
+    errors = []
+    command = judge["command"]
+    if not all(isinstance(arg, str) and arg for arg in command):
+        errors.append("judge.command must be a list of non-empty strings (empty: host mode)")
+    low, high = JUDGE_TIMEOUT_BOUNDS
+    if not low <= judge["timeout_s"] <= high:
+        errors.append(f"judge.timeout_s must be between {low} and {high} seconds")
+    low, high = REPLY_BYTES_BOUNDS
+    if not low <= judge.get("max_reply_bytes", low) <= high:
+        errors.append(f"judge.max_reply_bytes must be between {low} and {high}")
+    if not low <= judge.get("max_stderr_bytes", low) <= high:
+        errors.append(f"judge.max_stderr_bytes must be between {low} and {high}")
+    names = judge["env_allow"]
+    if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
+        errors.append("judge.env_allow must hold environment variable names only")
+    return errors
+
+
 def default_data() -> dict[str, Any]:
     text = resources.files("sealed_panel").joinpath("defaults.toml").read_text("utf-8")
     return tomllib.loads(text)
@@ -348,6 +379,12 @@ class Config:
     @property
     def transcript(self) -> dict[str, Any]:
         return self.section("transcript")
+
+    @property
+    def judge(self) -> dict[str, Any]:
+        """The [judge] section; a run frozen before 0.3.0 has none, and gets host mode."""
+        value: dict[str, Any] = self.data.get("judge") or default_data()["judge"]
+        return value
 
     @property
     def library(self) -> dict[str, Any]:
@@ -443,6 +480,12 @@ def guard_library(path: Path) -> Path:
     package = Path(__file__).resolve().parent
     if real == package or package in real.parents:
         raise ConfigError(f"the rubric library may not live inside the package: {real}")
+    run = next((p for p in (real, *real.parents) if (p / "rubric.lock").is_file()), None)
+    if run is not None:
+        raise ConfigError(
+            f"the rubric library may not live inside the run {run}: its files would be read "
+            "as templates and candidates"
+        )
     top = _git_top(real)
     if top is not None and not _git_ignored(top, real):
         raise ConfigError(
@@ -485,15 +528,69 @@ def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 SHOW_LIMIT = 80
+# Settings that place files and do not change a grade: never listed as overrides.
+NOT_GRADING = frozenset({"library.path", "mcp.root"})
 
 
-def _show(value: Any, where: str) -> str:
+# Settings always shown in full: what runs as the judge is never reduced to a hash.
+SHOW_IN_FULL = frozenset({"judge.command", "judge.env_allow"})
+
+
+def _show(value: Any, where: str, key: str = "") -> str:
     """A value in full, or, when it is long, its size and short hash and where to read it."""
     text = json.dumps(value, ensure_ascii=True)
-    if len(text) <= SHOW_LIMIT:
+    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:
         return text
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     return f"<{len(text)} characters, sha256 {digest}, see {where}>"
+
+
+_ABSENT = object()
+
+
+def _differences(
+    left: Mapping[str, Any], right: Mapping[str, Any], default: Mapping[str, Any], prefix: str
+) -> list[str]:
+    found = []
+    for key in sorted(set(left) | set(right)):
+        name = f"{prefix}{key}"
+        if name in NOT_GRADING:
+            continue
+        here = default.get(key, _ABSENT) if isinstance(default, Mapping) else _ABSENT
+        lv, rv = left.get(key, here), right.get(key, here)
+        if isinstance(lv, Mapping) and isinstance(rv, Mapping):
+            found += _differences(lv, rv, here if isinstance(here, Mapping) else {}, name + ".")
+        elif lv != rv:
+            found.append(name)
+    return found
+
+
+def config_differences(run: Config, server: Config) -> list[str]:
+    """The settings of a run that differ from a server's, section by section (never through a
+    flattened view a dotted key could shadow). A key the run lacks, frozen by an older version,
+    counts as its default; the settings that only place files are left aside."""
+    return _differences(run.data, server.data, default_data(), "")
+
+
+def schema_errors(
+    data: Mapping[str, Any], shape: Mapping[str, Any] | None = None, path: tuple[str, ...] = ()
+) -> list[str]:
+    """A frozen configuration holds only keys the defaults know, and no key with a dot: a dotted
+    key would read as another setting in a flattened view. Keys may be missing (an older run);
+    the open table (text.punctuation) takes any key, its bounds check the rest."""
+    shape = default_data() if shape is None else shape
+    errors: list[str] = []
+    if path in OPEN_TABLES:
+        return errors
+    for key, value in data.items():
+        where = ".".join((*path, key))
+        if "." in key:
+            errors.append(f"configuration key {where!r} holds a dot")
+        elif key not in shape:
+            errors.append(f"unknown configuration key {where!r}")
+        elif isinstance(value, Mapping) and isinstance(shape[key], Mapping):
+            errors += schema_errors(value, shape[key], (*path, key))
+    return errors
 
 
 def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
@@ -507,12 +604,13 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
     for key in sorted(set(defaults) | set(current)):
         if key.startswith("run.") and spec is not None:
             continue
-        if key == "library.path":
-            continue  # where candidates are written, not a grading setting
+        if key in NOT_GRADING:
+            continue  # where files are, not how a text is graded
         if key not in current:
             continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):
-            now, was = _show(current.get(key), "config.json"), _show(defaults.get(key), "defaults")
+            now = _show(current.get(key), "config.json", key)
+            was = _show(defaults.get(key), "defaults", key)
             out.append(f"{key} = {now} (default {was})")
     if spec is not None:
         for key, default in default_data()["run"].items():

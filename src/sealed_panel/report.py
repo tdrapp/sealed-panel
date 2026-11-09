@@ -8,8 +8,9 @@ from typing import Any
 from .config import overrides
 from .decide import SUSPECT_JUMP, TOP_SCORE, decide, measured_ok
 from .ledger import other_runs, used_agent_ids
+from .record import RUNNER
 from .spec import dims_for, load_frozen, run_config
-from .store import load_json
+from .store import load_json, write_file
 
 # Hex characters of the rubric hash shown in the report.
 HASH_CHARS = 12
@@ -45,8 +46,7 @@ def feedback_path(run: Path, rnd: int) -> Path:
 
 def write_feedback(run: Path, entry: dict[str, Any]) -> Path:
     path = feedback_path(run, entry["round"])
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(feedback_for_author(entry), encoding="utf-8")
+    write_file(path, feedback_for_author(entry))
     return path
 
 
@@ -171,7 +171,13 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
         for x in r.get("rejected_judges") or []:
             out.append(f"- {name}: judge {x['judge']} rejected: {'; '.join(x['errors'][:3])}")
         for v in r.get("voided") or []:
-            why = "after replying (brief not verbatim)" if v.get("replied") else "(no reply)"
+            if v.get("source") == RUNNER:
+                why = f"by the judge runner: {v.get('reason')}"
+                why += "; it wrote output, kept unread" if v.get("replied") else ""
+            elif v.get("replied"):
+                why = "after replying (brief not verbatim)"
+            else:
+                why = "(no reply)"
             out.append(f"- {name}: judge {v['judge']} attempt {v['agent_id']} voided {why}")
         for j, n in sorted((r.get("prompt_extras") or {}).items()):
             out.append(
@@ -185,6 +191,11 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
             )
         if "output" in r.get("sources", []):
             out.append(f"- {name}: some replies were pasted, not read from a transcript")
+        if RUNNER in r.get("sources", []):
+            out.append(
+                f"- {name}: some replies were read by sealed-panel from the judge command "
+                "(judge.command in the settings above)"
+            )
     return out
 
 

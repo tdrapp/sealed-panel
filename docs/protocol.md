@@ -130,7 +130,41 @@ refusal is covered by a test.
 The sealed panel also scores the round-1 text blind, and the report shows baseline against
 sealed per dimension. A text changed after the seal is unjudged.
 
-## 9. Known limits
+## 9. Proof that a judge received the brief
+
+A grade is only as good as the link between each brief and its reply. Three sources give
+three kinds of proof, and the report says which one each round used.
+
+- **Runner (`judge`).** sealed-panel starts the judge process, writes the brief file's bytes to
+  its stdin and reads its stdout itself, so nothing stands between the brief and the reply. The
+  reply's record stores the proof: the sha256 of the bytes written, the argument list, the exit
+  status, the duration, the sha256 of the bytes read, the timeout, and the names of the
+  environment variables passed. One process per brief, so every runner reply comes from a fresh
+  context, and one process per seat at a time: a marker created only when absent holds the seat
+  from its check to its record, so concurrent or retried calls cannot collect several replies
+  and keep the best. A process that fails, times out, writes nothing or writes past the cap is a
+  void: no reply is ever made up from partial output, and every process started ends recorded,
+  at worst as a void. A run with a judge command takes runner replies only, on every seat: no
+  reply pasted, read from a transcript or voided by hand, so a rejected runner reply cannot be
+  swapped for one from another judge. Only the runner records a runner reply through the
+  commands and tools: the library's `record_reply` refuses the source. Someone who writes the
+  run's files by hand can still forge one; `SECURITY.md` keeps that out of scope. Through MCP,
+  the judge command comes from the configuration the user started the server with, never from
+  the caller, and every tool refuses a run frozen with other settings. The judge process gets a
+  minimal environment and an empty working directory: no credential beyond the ones the user
+  allowed, and no path into the run directory.
+- **Transcript (`record --transcript`).** The judge's own transcript must contain the whole
+  brief in its prompt; text added around it is counted and reported, and an agent that holds a
+  brief id but was never recorded blocks the aggregation. A transcript showing that the judge
+  called any tool other than the configured handback tool is rejected: a judge with a tool
+  could have read the run's keys and known which item is the candidate. Through MCP a
+  transcript counts only under a `--transcript-root`, away from the root: a file the author
+  wrote in its workspace is no proof. An author with shell access to that folder can still
+  forge one, so the runner stays the strong proof.
+- **Pasted (`record --output`).** Nothing shows that the judge received the brief verbatim,
+  or that no other judge was asked and discarded. The report flags such rounds.
+
+## 10. Known limits
 
 - A single-family panel can share a blind spot. Stances reduce it; judges from other families
   cut it further.
@@ -145,8 +179,8 @@ sealed per dimension. A text changed after the seal is unjudged.
   must contain the whole brief, each brief carries a random id, and an unrecorded agent holding
   one blocks the aggregation until it is recorded, or recorded as void when it never replied.
   A void clears that block but never fills a seat: each judge slot still needs a real attempt.
-  A judge whose prompt held the whole brief and that left any reply, in any message, cannot be
-  voided.
+  A judge whose prompt held the whole brief and that left any reply, in any message, or called
+  any tool, whichever its name, cannot be voided.
   Pasted replies cannot be checked and are flagged.
 - Unmeasured: whether the planted control lifts the candidate by contrast. Runs with and without
   the control would measure it.
@@ -157,4 +191,11 @@ sealed per dimension. A text changed after the seal is unjudged.
   shift it.
 - The judges' prompt is checked only through transcripts: text added around the brief is counted
   and reported, but its effect is not measured.
-- `record` calls for one round must be sequential.
+- `record` calls for one round must be sequential. `judge` calls may overlap: a marker holds
+  each seat.
+- The markers and the run's files are not protected from someone who edits them by hand: moving
+  a marker lets a second process start. `SECURITY.md` keeps that out of scope.
+- The runner proves what sealed-panel wrote and read, not what the judge command did in
+  between: a command that calls a model several times and prints the best answer is a re-roll
+  the runner cannot see. The command is frozen into the run and listed next to the grade, so
+  a reader can check what it does.

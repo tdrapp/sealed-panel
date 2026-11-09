@@ -26,6 +26,7 @@ REC, AGG, SPEC, CFG, BRIEF = (
 DEFAULTS = f"{PKG}/defaults.toml"
 CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
 LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
+RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -103,16 +104,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "void without any brief id": (REC, 'if not meta.get("nonce"):', "if False:"),
     "a pasted reply can be voided": (REC, "if pasted and replied:", "if False:"),
-    "only the last reply read for a void": (
-        REC,
-        "replies = assistant_texts(transcript, cfg) + [m for m in handed if m]",
-        "replies = assistant_texts(transcript, cfg)[-1:]",
-    ),
-    "a malformed handback can be voided": (
-        REC,
-        "replied = malformed or any(r.strip() for r in replies)",
-        "replied = any(r.strip() for r in replies)",
-    ),
     "void label hides a reply": (
         REC,
         '"replied": replied,',
@@ -138,11 +129,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         REC,
         "if not include_refused and call_id is not None and call_id in refused:",
         "if not include_refused and call_id in refused:",
-    ),
-    "refused handback ignored for a void": (
-        REC,
-        "handed = handback_messages(transcript, cfg, include_refused=True)",
-        "handed = handback_messages(transcript, cfg)",
     ),
     "void cap boundary": (REC, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
     "refused verdict not read when nothing was delivered": (
@@ -354,8 +340,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "an injection pattern dropped": (DEFAULTS, "    '\\bsystem prompt\\b',\n", ""),
     "agent id and transcript mismatch accepted": (
-        f"{PKG}/cli.py",
-        "if found and found != a.agent_id:",
+        REC,
+        "if found and found != agent_id:",
         "if False:",
     ),
     "previous round not aggregated": (
@@ -878,16 +864,495 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "long values cut in the report": (
         CFG,
-        "    if len(text) <= SHOW_LIMIT:\n        return text",
+        "    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:\n        return text",
         "    if True:\n        return text[:57]",
     ),
     "overrides hidden": (CFG, "if current.get(key) != defaults.get(key):", "if False:"),
+    # The judge runner.
+    "runner without a command": (RUN, "if not command:", "if False:"),
+    "runner after aggregation": (RUN, 'if (rdir / "result.json").exists():', "if False:"),
+    "a failed judge read as a reply": (RUN, "elif code != 0:", "elif False:"),
+    "a timed-out judge read as a reply": (RUN, "if timed_out:", "if False:"),
+    "an empty output read as a reply": (RUN, "elif not reply.strip():", "elif False:"),
+    "parent environment passed to a judge": (
+        RUN,
+        "return {n: source[n] for n in names if n in source}",
+        "return dict(source)",
+    ),
+    "judge started in the current directory": (RUN, "cwd=cwd,", "cwd=None,"),
+    "seat refusals checked after the call": (
+        RUN,
+        "        _runnable(judge, prior, cfg)\n",
+        "",
+    ),
+    "open seats unchecked": (RUN, "        _runnable(s, prior, cfg)\n", ""),
+    "void cap skipped by the runner": (RUN, "    check_void_cap(judge, prior)\n", ""),
+    "a valid seat run again": (
+        RUN,
+        'if s in busy or any(r["ok"] for r in prior):',
+        "if s in busy:",
+    ),
+    "unknown seat in a selection accepted": (RUN, "        if unknown:\n", "        if False:\n"),
+    "unknown seat run": (
+        RUN,
+        'if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):',
+        "if False:",
+    ),
+    "host reply in a runner run": (
+        REC,
+        '    if cfg.judge["command"]:\n        raise EvalError(\n',
+        "    if False:\n        raise EvalError(\n",
+    ),
+    "host reply checked only in the private record": (
+        REC,
+        "    if source != RUNNER:\n        _refuse_in_a_runner_run(cfg)\n",
+        "",
+    ),
+    "runner reply forged through the public API": (
+        REC,
+        '    if source == RUNNER:\n        raise EvalError("a runner reply is recorded',
+        '    if False:\n        raise EvalError("a runner reply is recorded',
+    ),
+    "judge settings not checked against the server": (
+        RUN,
+        "    if frozen != dict(expected):",
+        "    if False:",
+    ),
+    "judge command shown as a hash": (
+        CFG,
+        "if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:",
+        "if len(text) <= SHOW_LIMIT:",
+    ),
+    "runner proof unchecked": (REC, "if (runner is None) != (source != RUNNER):", "if False:"),
+    "runner proof dropped": (REC, '        result["runner"] = runner\n', "        pass\n"),
+    "judge timeout unbounded": (CFG, 'if not low <= judge["timeout_s"] <= high:', "if False:"),
+    "judge timeout bound exclusive": (
+        CFG,
+        'if not low <= judge["timeout_s"] <= high:',
+        'if not low < judge["timeout_s"] < high:',
+    ),
+    "judge command unchecked": (
+        CFG,
+        "if not all(isinstance(arg, str) and arg for arg in command):",
+        "if False:",
+    ),
+    "judge environment names unchecked": (
+        CFG,
+        "if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):",
+        "if False:",
+    ),
+    "runner replies not reported": (
+        f"{PKG}/report.py",
+        'if RUNNER in r.get("sources", []):',
+        "if False:",
+    ),
+    "runner void label hidden": (
+        f"{PKG}/report.py",
+        '            if v.get("source") == RUNNER:',
+        "            if False:",
+    ),
+    # The MCP server.
+    "a record call with two sources accepted": (MCP, "if len(given) != 1:", "if False:"),
+    "internal errors unmasked": (
+        MCP,
+        "        if message is None:\n            raise\n        raise ToolError(message)",
+        "        raise ToolError(message or str(exc))",
+    ),
+    "relative paths resolved against the process directory": (
+        MCP,
+        "resolved = (given if given.is_absolute() else base / given).resolve()",
+        "resolved = given.resolve()",
+    ),
+    "seat marker not exclusive": (RUN, "os.link(draft, marker)", "os.replace(draft, marker)"),
+    "live marker ignored": (
+        RUN,
+        "    if isinstance(pid, int) and _alive(pid) and fresh:",
+        "    if False:",
+    ),
+    "marker age ignored": (
+        RUN,
+        "fresh = isinstance(started, (int, float)) and time.time() - started < limit",
+        "fresh = True",
+    ),
+    "stale marker reused without a void": (
+        RUN,
+        '    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
+        "    pass\n",
+    ),
+    "running seat aggregated": (AGG, "    if running:\n", "    if False:\n"),
+    "output cap ignored": (RUN, "if size > cap:", "if False:"),
+    "a group refusing the signal crashes the runner": (
+        RUN,
+        "            return\n        except OSError:\n            pass\n",
+        "            return\n        except ProcessLookupError:\n            pass\n",
+    ),
+    "interrupted judge left unrecorded": (
+        RUN,
+        '        _record_reply(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)\n',
+        "        pass\n",
+    ),
+    "refused reply leaves its process unrecorded": (
+        RUN,
+        "        if failure:\n            raise\n",
+        "        raise\n",
+    ),
+    "a judge that used a tool is read": (REC, "    if tools_used:\n", "    if False:\n"),
+    # Paths and files of a run.
+    "paths outside the root accepted": (
+        MCP,
+        "        if not resolved.is_relative_to(base):\n",
+        "        if False:\n",
+    ),
+    "home paths accepted": (MCP, '        if p.startswith("~"):\n', "        if False:\n"),
+    "root setting ignored": (
+        MCP,
+        "base = (root or (Path(configured) if configured else Path.cwd())).expanduser().resolve()",
+        "base = (root or Path.cwd()).expanduser().resolve()",
+    ),
+    "init over a foreign directory": (
+        SPEC,
+        "if run.is_symlink() or (run.is_dir() and any(run.iterdir())):",
+        "if False:",
+    ),
+    "links followed in a run": (
+        f"{PKG}/store.py",
+        "        if p.is_symlink():\n",
+        "        if False:\n",
+    ),
+    "links inside a round directory followed": (
+        BRIEF,
+        "        refuse_links(*rdir.iterdir())\n",
+        "        pass\n",
+    ),
+    "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
+    "root listed with the grading settings": (
+        CFG,
+        'NOT_GRADING = frozenset({"library.path", "mcp.root"})',
+        'NOT_GRADING = frozenset({"library.path"})',
+    ),
+    "voids left out of the aggregate line": (
+        f"{PKG}/cli.py",
+        "{len(e['rejected_judges']) + len(e['voided'])} rejected or void",
+        "{len(e['rejected_judges'])} rejected or void",
+    ),
+    "a tool call not read as a reply for a void": (
+        REC,
+        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
+        "replied = bool(assistant_texts(transcript, cfg))",
+    ),
+    "a text not read as a reply for a void": (
+        REC,
+        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
+        "replied = bool(tool_calls(transcript, cfg))",
+    ),
+    "a tool call without a reply leaves the seat stuck": (
+        REC,
+        "            if not judge_tools(transcript, frozen):\n                raise\n",
+        "            raise\n",
+    ),
+    "no handback tool by default": (
+        DEFAULTS,
+        'handback_tool = "SubagentHandback"',
+        'handback_tool = ""',
+    ),
+    # What the MCP server trusts.
+    "a run with other settings served": (MCP, "        if differ:\n", "        if False:\n"),
+    "configuration under the root accepted": (
+        MCP,
+        "if config_file is not None and config_file.is_relative_to(base):",
+        "if False:",
+    ),
+    "a transcript under the root taken as proof": (
+        MCP,
+        "proof = transcript_path(transcript) if transcript is not None else None",
+        "proof = path(transcript) if transcript is not None else None",
+    ),
+    "a void read from a transcript under the root": (
+        MCP,
+        "            proof = transcript_path(transcript)\n",
+        "            proof = path(transcript)\n",
+    ),
+    "links followed in a transcript root": (
+        MCP,
+        "                        if current.is_symlink():\n",
+        "                        if False:\n",
+    ),
+    "facts_file outside the root read": (
+        SPEC,
+        "if root is not None and not path.resolve().is_relative_to(root):",
+        "if False:",
+    ),
+    "init freezes no server configuration": (
+        MCP,
+        "digest = init_run(path(run), path(spec), server, opt(library), base)",
+        "digest = init_run(path(run), path(spec), None, opt(library), base)",
+    ),
+    "init leaves facts_file unconfined": (
+        MCP,
+        "digest = init_run(path(run), path(spec), server, opt(library), base)",
+        "digest = init_run(path(run), path(spec), server, opt(library))",
+    ),
+    "the install hint names the index": (
+        f"{PKG}/cli.py",
+        "'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}'",
+        "'sealed-panel[mcp]'",
+    ),
+    "a candidate id unquoted in a command": (
+        MCP,
+        "where, name = shlex.quote(str(lib)), shlex.quote(cid)",
+        "where, name = shlex.quote(str(lib)), cid",
+    ),
+    # How a run touches the disk.
+    "a failed write leaves its draft": (
+        f"{PKG}/store.py",
+        "                os.unlink(draft, dir_fd=folder)\n",
+        "                pass\n",
+    ),
+    "a link on the directory followed": (
+        f"{PKG}/store.py",
+        "os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW",
+        "os.O_RDONLY | os.O_DIRECTORY",
+    ),
+    "role text written through a link": (
+        BRIEF,
+        'write_file(rdir / f"{role}.md", text)',
+        '(rdir / f"{role}.md").write_text(text)',
+    ),
+    "keys written through a link": (
+        f"{PKG}/store.py",
+        '    write_file(path, json.dumps(data, ensure_ascii=False, indent=2) + "\\n")\n',
+        "    path.parent.mkdir(parents=True, exist_ok=True)\n"
+        '    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n")\n',
+    ),
+    "findings written through a link": (
+        f"{PKG}/report.py",
+        "    write_file(path, feedback_for_author(entry))\n",
+        "    path.parent.mkdir(exist_ok=True)\n    path.write_text(feedback_for_author(entry))\n",
+    ),
+    "a linked template served": (
+        LIB,
+        '            if path.is_symlink():\n                warnings.append(f"skipped {path}: a symbolic link")\n                continue\n            try:\n                t = _checked(',
+        "            try:\n                t = _checked(",
+    ),
+    "a linked candidate read": (
+        LIB,
+        '        if path.is_symlink():\n            warnings.append(f"skipped {path}: a symbolic link")\n            continue\n        try:\n            c = json.loads(',
+        "        try:\n            c = json.loads(",
+    ),
+    "a linked candidate opened": (LIB, "    refuse_links(path)\n", ""),
+    "a linked brief read by the runner": (
+        RUN,
+        'brief = read_no_follow(rdir / f"brief_j{judge}.md")',
+        'brief = (rdir / f"brief_j{judge}.md").read_bytes()',
+    ),
+    "stderr mixed into the reply": (
+        RUN,
+        "args=(proc.stderr.fileno(), caps[1], err.write, over_err)",
+        "args=(proc.stderr.fileno(), caps[1], chunks.append, over_err)",
+    ),
+    "stderr cap ignored": (
+        RUN,
+        "args=(proc.stderr.fileno(), caps[1], err.write, over_err)",
+        "args=(proc.stderr.fileno(), 1 << 40, err.write, over_err)",
+    ),
+    "stale files ignored by a judge call": (
+        RUN,
+        "    settle_stale_files(run, rnd, sealed)\n    slots =",
+        "    slots =",
+    ),
+    "stale files ignored by aggregate": (
+        AGG,
+        "    settle_stale_files(run, rnd, sealed)\n",
+        "",
+    ),
+    "a huge integer breaks the reader": (
+        REC,
+        "except (ValueError, RecursionError, EvalError) as exc:",
+        "except (json.JSONDecodeError, RecursionError, EvalError) as exc:",
+    ),
+    "a deep reply breaks the reader": (
+        REC,
+        "except (ValueError, RecursionError, EvalError) as exc:",
+        "except (ValueError, EvalError) as exc:",
+    ),
+    "a reply too deep to store is lost": (
+        REC,
+        "    except RecursionError:  # parsed, but too deep to write back: never a reason to lose it\n",
+        "    except ZeroDivisionError:\n",
+    ),
+    "a server tool call not seen": (
+        REC,
+        """str(b.get(t["block_type_key"])).endswith(""",
+        """str(b.get(t["block_type_key"])).__eq__(""",
+    ),
+    "ctrl-c prints a traceback": (
+        f"{PKG}/cli.py",
+        "    except KeyboardInterrupt:\n",
+        "    except ZeroDivisionError:\n",
+    ),
+    "a taken seat stops the command line": (
+        f"{PKG}/cli.py",
+        "            except SeatTaken as exc:\n",
+        "            except ZeroDivisionError as exc:\n",
+    ),
+    "a late settle steals a live marker": (
+        RUN,
+        '    if read_no_follow(taken).decode("utf-8", errors="replace") != text:\n',
+        "    if False:\n",
+    ),
+    "the handback tool counted as a tool use": (
+        REC,
+        "if (kind, name) != exempt})",
+        "if True})",
+    ),
+    "the handback exempt by name only": (
+        REC,
+        "if (kind, name) != exempt})",
+        "if name != exempt[1]})",
+    ),
+    "a file's mode lost": (
+        f"{PKG}/store.py",
+        "                if final is not None:\n                    os.fchmod(f.fileno(), final)\n",
+        "",
+    ),
+    "a linked inbox followed": (LIB, '    refuse_links(lib, lib / "inbox")\n', ""),
+    "a linked history followed": (LIB, '    refuse_links(lib, lib / "history")\n', ""),
+    "a linked library folder written": (
+        LIB,
+        '    refuse_links(lib, lib / "inbox")\n',
+        '    refuse_links(lib / "inbox")\n',
+    ),
+    # Round 3: shadowed settings, planted markers, moved libraries.
+    "dotted keys in a frozen configuration accepted": (
+        CFG,
+        '        if "." in key:\n',
+        "        if False:\n",
+    ),
+    "unknown keys in a frozen configuration accepted": (
+        CFG,
+        "        elif key not in shape:\n",
+        "        elif False:\n",
+    ),
+    "a key an older run lacks read as a difference": (
+        CFG,
+        "here = default.get(key, _ABSENT) if isinstance(default, Mapping) else _ABSENT",
+        "here = _ABSENT",
+    ),
+    "a frozen configuration not checked for its shape": (
+        SPEC,
+        "    if shape:\n",
+        "    if False:\n",
+    ),
+    "stale files settled in host mode": (
+        RUN,
+        '    if not cfg.judge["command"]:\n        return\n    rdir = round_dir(run, rnd, sealed)\n',
+        "    rdir = round_dir(run, rnd, sealed)\n",
+    ),
+    "a stale file for an unknown seat recorded": (
+        RUN,
+        "if found is None or int(found.group(1)) not in seats:",
+        "if found is None:",
+    ),
+    "a marker's agent id taken": (
+        RUN,
+        '        agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"\n        failure = "the runner',
+        '        agent = str(held.get("agent_id") or "runner-x")\n        failure = "the runner',
+    ),
+    "a marker's whole content kept": (
+        RUN,
+        "kept = {k: held[k] for k in MARKER_KEYS if k in held}",
+        "kept = dict(held)",
+    ),
+    "a stale void on a filled seat": (
+        RUN,
+        '        if any(r["ok"] for r in results_by_judge(taken.parent).get(judge, [])):\n            return\n',
+        "",
+    ),
+    "a linked stale file read": (
+        RUN,
+        "            held = json.loads(read_no_follow(taken))\n",
+        "            held = json.loads(taken.read_bytes())\n",
+    ),
+    "a non-regular file read as a run file": (
+        f"{PKG}/store.py",
+        "        if not stat.S_ISREG(os.fstat(fd).st_mode):\n",
+        "        if False:\n",
+    ),
+    "a library replaced by a link accepted": (
+        SPEC,
+        "    if path.resolve() != path:\n",
+        "    if False:\n",
+    ),
+    "a draft replacing a private file starts readable": (
+        f"{PKG}/store.py",
+        "        return 0o600, stat.S_IMODE(existing.st_mode)\n",
+        "        return 0o666, stat.S_IMODE(existing.st_mode)\n",
+    ),
+    "the fallback write loses the mode": (
+        f"{PKG}/store.py",
+        "            if final is not None:\n                os.chmod(temporary, final)\n",
+        "",
+    ),
+    "an empty transcript root argument fails": (
+        f"{PKG}/cli.py",
+        '        nargs="?",\n',
+        "",
+    ),
+    "a seat at its cap fails every judge call": (
+        RUN,
+        "        except EvalError:\n            # At the void cap, or a round closed",
+        "        except ZeroDivisionError:\n            # At the void cap, or a round closed",
+    ),
+    "status claims a run is served": (
+        MCP,
+        "served=not differ,",
+        "served=True,",
+    ),
+    "transcript root overlap accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if False:",
+    ),
+    "transcript root inside the root accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if base.is_relative_to(real):",
+    ),
+    "root inside a transcript root accepted": (
+        MCP,
+        "if real.is_relative_to(base) or base.is_relative_to(real):",
+        "if real.is_relative_to(base):",
+    ),
+    "an unset transcript root read as a folder": (
+        MCP,
+        '        if v and not v.startswith("$"):\n',
+        "        if True:\n",
+    ),
+    "the home left unexpanded": (
+        MCP,
+        '        if v == "~" or v.startswith("~/"):\n',
+        "        if False:\n",
+    ),
+    "$HOME left unexpanded": (
+        MCP,
+        '            if v == prefix or v.startswith(prefix + "/"):\n',
+        "            if False:\n",
+    ),
+    "an overlap reason kept silent": (
+        MCP,
+        '                    "; ".join(turned_off)\n                    if turned_off\n',
+        '                    ""\n                    if turned_off\n',
+    ),
 }
 
 
 # Mutations no test can kill, with the guard that makes them redundant. They run and are
 # reported, but do not fail the check, and the documentation does not count them as tested.
 EXPECTED_SURVIVORS: dict[str, str] = {
+    "a stale file for an unknown seat recorded": (
+        "recording a void for a seat the round lacks fails in record, and that failure is "
+        "dropped with the file: the seat filter states the intent first"
+    ),
     "max_rounds exceeded": (
         "the stop rule refuses first: at max_rounds the ledger says CAP, and "
         "'the loop has stopped' refuses the next round"
