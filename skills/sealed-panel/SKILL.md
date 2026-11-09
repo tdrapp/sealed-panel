@@ -165,6 +165,9 @@ sealed-panel status RUN
   purpose. Never write the rubric into the text, never fix a cosmetic point for its own sake.
   Go to step 4 with N + 1.
 - **CONVERGED**, **PLATEAU** or **CAP:** seal. Nothing else can seal.
+- **BLOCKED BY FLAG:** the candidate addresses a judge. Remove that text and go to step 4 with
+  N + 1, or start a new run when the round limit is reached. Only a text that addresses a judge
+  on purpose gets `injection_acknowledged` in a new run's spec, with the user's reason.
 
 ## 7. Seal
 

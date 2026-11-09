@@ -205,8 +205,13 @@ sealed-panel status RUN
 ```
 
 Read-only. Prints the decision as JSON: `CONTINUE` (with `next_round` and, after a round, the
-path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`), or
-`SEALED`. Every decision carries `overrides`: the settings that differ from the defaults.
+path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`),
+`SEALED`, or `BLOCKED BY FLAG`: the candidate of a round that would converge, or of the sealed
+panel, contains text addressed to a judge, and the spec has no `injection_acknowledged`. A
+blocked decision names what it replaced (`blocked`), the patterns that matched (`flags`) and
+the next step: the next round with the text removed, or a new run. Every decision carries
+`overrides`: the settings that differ from the defaults, and `injection_acknowledged` when the
+spec has one.
 
 ## report
 
@@ -214,7 +219,9 @@ path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "s
 sealed-panel report RUN
 ```
 
-Prints the run's report in markdown: a header with the rubric hash, the decision, the number
+Prints the run's report in markdown. A blocked run says `(BLOCKED BY FLAG)` in its title, and
+a blocked sealed grade is preceded by a line saying it does not stand. Then a header with the
+rubric hash, the decision, any `injection_acknowledged` reason, the number
 of judge contexts and the settings that differ from the defaults; the sealed grade per
 dimension with every judge's score and the verdict; the round-1 baseline against the sealed
 text, scored by the same sealed panel; the table of rounds with instruments, the informational

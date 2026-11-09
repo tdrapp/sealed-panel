@@ -1369,6 +1369,37 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'read_text(transcript).split("\\n")',
         "read_text(transcript).splitlines()",
     ),
+    # A candidate that addresses a judge: blocked unless the spec acknowledges it.
+    "a flagged candidate converges": (
+        f"{PKG}/decide.py",
+        "        return _gate(spec, last, converged)",
+        "        return converged",
+    ),
+    "a flagged sealed grade stands": (
+        f"{PKG}/decide.py",
+        "        return _gate(spec, sealed[-1], done)",
+        "        return done",
+    ),
+    "the acknowledgement ignored": (
+        f"{PKG}/decide.py",
+        "if not flags or spec.get(INJECTION_ACK):",
+        "if not flags:",
+    ),
+    "the acknowledgement left out of the rubric hash": (
+        SPEC,
+        '    "template",\n    INJECTION_ACK,\n)',
+        '    "template",\n)',
+    ),
+    "an empty acknowledgement accepted": (
+        SPEC,
+        "if INJECTION_ACK in spec and not spec[INJECTION_ACK].strip():",
+        "if False:",
+    ),
+    "a blocked report title says nothing": (
+        f"{PKG}/report.py",
+        '        title += f" ({BLOCKED})"',
+        "        pass",
+    ),
 }
 
 

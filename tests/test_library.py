@@ -20,7 +20,14 @@ from sealed_panel.cli import main
 from sealed_panel.config import default_library_dir, library_dir, load_config
 from sealed_panel.errors import EvalError
 from sealed_panel.report import render_report
-from sealed_panel.spec import RUBRIC_KEYS, TODO_MARKER, init_run, load_frozen, rubric_hash
+from sealed_panel.spec import (
+    OPTIONAL_HASH_KEYS,
+    RUBRIC_KEYS,
+    TODO_MARKER,
+    init_run,
+    load_frozen,
+    rubric_hash,
+)
 from sealed_panel.spec import validate_spec as validate
 
 BUILTINS = ("cv", "cover-letter", "pitch", "message", "essay", "interview-answer", "plan-doc",
@@ -251,7 +258,7 @@ class TestUse:
 
     def test_a_spec_without_template_keeps_its_old_hash(self) -> None:
         spec = make_spec()
-        core = {k: spec.get(k) for k in RUBRIC_KEYS if k != "template"}
+        core = {k: spec.get(k) for k in RUBRIC_KEYS if k not in OPTIONAL_HASH_KEYS}
         old = hashlib.sha256(
             json.dumps(core, sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()

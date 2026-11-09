@@ -11,6 +11,7 @@ from . import __version__, library
 from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import LIBRARY_ENV, library_dir, load_config
+from .decide import sealed_done
 from .errors import EvalError, user_message
 from .learn import learn_safely, user_disagreement
 from .record import outcome_line, record_from, record_measurement
@@ -297,7 +298,7 @@ def _run(a: argparse.Namespace) -> None:
         path = user_disagreement(a.run, a.note, a.dimension, lib)
         print(f"recorded your read as candidate {path.stem} in {path.parent}")
     elif a.cmd == "learn":
-        if status(a.run)["decision"] != "SEALED":
+        if not sealed_done(status(a.run)):
             raise EvalError("learn reads a sealed panel: seal the run first")
         _, learning = learn_safely(a.run)
         print(learning)

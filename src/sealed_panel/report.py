@@ -6,7 +6,15 @@ from pathlib import Path
 from typing import Any
 
 from .config import overrides
-from .decide import SUSPECT_JUMP, TOP_SCORE, decide, measured_ok
+from .decide import (
+    BLOCKED,
+    INJECTION_ACK,
+    SUSPECT_JUMP,
+    TOP_SCORE,
+    decide,
+    measured_ok,
+    sealed_done,
+)
 from .ledger import other_runs, used_agent_ids
 from .record import RUNNER
 from .spec import dims_for, load_frozen, run_config
@@ -63,6 +71,9 @@ def status(run: Path) -> dict[str, Any]:
             d["feedback"] = str(fb)
     if d["decision"] == "SEALED":
         d = {"decision": "SEALED", "panels": d["panels"], "next": "report"}
+    d.pop("final", None)
+    if spec.get(INJECTION_ACK):
+        d[INJECTION_ACK] = spec[INJECTION_ACK]
     d["overrides"] = overrides(cfg, spec)
     return d
 
@@ -82,7 +93,15 @@ def _sealed_headline(spec: dict[str, Any], d: dict[str, Any]) -> list[str]:
         verdict = f"below {TOP_SCORE} on " + ", ".join(lows)
     else:
         verdict = "a measured criterion failed or was not measured"
-    out = [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.**", ""]
+    out = []
+    if d["decision"] == BLOCKED:
+        out += [
+            f"**{BLOCKED}: the sealed candidate contains text addressed to a judge "
+            f"({', '.join(d['flags'])}); the grade below does not stand. Grade the text without "
+            f"it in a new run, or acknowledge the flag in that run's spec ({INJECTION_ACK}).**",
+            "",
+        ]
+    out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.**", ""]
     moves = [
         f"{did} {e['baseline_median']:g} -> {e['median']:g}"
         for _, did, e in dims
@@ -133,7 +152,7 @@ def _round_table(spec: dict[str, Any], ledger: dict[str, Any]) -> list[str]:
 
 def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
     out = []
-    if d["decision"] == "SEALED":
+    if sealed_done(d):
         f = d["final"]
         for pid, p in f["personas"].items():
             for x in p["findings"]:
@@ -220,14 +239,22 @@ def render_report(run: Path) -> str:
         if not changed
         else "settings that differ from the defaults: " + "; ".join(changed)
     )
+    title = f"# Evaluation: {spec['title']}"
+    if d["decision"] == BLOCKED:
+        title += f" ({BLOCKED})"
+    ack = (
+        f" Injection flags acknowledged in the spec: {spec[INJECTION_ACK]!r}."
+        if spec.get(INJECTION_ACK)
+        else ""
+    )
     out = [
-        f"# Evaluation: {spec['title']}",
+        title,
         "",
         f"Rubric sha256 `{ledger['rubric_sha256'][:HASH_CHARS]}`, "
-        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.",
+        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.{ack}",
         "",
     ]
-    if d["decision"] == "SEALED":
+    if sealed_done(d):
         out += _sealed_headline(spec, d)
     out += _round_table(spec, ledger)
     out += _notes(run, ledger, d)

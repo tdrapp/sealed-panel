@@ -19,6 +19,7 @@ from .config import (
     run_value_error,
     schema_errors,
 )
+from .decide import INJECTION_ACK
 from .errors import EvalError
 from .store import dump_json, load_json, read_text, write_file
 from .text import injection_flags
@@ -40,9 +41,10 @@ RUBRIC_KEYS = (
     "good_min",
     "noise_floor_min",
     "template",
+    INJECTION_ACK,
 )
 # Keys hashed only when present, so a spec without them keeps the hash it had before.
-OPTIONAL_HASH_KEYS = frozenset({"template"})
+OPTIONAL_HASH_KEYS = frozenset({"template", INJECTION_ACK})
 # A string a skeleton leaves for the user to fill; `init` refuses a spec that still holds one.
 TODO_MARKER = "TODO(sealed-panel)"
 TEMPLATE_REF_KEYS = frozenset({"id", "version", "sha256", "modified"})
@@ -89,7 +91,7 @@ def shape_errors(spec: Any) -> list[str]:
     if not isinstance(spec, dict):
         return ["the spec must be a JSON object"]
     errors = _unknown(spec, SPEC_KEYS, "spec")
-    for key in ("title", "purpose", "facts", "facts_file"):
+    for key in ("title", "purpose", "facts", "facts_file", INJECTION_ACK):
         if key in spec and not isinstance(spec[key], str):
             errors.append(f"spec.{key} must be a string")
     for key in ("personas", "dimensions", "measured", "declared_choices"):
@@ -245,6 +247,11 @@ def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
             )
     if "facts" in spec and "facts_file" in spec:
         errors.append("give either facts (text) or facts_file (a path), not both")
+    if INJECTION_ACK in spec and not spec[INJECTION_ACK].strip():
+        errors.append(
+            f"spec.{INJECTION_ACK} must say why a text addressed to a judge belongs in the "
+            "candidate; leave the key out otherwise"
+        )
     return errors
 
 

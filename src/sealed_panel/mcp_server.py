@@ -568,7 +568,8 @@ def build_server(
 
     @mcp.tool(annotations=READ)
     def status(run: RunPath) -> StatusResult:
-        """The stop rule's decision: CONTINUE, CONVERGED, PLATEAU, CAP or SEALED."""
+        """The stop rule's decision: CONTINUE, CONVERGED, PLATEAU, CAP, SEALED, or BLOCKED BY
+        FLAG when the candidate addresses a judge and the spec does not acknowledge it."""
         where = _calling(lambda: readable(run))
         d = _calling(lambda: run_status(where))
         rest = {k: v for k, v in d.items() if k not in ("decision", "overrides")}

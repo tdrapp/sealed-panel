@@ -22,6 +22,7 @@ this file is a complete example.
 | `noise_floor_min` | no | number | Default 0.5, between 0.25 and 1. |
 | `framings` | no | list of strings | Reading stances; the packaged three by default. |
 | `template` | no | object | `{id, version, sha256}` of the template the spec started from, written by `rubrics use`; `init` adds `modified`. `init` refuses an id or version the library does not know, recomputes `sha256` from that template, and sets `modified` to whether the dimensions differ from it; a value given in the spec for either is replaced. Part of the rubric hash. |
+| `injection_acknowledged` | no | string | Why the candidate addresses a judge on purpose (a text about prompt injection, say). Without it, a candidate the injection scan flags never reaches CONVERGED or a sealed grade: the decision is BLOCKED BY FLAG. Part of the rubric hash, and shown in the report. Leave it out otherwise. |
 
 A string holding `TODO(sealed-panel)` is refused by `init`: `rubrics use` leaves these markers
 where the spec needs your words.
