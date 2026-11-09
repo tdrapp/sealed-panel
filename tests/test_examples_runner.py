@@ -144,3 +144,65 @@ def test_the_library_example_grades_once(
     assert "Grade (sealed panel): clarity 4 (4/4); evidence 4 (4/4)" in capsys.readouterr().out
     assert library_usage.main([str(h.run), *map(str, args)]) == 2
     assert "already frozen" in capsys.readouterr().err
+
+
+@pytest.fixture
+def failing_endpoint() -> Iterator[tuple[str, list[tuple[int, bytes]], list[str]]]:
+    """An HTTP endpoint that answers what the test queues, (status, body) per request, and the
+    paths it was called on."""
+    queue: list[tuple[int, bytes]] = []
+    hits: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers["Content-Length"]))
+            hits.append(self.path)
+            status, out = queue[0]
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/judge", queue, hits
+    server.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "logged"),
+    [
+        (429, b'{"error": "rate limited"}', "HTTP Error 429"),
+        (500, b'{"error": "internal"}', "HTTP Error 500"),
+        (200, b"<html>not json</html>", "Expecting value"),
+        (200, b'{"answer": "no text field"}', "has no text field"),
+        (200, b'{"text": {"items": {}}}', "has no text field"),
+    ],
+    ids=["429", "500", "not-json", "no-text", "text-not-a-string"],
+)
+def test_an_http_failure_is_a_void_never_a_reply(
+    h: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_endpoint: tuple[str, list[tuple[int, bytes]], list[str]],
+    status: int,
+    body: bytes,
+    logged: str,
+) -> None:
+    url, queue, hits = failing_endpoint
+    queue.append((status, body))
+    for name in ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("JUDGE_MODEL_URL", url)
+    init_run(h.run, spec_file(h), load_config(template_config(h)))
+    h.brief(1, "cand")
+    r = judge_round(h.run, 1, False, [1])[0]
+    assert r["void"] and not r["ok"] and r["items"] == {}
+    assert r["errors"] == ["the judge command exited with status 2"]
+    assert hits == ["/judge"], "one call: asking again would be a re-roll"
+    log = (h.run / "rounds" / "r1" / r["runner"]["stderr_log"]).read_text()
+    assert logged in log

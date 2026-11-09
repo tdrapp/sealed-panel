@@ -20,6 +20,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   200 characters), frozen into the run and printed next to the sealed grade, or "not declared".
   The docs say to pin a dated model id, never an alias. A run frozen earlier reads as not
   declared.
+- Tests for the HTTP path of `examples/runner/judge_template.py`: a 429, a 500, a body that is
+  not JSON, or an answer without a text field each end as a void after one call, never a reply.
 
 ### Changed
 
