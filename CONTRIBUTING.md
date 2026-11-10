@@ -60,10 +60,11 @@ suite, and is reported as a survivor only if the whole suite misses it too.
 A run past its time limit, max(60 s, 5 x the selected tests' time + 30 s), is killed with its
 process group. A timeout of the selected tests counts as detected only after one more run on its
 own, and only if the same tests then pass within the same limit on unmutated code; otherwise it
-is an error. A timeout of the whole-suite run of a survivor is always an error: the selected
-tests passed and the other tests never execute the changed line, so the timeout says the machine
-is slow, not that the mutation is caught. Processes a test starts in a session of their own
-outlive the kill; on a throwaway CI runner that is harmless.
+is an error, and a second run that does not time out gives its own verdict. A timeout of the
+whole-suite run of a survivor is always an error: the selected tests passed and the other tests
+never execute the changed line, so the timeout says the machine is slow, not that the mutation
+is caught. Processes a test starts in a session of their own outlive the kill; on a throwaway CI
+runner that is harmless.
 
 ```sh
 .venv/bin/python tools/mutation_check.py                    # all mutations, one at a time

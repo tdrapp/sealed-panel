@@ -155,11 +155,15 @@ class TestTimeouts:
     ) -> tuple[Any, list[tuple[str | None, list[str] | None]]]:
         """codes maps (mutated, whole suite) to the exit codes its runs return, in order."""
         name = next(iter(mc.MUTATIONS))
-        checker = mc.Checker(tmp_path, {name: mc.Selection(list(self.TESTS))}, {})
+        # Each selected test took 10 s in the map run: its limit is max(60, 5 x 10 + 30) = 80 s.
+        durations = dict.fromkeys(self.TESTS, 10.0)
+        checker = mc.Checker(tmp_path, {name: mc.Selection(list(self.TESTS))}, durations)
         calls: list[tuple[str | None, list[str] | None]] = []
+        checker.limits = []
 
         def run(mutation: str | None, tests: list[str] | None, timeout: float) -> Any:
             calls.append((mutation, tests))
+            checker.limits.append(timeout)
             return mc.Run(codes[(mutation is not None, tests is None)].pop(0), 0.1)
 
         checker._run = run
@@ -183,6 +187,34 @@ class TestTimeouts:
         r = checker.retry_timeout(name)
         assert r["outcome"] == "timeout" and "run again alone" in r["note"]
         assert calls == [(name, [*self.TESTS]), (name, [*self.TESTS]), (None, [*self.TESTS])]
+        # The unmutated run gets the very limit the mutated runs had, not a longer one.
+        assert checker.limits == [80.0, 80.0, 80.0]
+
+    def test_main_runs_a_timed_out_mutation_through_the_retry(
+        self, mc: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        name = next(iter(mc.MUTATIONS))
+        seen: list[str] = []
+
+        class FakeChecker:
+            def __init__(self, *args: Any) -> None:
+                pass
+
+            def check(self, mutation: str) -> dict[str, Any]:
+                seen.append("check")
+                return {"name": mutation, "outcome": "timeout", "selected": 1, "note": ""}
+
+            def retry_timeout(self, mutation: str) -> dict[str, Any]:
+                seen.append("retry")
+                return {"name": mutation, "outcome": "timeout", "selected": 1, "note": "again"}
+
+        monkeypatch.setattr(mc, "_copy_tree", lambda dest: None)
+        monkeypatch.setattr(mc, "_imports_copy", lambda dest: True)
+        monkeypatch.setattr(mc, "build_map", lambda work, names: ({}, mc.Run(0, 0.1)))
+        monkeypatch.setattr(mc, "Checker", FakeChecker)
+        monkeypatch.setattr(mc, "_line", lambda r: r["outcome"])
+        mc.main(["--only", name])
+        assert seen == ["check", "retry"]
 
     def test_a_timeout_that_does_not_repeat_takes_the_new_verdict(
         self, mc: ModuleType, tmp_path: Path
