@@ -29,6 +29,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answers `initialize`, through `tools/smoke_mcp.py`), `actionlint` (with shellcheck) and
   `pip-audit` (every locked package, by hash). `build` and `actionlint` join the required
   checks in `.github/branch-protection.json`; `pip-audit` stays advisory.
+- A test ties `.github/branch-protection.json` to the CI workflow: every required check is a
+  job name CI produces, and only the mutation shards and `pip-audit` are left out, on purpose.
+- The release workflow builds with the same uv and the same `uv build` command as the CI build
+  job, after `uv lock --check`, so the published files are built the way the tested ones were.
 - gitleaks scans what is staged (a pre-commit hook) and the whole history (a required CI job,
   from a pinned release checked by its sha256). `.gitleaks.toml` allowlists only the sha256
   digests of the test fixtures and the lock.
