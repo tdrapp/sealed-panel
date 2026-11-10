@@ -107,7 +107,7 @@ settings:
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. A match in the candidate is flagged in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
+| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. Every text placed in a brief is scanned (candidate, control, previous version, baseline, known-good); a match is flagged per item in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
 | `samples` | one line per default pattern | one per pattern, in the same order | A line each pattern must match after the scan's normalisation, the built-in one (default punctuation map and stripped characters, whitespace, case): a pattern holding a character that normalisation removes or maps can never match, and is refused. A pattern that matches nothing would switch the check off, so it is refused. |
 
 ## `[transcript]`

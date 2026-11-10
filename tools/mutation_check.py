@@ -1422,6 +1422,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '"env_sha256": env_hashes(cfg, env),',
         '"env_sha256": {},',
     ),
+    # Every item of a brief is scanned for text addressed to a judge, and any flag blocks.
+    "only the candidate is scanned": (
+        BRIEF,
+        '"injection_flags_by_role": flags_by_role(roles, cfg),',
+        '"injection_flags_by_role": flags_by_role(roles[:1], cfg),',
+    ),
+    "the gate reads the candidate's flags only": (
+        f"{PKG}/decide.py",
+        "    by_role = flagged_roles(entry)\n",
+        '    by_role = {k: v for k, v in flagged_roles(entry).items() if k == "candidate"}\n',
+    ),
 }
 
 

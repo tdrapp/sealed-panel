@@ -104,13 +104,18 @@ Statistics over a dataset do not apply to one text. Its only repetitions are its
   medians of integer differences and move in steps of 0.5, so with the noise between its 0.5
   floor and 1 this means no dimension gained a full point, two rounds running. CAP at
   `max_rounds`.
-- **Blocked by a flag.** A candidate the injection scan flags never converges and never takes a
-  sealed grade silently: CONVERGED and SEALED on such a text become BLOCKED BY FLAG, in
-  `status` and in the report's title. A blocked loop goes on to the next round with the text
-  removed; a sealed panel is refused, and a blocked sealed grade is shown but does not stand. A
-  text that addresses a judge on purpose (a notice about prompt injection, say) needs
-  `injection_acknowledged` in the spec: a reason, frozen and hashed with the rubric, and shown
-  in the report.
+- **Blocked by a flag.** Every text placed in a brief is scanned: the candidate, the control,
+  the previous version, the round-1 baseline and the known-good, and the flags are kept per
+  item. A round whose brief carried a flagged item never converges and never takes a sealed
+  grade silently: CONVERGED and SEALED become BLOCKED BY FLAG, naming the item, in `status` and
+  in the report's title. A blocked loop goes on to the next round with the text removed (the
+  removed text still rides along once as the previous version, so that round is blocked too);
+  a sealed panel is refused, and a blocked sealed grade is shown but does not stand. Since the
+  sealed panel scores the round-1 text as its baseline, a run whose first round was flagged
+  cannot take a sealed grade: start a new run. A text that addresses a judge on purpose (a
+  notice about prompt injection, say) needs `injection_acknowledged` in the spec: a reason
+  given by a person at the command line, frozen and hashed with the rubric, and shown in the
+  report.
 - **Suspect jump.** A paired gain of 2 or more on one dimension is reported for a human read:
   an implausible jump is suspect until checked.
 

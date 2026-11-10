@@ -48,10 +48,31 @@ def sealed_done(d: dict[str, Any]) -> bool:
     return d["decision"] == "SEALED" or d.get("blocked") == "SEALED"
 
 
-def _gate(spec: dict[str, Any], entry: dict[str, Any], d: dict[str, Any]) -> dict[str, Any]:
-    """CONVERGED or SEALED on a candidate that addresses a judge becomes BLOCKED BY FLAG,
-    unless the spec acknowledged the flags at init."""
+def flagged_roles(entry: dict[str, Any]) -> dict[str, list[str]]:
+    """The injection flags of a round, by the role of the item that matched.
+
+    Every text placed in a brief is scanned: the candidate, the control, the previous version,
+    the round-1 baseline and the known-good. A round briefed before 0.3.1 holds the candidate's
+    flags only.
+
+    Args:
+        entry: The round's ledger entry.
+
+    Returns:
+        The patterns that matched, by role; empty when no item addresses a judge.
+    """
+    by_role = entry.get("injection_flags_by_role")
+    if isinstance(by_role, dict):
+        return {role: list(found) for role, found in by_role.items() if found}
     flags = list(entry.get("injection_flags") or [])
+    return {"candidate": flags} if flags else {}
+
+
+def _gate(spec: dict[str, Any], entry: dict[str, Any], d: dict[str, Any]) -> dict[str, Any]:
+    """CONVERGED or SEALED on a round whose brief carried text addressed to a judge, in any
+    item, becomes BLOCKED BY FLAG, unless the spec acknowledged the flags at init."""
+    by_role = flagged_roles(entry)
+    flags = sorted({p for found in by_role.values() for p in found})
     if not flags or spec.get(INJECTION_ACK):
         return d
     if d["decision"] == "SEALED":
@@ -65,8 +86,9 @@ def _gate(spec: dict[str, Any], entry: dict[str, Any], d: dict[str, Any]) -> dic
         "decision": BLOCKED,
         "blocked": d["decision"],
         "flags": flags,
-        "why": "the candidate contains text addressed to a judge, and the spec does not "
-        f"acknowledge it ({INJECTION_ACK})",
+        "roles": sorted(by_role),
+        "why": f"text addressed to a judge in the {', '.join(sorted(by_role))} item, and the "
+        f"spec does not acknowledge it ({INJECTION_ACK})",
         "next": step,
     }
 

@@ -218,6 +218,18 @@ def _check_loop(
         raise EvalError("the loop has stopped: seal instead of briefing a new round")
 
 
+def flags_by_role(roles: list[tuple[str, str]], cfg: Config) -> dict[str, list[str]]:
+    """The injection patterns each text placed in the brief matches, by role (only the roles
+    with a match).
+
+    Args:
+        roles: (role, text) of every item of the brief.
+        cfg: The run's configuration.
+    """
+    found = {role: injection_flags(text, cfg) for role, text in roles}
+    return {role: flags for role, flags in found.items() if flags}
+
+
 def write_briefs(
     run: Path, rnd: int, artefact: Path, control: Path, good: Path | None, sealed: bool
 ) -> list[Path]:
@@ -306,6 +318,7 @@ def write_briefs(
             "candidate_hash": text_hash(cand),
             "roles": [r for r, _ in roles],
             "injection_flags": injection_flags(cand, cfg),
+            "injection_flags_by_role": flags_by_role(roles, cfg),
             "judges": judges,
         },
     )

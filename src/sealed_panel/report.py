@@ -12,6 +12,7 @@ from .decide import (
     SUSPECT_JUMP,
     TOP_SCORE,
     decide,
+    flagged_roles,
     measured_ok,
     sealed_done,
 )
@@ -22,7 +23,10 @@ from .store import load_json, write_file
 
 # Hex characters of the rubric hash shown in the report.
 HASH_CHARS = 12
-INJECTION_WARNING = "WARNING: the candidate contains text addressed to a judge; remove it."
+INJECTION_WARNING = (
+    "WARNING: the {roles} item contains text addressed to a judge; remove it, or brief with "
+    "another control or known-good."
+)
 FEEDBACK_CLOSING = (
     "One idea per round. Remove what does not serve the purpose (de-fluff).",
     "Cosmetic points are not reasons for a round. Do not write the rubric into the artefact.",
@@ -42,8 +46,9 @@ def feedback_for_author(entry: dict[str, Any]) -> str:
     for m in entry.get("measured", []):
         if not m["pass"]:
             lines.append(f"- measured {m['id']} failed: {m['value']}")
-    if entry.get("injection_flags"):
-        lines.append(INJECTION_WARNING)
+    roles = sorted(flagged_roles(entry))
+    if roles:
+        lines.append(INJECTION_WARNING.format(roles=", ".join(roles)))
     lines += ["", *FEEDBACK_CLOSING]
     return "\n".join(lines) + "\n"
 
@@ -118,9 +123,10 @@ def _sealed_headline(spec: dict[str, Any], d: dict[str, Any], model: str) -> lis
     out = []
     if d["decision"] == BLOCKED:
         out += [
-            f"**{BLOCKED}: the sealed candidate contains text addressed to a judge "
-            f"({', '.join(d['flags'])}); the grade below does not stand. Grade the text without "
-            f"it in a new run, or acknowledge the flag in that run's spec ({INJECTION_ACK}).**",
+            f"**{BLOCKED}: the sealed panel's {', '.join(d['roles'])} item contains text "
+            f"addressed to a judge ({', '.join(d['flags'])}); the grade below does not stand. "
+            f"Grade the text without it in a new run, or acknowledge the flag in that run's "
+            f"spec ({INJECTION_ACK}).**",
             "",
         ]
     out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.** {model}", ""]
@@ -207,8 +213,8 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 f"- {name}: paired jump of {SUSPECT_JUMP} or more on "
                 f"{', '.join(r['suspect_jumps'])}; verify by hand before believing it"
             )
-        if r["injection_flags"]:
-            out.append(f"- {name}: candidate addresses a judge {r['injection_flags']}")
+        for role, found in sorted(flagged_roles(r).items()):
+            out.append(f"- {name}: the {role} item addresses a judge {found}")
         for x in r.get("rejected_judges") or []:
             out.append(f"- {name}: judge {x['judge']} rejected: {'; '.join(x['errors'][:3])}")
         for v in r.get("voided") or []:

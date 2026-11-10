@@ -208,12 +208,13 @@ sealed-panel status RUN
 
 Read-only. Prints the decision as JSON: `CONTINUE` (with `next_round` and, after a round, the
 path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`),
-`SEALED`, or `BLOCKED BY FLAG`: the candidate of a round that would converge, or of the sealed
-panel, contains text addressed to a judge, and the spec has no `injection_acknowledged`. A
-blocked decision names what it replaced (`blocked`), the patterns that matched (`flags`) and
-the next step: the next round with the text removed, or a new run. Every decision carries
-`overrides`: the settings that differ from the defaults, and `injection_acknowledged` when the
-spec has one.
+`SEALED`, or `BLOCKED BY FLAG`: an item of the brief of a round that would converge, or of the
+sealed panel (the candidate, the control, the previous version, the baseline or the known-good),
+contains text addressed to a judge, and the spec has no `injection_acknowledged`. A blocked
+decision names what it replaced (`blocked`), the items (`roles`), the patterns that matched
+(`flags`) and the next step: the next round with the text removed, or a new run. Every decision
+carries `overrides`: the settings that differ from the defaults, and `injection_acknowledged`
+when the spec has one.
 
 ## report
 

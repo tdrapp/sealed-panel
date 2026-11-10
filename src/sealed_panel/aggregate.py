@@ -249,6 +249,7 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         ],
         "sources": sorted({r.get("source", "output") for r in valid}),
         "injection_flags": keys.get("injection_flags", []),
+        "injection_flags_by_role": keys.get("injection_flags_by_role"),
         "runner_env_changed": env_changes(by_judge),
         "prompt_extras": {
             str(r["judge"]): r["prompt_extra_chars"] for r in valid if r.get("prompt_extra_chars")

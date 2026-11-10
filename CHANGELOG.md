@@ -66,13 +66,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A candidate the injection scan flags no longer reaches CONVERGED or a sealed grade silently:
-  the decision becomes `BLOCKED BY FLAG`, in `status` and in the report's title, and a blocked
-  sealed grade is shown with a line saying it does not stand. A blocked loop goes on with the
-  text removed; a sealed panel is refused. A text that addresses a judge on purpose needs the
-  new spec key `injection_acknowledged`: a reason, frozen and hashed with the rubric (a spec
-  without it keeps its hash), and shown in the report and in `status`. `feedback` is refused
-  on a blocked grade, which does not stand.
+- Every text placed in a brief is scanned for text addressed to a judge (the candidate, the
+  control, the previous version, the baseline and the known-good), with the flags kept per
+  item, and a flag on any of them no longer lets the run reach CONVERGED or a sealed grade
+  silently: the decision becomes `BLOCKED BY FLAG`, naming the item, in `status` and in the
+  report's title, and a blocked sealed grade is shown with a line saying it does not stand. A
+  blocked loop goes on with the text removed; a sealed panel is refused. A text that addresses
+  a judge on purpose needs the new spec key `injection_acknowledged`: a reason, frozen and
+  hashed with the rubric (a spec without it keeps its hash), and shown in the report and in
+  `status`. `feedback` is refused on a blocked grade, which does not stand.
 - The development tools moved from the `dev` extra to `[dependency-groups]` (`test`, `dev`,
   `audit`), and `uv.lock` is committed: contributors and every CI job, the mutation shards and
   the nightly run included, install with `uv sync --locked`. The `dev` extra is gone; the `mcp`

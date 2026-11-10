@@ -41,7 +41,7 @@ class TestFeedback:
         fb = Path(status(h.run)["feedback"]).read_text()
         assert "measured timing failed: 90" in fb
         assert "WARNING" in fb
-        assert "candidate addresses a judge" in render_report(h.run)
+        assert "the candidate item addresses a judge" in render_report(h.run)
 
     def test_feedback_never_names_a_composite(self, h: Harness) -> None:
         h.init()

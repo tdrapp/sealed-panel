@@ -9,7 +9,7 @@ import pytest
 from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.decide import BLOCKED
+from sealed_panel.decide import BLOCKED, flagged_roles
 from sealed_panel.errors import EvalError
 from sealed_panel.learn import user_disagreement
 from sealed_panel.record import record_measurement, record_reply
@@ -110,7 +110,39 @@ class TestInjectionGate:
         with pytest.raises(EvalError, match=BLOCKED):
             h.brief(1, "inj", sealed=True)
         h.full(2, "v2", FIVE, FIVE)  # the author removed the text: the loop goes on
+        d = h.decision()  # but round 1's text rode along as `previous`, and it is scanned too
+        assert (d["decision"], d["roles"]) == (BLOCKED, ["previous"])
+        h.full(3, "v3", FIVE, FIVE)  # no flagged item left in the brief
         assert h.decision()["decision"] == "CONVERGED"
+
+    def test_the_flagged_text_cannot_come_back_as_the_baseline(self, h: Harness) -> None:
+        """The reviewer's probe: round 1 is flagged and blocked, the author removes the text,
+        and the run then stops on CAP; the sealed panel scores round 1's text blind as the
+        baseline, so its grade must not stand either."""
+        h.init(max_rounds=2)
+        h.full(1, self.flagged(h), FIVE)
+        assert h.decision()["decision"] == BLOCKED
+        h.full(2, "v2", THREE, FIVE)
+        assert h.decision()["decision"] == "CAP"  # not CONVERGED, so the gate has nothing to do
+        h.full(1, "v3", FIVE, sealed=True)
+        d = h.decision()
+        assert (d["decision"], d["blocked"], d["roles"]) == (BLOCKED, "SEALED", ["baseline"])
+        assert "baseline item contains text addressed to a judge" in render_report(h.run)
+
+    @pytest.mark.parametrize("role", ["control", "known_good"])
+    def test_a_flagged_control_or_known_good_blocks_the_grade(self, h: Harness, role: str) -> None:
+        key = "ctrl" if role == "control" else "good"
+        h.files[key].write_text(h.files[key].read_text() + INJECTED)
+        h.init()
+        h.full(1, "cand", FIVE, sealed=True, good=True)
+        d = h.decision()
+        assert (d["decision"], d["roles"]) == (BLOCKED, [role])
+        keys = h.keys(1, sealed=True)
+        assert keys["injection_flags"] == [] and list(keys["injection_flags_by_role"]) == [role]
+
+    def test_a_round_briefed_before_0_3_1_reads_the_candidate_flags(self) -> None:
+        assert flagged_roles({"injection_flags": ["x"]}) == {"candidate": ["x"]}
+        assert flagged_roles({"injection_flags": [], "injection_flags_by_role": None}) == {}
 
     def test_at_the_round_limit_a_blocked_run_says_to_start_again(self, h: Harness) -> None:
         h.init(max_rounds=1)
@@ -150,7 +182,7 @@ class TestInjectionGate:
         text = render_report(h.run)
         assert text.startswith("# Evaluation: test pitch\n")
         assert f"Injection flags acknowledged in the spec: {ACK!r}." in text
-        assert "candidate addresses a judge" in text  # the flag itself is still listed
+        assert "the candidate item addresses a judge" in text  # the flag itself is still listed
 
     def test_a_clean_candidate_is_not_affected(self, h: Harness) -> None:
         h.init()
