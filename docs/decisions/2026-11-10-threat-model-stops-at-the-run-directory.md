@@ -33,8 +33,13 @@ directory or the transcript folder is out of scope. Within that model:
 - The FIFO checks, the link-refusing reads, the descriptor-based writes and their fallback, the
   marker liveness heuristics and the dotted-key check are removed. `SECURITY.md` carries a guard
   map: each guard, the threat it answered, its scope, and what pins what remains.
-- Host-mode `record` becomes safe against concurrent calls on one seat.
+- Host-mode `record` becomes safe against concurrent calls on one seat. The run-wide checks (an
+  agent id or a reply used once per run, a round briefed once) run under a run lock taken after
+  any seat lock, so they hold under concurrent calls too.
+- A run is never created inside another run, so the author cannot put a directory where a
+  round's lock or result goes.
 - A filesystem without `flock` is refused; `flock` is advisory and may not hold on NFS.
-- Every run file is now owner-only (0600); a file's earlier mode is not kept.
+- Every file sealed-panel creates in a run is now owner-only (0600), the lock files and the
+  judge's stderr log included; a file's earlier mode is not kept.
 - A writer inside the run directory can still plant a link on a folder or delete a started
   record. That was never closable by code that cannot tell who wrote a file.
