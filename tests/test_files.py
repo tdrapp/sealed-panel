@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
+from sealed_panel import brief as brief_module
 from sealed_panel import cli, library, record, runner, store
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.config import (
@@ -265,6 +266,32 @@ class TestLeftovers:
         [void] = results_by_judge(round_dir(h.run, 1))[2]
         assert void["void"] and void["agent_id"] != used
 
+    def test_an_unreadable_started_record_still_gives_a_void(self, h: Harness) -> None:
+        """A power loss right after the write can leave it empty: its runner died all the
+        same."""
+        init_judge(h, [sys.executable, str(STUB)])
+        h.brief(1, "cand")
+        for name, text in (("runner-cut", ""), ("runner-list", "[1]")):
+            (round_dir(h.run, 1) / f"started_j1_{name}.json").write_text(text)
+        assert open_seats(h.run, 1, False) == [1, 2]
+        voids = results_by_judge(round_dir(h.run, 1))[1]
+        assert len(voids) == 2 and all(v["void"] for v in voids)
+        assert all(set(v["runner"]) == {"stale", "failure"} for v in voids)
+        assert not list(round_dir(h.run, 1).glob("started_j*"))
+
+    @pytest.mark.slow
+    def test_a_started_record_of_a_stored_attempt_gives_no_second_void(self, h: Harness) -> None:
+        """The runner stored its attempt (a void here) and died before removing the record."""
+        init_judge(h, [sys.executable, str(STUB), "--exit", "1"])
+        h.brief(1, "cand")
+        void = judge_seat(h.run, 1, 1, False)
+        path = started(h, 1, {"agent_id": void["agent_id"], "argv": ["x"], "started_at": 0})
+        open_seats(h.run, 1, False)
+        assert [r["agent_id"] for r in results_by_judge(round_dir(h.run, 1))[1]] == [
+            void["agent_id"]
+        ]
+        assert not path.exists()
+
     @pytest.mark.slow
     def test_a_started_attempt_counts_against_the_void_cap(self, h: Harness) -> None:
         init_judge(h, [sys.executable, str(STUB), "--exit", "1"])
@@ -297,7 +324,7 @@ class TestSeatLock:
         h.init(judges_per_persona=2)
         h.brief(1, "cand")
         held = seat_lock(round_dir(h.run, 1), 1)
-        with held, pytest.raises(SeatTaken, match="being judged by another call"):
+        with held, pytest.raises(SeatTaken, match="seat 1 is held by another call"):
             record_reply(h.run, 1, 1, "a1", self.reply(h, 1), False)
         assert results_by_judge(round_dir(h.run, 1)) == {}
         assert record_reply(h.run, 1, 1, "a1", self.reply(h, 1), False)["ok"]
@@ -339,7 +366,7 @@ class TestSeatLock:
         h.brief(1, "cand")
         for j in (1, 2):
             record_reply(h.run, 1, j, f"a{j}", self.reply(h, j), False)
-        with seat_lock(round_dir(h.run, 1), 2), pytest.raises(SeatTaken, match="judge 2 is"):
+        with seat_lock(round_dir(h.run, 1), 2), pytest.raises(SeatTaken, match="seat 2 is held"):
             aggregate_round(h.run, 1, False)
         assert not (round_dir(h.run, 1) / "result.json").exists()
         aggregate_round(h.run, 1, False)
@@ -415,6 +442,130 @@ class TestSeatLock:
         assert record_reply(h.run, 1, 1, "a1", self.reply(h, 1), False)["ok"]
 
 
+class TestRunLock:
+    """What spans the whole run (agent ids and replies used, a round's briefs, the aggregate)
+    is read and written under the run's lock, taken after any seat lock."""
+
+    def reply(self, h: Harness, judge: int) -> str:
+        meta = next(m for m in h.keys(1)["judges"] if m["judge"] == judge)
+        sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+        return judge_json(meta, h.texts(1, meta), sc)
+
+    def test_one_agent_on_two_seats_at_once_is_recorded_once(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first call stops inside its seat check, run lock held; the second, on another
+        seat with the same agent id, waits for the lock and then meets the recorded agent."""
+        h.init(judges_per_persona=2)
+        h.brief(1, "cand")
+        entered, second_in, go = threading.Event(), threading.Event(), threading.Event()
+        real = record.check_seat
+
+        def slow_first(*args: Any) -> None:
+            if not entered.is_set():
+                entered.set()
+                go.wait(30)
+            else:
+                second_in.set()  # only reachable without the run lock
+            real(*args)
+
+        monkeypatch.setattr(record, "check_seat", slow_first)
+        outcomes: list[Any] = []
+
+        def second() -> None:
+            try:
+                outcomes.append(record_reply(h.run, 1, 2, "SAME", self.reply(h, 2), False))
+            except EvalError as exc:
+                outcomes.append(exc)
+
+        raw = self.reply(h, 1)
+        first = threading.Thread(
+            target=lambda: outcomes.append(record_reply(h.run, 1, 1, "SAME", raw, False))
+        )
+        first.start()
+        assert entered.wait(30)
+        other = threading.Thread(target=second)
+        other.start()
+        assert not second_in.wait(2), "the second call passed the run-wide check meanwhile"
+        go.set()
+        first.join(30)
+        other.join(30)
+        assert sum(isinstance(o, dict) and o["ok"] for o in outcomes) == 1
+        assert any(isinstance(o, EvalError) and "already judged" in str(o) for o in outcomes)
+        rows = results_by_judge(round_dir(h.run, 1)).values()
+        assert [r["agent_id"] for rs in rows for r in rs] == ["SAME"]
+
+    def test_two_briefings_of_one_round_give_one(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first briefing stops before its first brief is written, run lock held; the second
+        waits for the lock and then meets the briefs."""
+        h.init(judges_per_persona=2)
+        entered, second_in, go = threading.Event(), threading.Event(), threading.Event()
+        real = brief_module.build_brief
+
+        def slow_first(*args: Any) -> str:
+            if not entered.is_set():
+                entered.set()
+                go.wait(30)
+            elif threading.current_thread() is not first:
+                second_in.set()  # only reachable without the run lock
+            return real(*args)
+
+        monkeypatch.setattr(brief_module, "build_brief", slow_first)
+        outcomes: list[Any] = []
+
+        def seal(name: str) -> None:
+            try:
+                outcomes.append(h.brief(1, name))
+            except EvalError as exc:
+                outcomes.append(exc)
+
+        first = threading.Thread(target=seal, args=("cand",))
+        first.start()
+        assert entered.wait(30)
+        other = threading.Thread(target=seal, args=("cand",))
+        other.start()
+        assert not second_in.wait(2), "the second briefing passed the checks meanwhile"
+        go.set()
+        first.join(30)
+        other.join(30)
+        assert sum(isinstance(o, list) for o in outcomes) == 1
+        assert any(isinstance(o, EvalError) for o in outcomes)
+
+    def test_a_run_inside_a_run_is_refused(self, h: Harness) -> None:
+        """Through MCP the author names the run path: a run created in a round folder would
+        put a directory where the round's lock or result goes."""
+        h.init(judges_per_persona=2)
+        h.brief(1, "cand")
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps(make_spec()))
+        for inner in ("seat_j1.lock", "result.json", "x"):
+            with pytest.raises(EvalError, match="inside the run"):
+                init_run(round_dir(h.run, 1) / inner, sp)
+        assert sorted(p.name for p in round_dir(h.run, 1).iterdir() if p.is_dir()) == []
+        assert record_reply(h.run, 1, 1, "a1", self.reply(h, 1), False)["ok"]
+
+    def test_a_lock_path_taken_by_a_directory_is_a_clear_refusal(self, h: Harness) -> None:
+        h.init(judges_per_persona=2)
+        h.brief(1, "cand")
+        (round_dir(h.run, 1) / "seat_j1.lock").mkdir()
+        with pytest.raises(EvalError, match="cannot open the lock file"):
+            record_reply(h.run, 1, 1, "a1", self.reply(h, 1), False)
+
+    @pytest.mark.slow
+    def test_the_judge_log_is_owner_only(self, h: Harness) -> None:
+        init_judge(h, [sys.executable, str(STUB), "--noise"])
+        h.brief(1, "cand")
+        old = os.umask(0)
+        try:
+            r = judge_seat(h.run, 1, 1, False)
+        finally:
+            os.umask(old)
+        log = round_dir(h.run, 1) / r["runner"]["stderr_log"]
+        assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
 class TestContainment:
     def test_a_path_inside_the_root_resolves(self, tmp_path: Path) -> None:
         (tmp_path / "a").mkdir()
@@ -429,6 +580,13 @@ class TestContainment:
         given = root / ".." / "outside" / "f.md" if how == "dotdot" else root / "out" / "f.md"
         with pytest.raises(EvalError, match="outside the root"):
             contained(given, root)
+
+    def test_the_refusal_names_the_path_as_given(self, h: Harness) -> None:
+        sp = h.tmp / "spec.json"
+        sp.write_text(json.dumps({**make_spec(), "facts_file": "../elsewhere.md"}))
+        refused = r"^facts_file '\.\./elsewhere\.md' is outside the root"
+        with pytest.raises(EvalError, match=refused):
+            init_run(h.run, sp, None, None, h.tmp)
 
 
 class TestHostileReplies:
@@ -590,7 +748,7 @@ class TestCommandLineEdges:
             while not pid_file.exists() and time.monotonic() < deadline:
                 time.sleep(0.05)
             judge = int(pid_file.read_text())
-            with pytest.raises(EvalError, match="being judged by another call"):
+            with pytest.raises(EvalError, match="seat is held by another call"):
                 open_seats(h.run, 1, False, [1])  # held for as long as the judge runs
         finally:
             proc.kill()

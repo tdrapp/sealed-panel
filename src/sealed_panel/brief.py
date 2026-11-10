@@ -17,7 +17,7 @@ from .config import Config, resolve
 from .decide import STOP_DECISIONS, decide
 from .errors import EvalError
 from .spec import dims_for, load_frozen, rubric_hash, run_config
-from .store import dump_json, load_json, read_text, round_dir, write_file
+from .store import dump_json, load_json, read_text, round_dir, under_run_lock, write_file
 from .text import fixed_normalise, injection_flags, text_hash
 
 # Letters drawn without repetition to label the items of one brief.
@@ -218,6 +218,7 @@ def _check_loop(
         raise EvalError("the loop has stopped: seal instead of briefing a new round")
 
 
+@under_run_lock
 def write_briefs(
     run: Path, rnd: int, artefact: Path, control: Path, good: Path | None, sealed: bool
 ) -> list[Path]:

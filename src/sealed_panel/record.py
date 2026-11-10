@@ -21,7 +21,7 @@ from .config import Config, resolve
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
 from .spec import dims_for, load_frozen, run_config
-from .store import dump_json, load_json, locked, read_text, round_dir
+from .store import dump_json, load_json, locked, read_text, round_dir, under_run_lock
 from .text import fixed_normalise, quote_found
 
 SCORE_MIN, SCORE_MAX = 1, 5
@@ -525,7 +525,8 @@ def seat_lock(rdir: Path, judge: int) -> Iterator[None]:
         rdir: The round directory.
         judge: The judge slot.
     """
-    with locked(rdir / f"seat_j{judge}.lock", f"judge {judge} is being judged by another call"):
+    busy = f"seat {judge} is held by another call (a judge running or a reply being recorded)"
+    with locked(rdir / f"seat_j{judge}.lock", busy):
         yield
 
 
@@ -576,6 +577,7 @@ def record_reply(
         )
 
 
+@under_run_lock
 def _record_reply(
     run: Path,
     rnd: int,
@@ -591,7 +593,8 @@ def _record_reply(
 ) -> dict[str, Any]:
     """record_reply, plus the runner's path: `runner` is its proof (source "runner"), and with
     `void` the process gave no reply. Only runner.judge_seat passes a proof. The caller holds
-    the seat's lock (seat_lock)."""
+    the seat's lock (seat_lock); the run's lock is taken here, after it, for the run-wide
+    checks (an agent id or a reply already used) and the store."""
     spec = load_frozen(run)
     cfg = run_config(run)
     if (runner is None) != (source != RUNNER):
@@ -607,7 +610,7 @@ def _record_reply(
         raise EvalError(
             f"agent {agent_id} already judged in this run: every brief needs a fresh judge"
         )
-    if (rdir / "result.json").exists():
+    if (rdir / "result.json").is_file():
         raise EvalError("this round is already aggregated: a late judge would be panel shopping")
     extra_chars = 0
     if void and runner is None:
@@ -776,7 +779,7 @@ def record_measurement(
     rdir = round_dir(run, rnd, sealed)
     if not (rdir / "keys.json").exists():
         raise EvalError("brief the round before measuring it")
-    if (rdir / "result.json").exists():
+    if (rdir / "result.json").is_file():
         raise EvalError("this round is already aggregated: measure before aggregating")
     path = rdir / "measured.json"
     rows = load_json(path) if path.exists() else []

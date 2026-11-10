@@ -102,7 +102,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "late judge allowed": (
         REC,
-        '    if (rdir / "result.json").exists():\n'
+        '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: a late',
         '    if False:\n        raise EvalError("this round is already aggregated: a late',
     ),
@@ -183,14 +183,14 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "measure after aggregate": (
         REC,
-        '    if (rdir / "result.json").exists():\n'
+        '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: measure',
         '    if False:\n        raise EvalError("this round is already aggregated: measure',
     ),
     # Aggregation.
     "re-aggregate allowed": (
         AGG,
-        '    if (rdir / "result.json").exists():\n'
+        '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: a round',
         '    if False:\n        raise EvalError("this round is already aggregated: a round',
     ),
@@ -885,7 +885,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "overrides hidden": (CFG, "if current.get(key) != defaults.get(key):", "if False:"),
     # The judge runner.
     "runner without a command": (RUN, "if not command:", "if False:"),
-    "runner after aggregation": (RUN, 'if (rdir / "result.json").exists():', "if False:"),
+    "runner after aggregation": (RUN, 'if (rdir / "result.json").is_file():', "if False:"),
     "a failed judge read as a reply": (RUN, "elif code != 0:", "elif False:"),
     "a timed-out judge read as a reply": (RUN, "if timed_out:", "if False:"),
     "an empty output read as a reply": (RUN, "elif not reply.strip():", "elif False:"),
@@ -975,13 +975,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "relative paths resolved against the process directory": (
         MCP,
-        "            return contained(given if given.is_absolute() else base / given, base)\n",
-        "            return contained(given, base)\n",
+        "            return contained(given if given.is_absolute() else base / given, base, repr(p))\n",
+        "            return contained(given, base, repr(p))\n",
     ),
     "seat marker not exclusive": (
         f"{PKG}/store.py",
-        "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n",
-        "            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)\n",
+        "    how = fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB\n",
+        "    how = fcntl.LOCK_SH if wait else fcntl.LOCK_SH | fcntl.LOCK_NB\n",
     ),
     "stale marker reused without a void": (
         RUN,
@@ -1013,7 +1013,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
-        "            return contained(given if given.is_absolute() else base / given, base)\n",
+        "            return contained(given if given.is_absolute() else base / given, base, repr(p))\n",
         "            return (given if given.is_absolute() else base / given).resolve()\n",
     ),
     "home paths accepted": (MCP, '        if p.startswith("~"):\n', "        if False:\n"),
@@ -1087,8 +1087,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "facts_file outside the root read": (
         SPEC,
-        "        if root is not None:\n            path = contained(path, root)\n",
-        "        if False:\n            path = contained(path, root)\n",
+        "        if root is not None:\n            path = contained(",
+        "        if False:\n            path = contained(",
     ),
     "init freezes no server configuration": (
         MCP,
@@ -1383,8 +1383,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "seat lock released before the record": (
         f"{PKG}/store.py",
-        "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n",
-        "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n            fcntl.flock(fd, fcntl.LOCK_UN)\n",
+        "            fcntl.flock(fd, how)\n",
+        "            fcntl.flock(fd, how)\n            fcntl.flock(fd, fcntl.LOCK_UN)\n",
     ),
     "a held seat lock read as unsupported": (
         f"{PKG}/store.py",
@@ -1410,6 +1410,47 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/store.py",
         "        os.replace(draft, path)\n",
         "        os.chmod(draft, 0o644)\n        os.replace(draft, path)\n",
+    ),
+    # 0.4.0 review: nested runs, the run lock, leftover records.
+    "a run created inside a run": (
+        SPEC,
+        '        if (outer / "rubric.lock").exists():\n',
+        "        if False:\n",
+    ),
+    "a lock file that cannot be opened crashes": (
+        f"{PKG}/store.py",
+        '    except OSError as exc:\n        raise EvalError(f"cannot open the lock file',
+        '    except ZeroDivisionError as exc:\n        raise EvalError(f"cannot open the lock file',
+    ),
+    "run-wide checks without the run lock": (
+        REC,
+        "@under_run_lock\ndef _record_reply(",
+        "def _record_reply(",
+    ),
+    "a round briefed twice at once": (
+        BRIEF,
+        "@under_run_lock\ndef write_briefs(",
+        "def write_briefs(",
+    ),
+    "a judge's stderr log readable by others": (
+        RUN,
+        '0o600), "wb") as err,',
+        '0o644), "wb") as err,',
+    ),
+    "a started record of a stored attempt voided again": (
+        RUN,
+        '        if held.get("agent_id") not in stored:\n',
+        "        if True:\n",
+    ),
+    "an unreadable started record blocks the seat": (
+        RUN,
+        "    except EvalError:\n        return {}\n",
+        "    except ZeroDivisionError:\n        return {}\n",
+    ),
+    "a seat filled meanwhile stops the round": (
+        RUN,
+        '    if any(r["ok"] for r in prior):\n        raise SeatTaken(',
+        "    if False:\n        raise SeatTaken(",
     ),
 }
 

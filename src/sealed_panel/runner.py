@@ -126,7 +126,7 @@ def _open_round(
 
 
 def _refuse_closed(rdir: Path) -> None:
-    if (rdir / "result.json").exists():
+    if (rdir / "result.json").is_file():
         raise EvalError("this round is already aggregated: the runner fills a round before that")
 
 
@@ -136,12 +136,26 @@ STARTED_KEYS = ("argv", "started_at")
 
 def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path) -> None:
     """Under the seat's lock: each started record left there belongs to a runner that died
-    before recording (a live one would hold the lock). Its attempt is recorded as a void, under
-    a fresh agent id and the void cap, then the record goes. A seat with a valid reply takes no
-    void, and a seat at its cap is left as it is."""
+    (a live one would hold the lock). When its attempt is already stored (the runner died
+    between storing it and removing the record), the record just goes. Otherwise the attempt is
+    recorded as a void, under a fresh agent id and the void cap, then the record goes. A seat
+    with a valid reply takes no void, and a seat at its cap is left as it is."""
     for path in sorted(rdir.glob(f"{STARTED_PREFIX}{judge}_*.json")):
-        _record_stale(run, rnd, judge, sealed, rdir, load_json(path))
+        held = _started(path)
+        stored = {r.get("agent_id") for r in results_by_judge(rdir).get(judge, [])}
+        if held.get("agent_id") not in stored:
+            _record_stale(run, rnd, judge, sealed, rdir, held)
         path.unlink(missing_ok=True)
+
+
+def _started(path: Path) -> dict[str, Any]:
+    """A started record's content; an unreadable one (cut short by a power loss) is empty, so
+    its attempt still becomes a void, with nothing taken from it."""
+    try:
+        held = load_json(path)
+    except EvalError:
+        return {}
+    return held if isinstance(held, dict) else {}
 
 
 def _record_stale(
@@ -191,7 +205,7 @@ def open_seats(
     only: list[int] | None = None,
     expected: Mapping[str, Any] | None = None,
 ) -> list[int]:
-    """The judge slots of a round without a valid reply and not being judged by another call,
+    """The judge slots of a round without a valid reply and not held by another call,
     in order (only those in `only` when given). A dead runner's attempt is recorded as a void
     first. Every refusal is checked here, before any process starts. `expected` is the
     judge section the caller must match (see check_judge).
@@ -228,7 +242,7 @@ def open_seats(
         seats.append(s)
     if not seats:
         raise EvalError(
-            "every judge asked for already has a valid reply or is being judged by another call"
+            "every judge asked for already has a valid reply or its seat is held by another call"
             + (f" ({busy})" if busy else ": aggregate the round")
         )
     return seats
@@ -274,7 +288,7 @@ def _launch(
     with (
         tempfile.TemporaryDirectory(prefix="sealed-panel-judge-") as cwd,
         tempfile.TemporaryFile() as stdin,
-        log.open("wb") as err,
+        os.fdopen(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as err,
     ):
         stdin.write(brief)
         stdin.seek(0)

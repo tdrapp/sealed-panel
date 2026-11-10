@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 335 mutations, 333
+bound or boundary at a time and requires the suite to fail on each. Of its 343 mutations, 341
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -494,9 +494,9 @@ into the run and listed next to the grade. What the command reads from the envir
 frozen: the run keeps a hash of each allowed value and the report flags a round whose attempts
 ran under different values, but cannot say which model each used, so the shipped example puts
 the model in the command and keeps the environment for credentials. `record` and `judge` calls
-may overlap: each holds its seat's lock (`flock`, advisory, and not reliable on a network
-filesystem), but the run-wide checks are not serialised across seats, so record one agent at a
-time. Every run file is written owner-only (0600).
+may overlap: each holds its seat's lock, and the run-wide checks (an agent id or a reply used
+twice, a round briefed twice) run under the run's lock (`flock`, advisory, and not reliable on a
+network filesystem). Every file sealed-panel creates in a run is owner-only (0600).
 
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and

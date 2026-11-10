@@ -218,10 +218,11 @@ three kinds of proof, and the report says which one each round used.
   shift it.
 - The judges' prompt is checked only through transcripts: text added around the brief is counted
   and reported, but its effect is not measured.
-- `record` and `judge` calls may overlap: each holds its seat's lock. The run-wide checks (an
-  agent id or a reply used twice in the run) are not serialised across seats, so record one
-  agent at a time.
-- The seat lock is advisory (`flock`): it binds sealed-panel's own calls, not another program,
+- `record` and `judge` calls may overlap: each holds its seat's lock, and the run-wide checks
+  (an agent id or a reply used twice in the run, a round briefed twice) run under the run's
+  lock. Lock order: a call takes its seat locks first and the run lock last, never the reverse
+  (`aggregate`: every seat of the round, then the run), so two calls never wait on each other.
+- The locks are advisory (`flock`): it binds sealed-panel's own calls, not another program,
   and it may not hold on a network filesystem (NFS). A filesystem that refuses `flock` is
   refused. The run's files are not protected from someone who edits them by hand: deleting a
   started record or a reply, or planting a link, is out of scope (`SECURITY.md`).

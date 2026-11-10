@@ -336,7 +336,7 @@ def build_server(
             raise ToolError(f"{p!r}: paths are relative to the root {base}, never under ~")
         given = Path(p)
         try:
-            return contained(given if given.is_absolute() else base / given, base)
+            return contained(given if given.is_absolute() else base / given, base, repr(p))
         except EvalError as exc:
             raise ToolError(str(exc)) from exc
 

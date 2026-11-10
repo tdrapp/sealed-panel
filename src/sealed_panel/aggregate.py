@@ -15,7 +15,7 @@ from .record import round_keys, transcript_agent_id
 from .report import write_feedback
 from .runner import every_seat
 from .spec import dims_for, load_frozen, run_config
-from .store import dump_json, load_json, round_dir
+from .store import dump_json, load_json, round_dir, run_lock
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
 MAX_SCAN_BYTES = 20_000_000
@@ -165,15 +165,15 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
     panel, write learned candidates to the user library's inbox (listed under `inbox`). Every
-    seat of the round is held for the whole step, so no judge starts or records meanwhile; a
-    seat another call holds refuses the step.
+    seat of the round, then the run's lock, is held for the whole step, so no judge starts or
+    records meanwhile; a seat another call holds refuses the step.
 
     Args:
         run: The run directory.
         rnd: The round number, from 1.
         sealed: Whether the round is the sealed panel's.
     """
-    with every_seat(run, rnd, sealed):
+    with every_seat(run, rnd, sealed), run_lock(run):  # seats first, then the run
         return _aggregate(run, rnd, sealed)
 
 
@@ -182,7 +182,7 @@ def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
-    if (rdir / "result.json").exists():
+    if (rdir / "result.json").is_file():
         raise EvalError("this round is already aggregated: a round is aggregated once")
     keys = round_keys(rdir, rnd)
     by_judge = results_by_judge(rdir)

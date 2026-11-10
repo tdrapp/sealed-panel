@@ -309,7 +309,7 @@ class TestRefusals:
         assert [r["judge"] for r in judge_round(h.run, 1, False, [1])] == [1]
         assert open_seats(h.run, 1, False) == [2]
         assert [r["judge"] for r in judge_round(h.run, 1, False)] == [2]
-        with pytest.raises(EvalError, match="already has a valid reply or is being judged"):
+        with pytest.raises(EvalError, match="already has a valid reply or its seat is held"):
             open_seats(h.run, 1, False)
         with pytest.raises(EvalError, match="already has a valid reply in this round"):
             judge_seat(h.run, 1, 1, False)
@@ -474,12 +474,23 @@ class TestOneJudgePerSeat:
         h.brief(1, "cand")
         with seat_lock(round_dir(h.run, 1), 1):
             assert [r["judge"] for r in judge_round(h.run, 1, False)] == [2]
-            with pytest.raises(SeatTaken, match="being judged by another call"):
+            with pytest.raises(SeatTaken, match="seat 1 is held by another call"):
                 judge_seat(h.run, 1, 1, False)
-            with pytest.raises(EvalError, match=r"being judged by another call \(\[1\]\)"):
+            with pytest.raises(EvalError, match=r"held by another call \(\[1\]\)"):
                 open_seats(h.run, 1, False)
-            with pytest.raises(SeatTaken, match="judge 1 is being judged"):
+            with pytest.raises(SeatTaken, match="seat 1 is held by another call"):
                 aggregate_round(h.run, 1, False)
+
+    def test_a_seat_filled_after_the_listing_is_skipped(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Another call fills seat 1 between this call's listing and its lock: the round skips
+        it (SeatTaken) and goes on, never stops on it."""
+        init_runner(h)
+        h.brief(1, "cand")
+        assert judge_seat(h.run, 1, 1, False)["ok"]
+        monkeypatch.setattr(runner, "open_seats", lambda *args: [1, 2])
+        assert [r["judge"] for r in judge_round(h.run, 1, False)] == [2]
 
     def test_a_dead_runner_leaves_a_void_never_a_free_seat(self, h: Harness) -> None:
         """Its started record is there and nobody holds its seat's lock."""

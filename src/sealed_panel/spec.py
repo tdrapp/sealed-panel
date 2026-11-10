@@ -299,7 +299,7 @@ def _freeze_facts(spec: dict[str, Any], base: Path, root: Path | None = None) ->
         if not path.is_absolute():
             path = base / path  # relative to the spec file's folder
         if root is not None:
-            path = contained(path, root)
+            path = contained(path, root, f"facts_file {facts_file!r}")
         if not path.is_file():
             raise EvalError(f"facts_file does not exist: {facts_file!r}")
         spec["facts"] = read_text(path)  # frozen by content, not by path
@@ -356,6 +356,7 @@ def init_run(
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
+    _refuse_nested(run)
     if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
         raise EvalError(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
@@ -389,6 +390,14 @@ def init_run(
     write_file(run / "rubric.lock", digest + "\n")
     dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
+
+
+def _refuse_nested(run: Path) -> None:
+    """Refuse a run inside another run: a directory created there (a lock file's name, a
+    result's) would block that run's rounds."""
+    for outer in run.resolve().parents:
+        if (outer / "rubric.lock").exists():
+            raise EvalError(f"{run} is inside the run {outer}: a run never holds another run")
 
 
 def load_frozen(run: Path) -> dict[str, Any]:

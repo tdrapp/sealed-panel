@@ -107,6 +107,7 @@ runner judges it; the kernel releases it when the runner's process dies, so noth
 stale. Before its process starts, the runner writes `started_j<J>_<id>.json`; a runner killed
 before recording leaves that file, and the next `judge` call, or `aggregate`, records the
 attempt as a void, never a free seat (none on a seat that already holds a valid reply, none past
-the void cap). So the fix is to run `sealed-panel judge` again, never to delete the file:
+the void cap, none when the attempt it names is already stored; an unreadable record still gives
+one). So the fix is to run `sealed-panel judge` again, never to delete the file:
 deleting it hides a started attempt. "does not support file locks" means the run sits on a
 filesystem without `flock` (some network mounts): move the run to a local disk.

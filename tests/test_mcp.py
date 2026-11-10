@@ -586,7 +586,7 @@ class TestConcurrentJudges:
                         break
                     await asyncio.sleep(0.1)
                 retry = await c.call_tool_mcp("judge", args)
-                assert retry.is_error and "being judged by another call" in retry.content[0].text  # type: ignore[union-attr]
+                assert retry.is_error and "held by another call" in retry.content[0].text  # type: ignore[union-attr]
                 release.touch()
                 for _ in range(600):
                     if not list(rdir.glob("started_j1_*.json")):
@@ -616,7 +616,7 @@ class TestPaths:
         async with Client(build_server(h.tmp), mode=mode) as c:
             for run in ("../elsewhere", str(outside / "run"), "link/run"):
                 msg = await error(c, "init", run=run, spec="spec.json")
-                assert "outside the root" in msg, run
+                assert f"{run!r} is outside the root" in msg, run
             assert "never under ~" in await error(c, "init", run="~/run", spec="spec.json")
             assert not (outside / "run").exists() and not (h.tmp.parent / "elsewhere").exists()
             await call(c, "init", run="run", spec="spec.json")
@@ -630,6 +630,18 @@ class TestPaths:
             msg = await error(c, "rubrics_list", library=str(outside))
             assert "outside the root" in msg
             await call(c, "status", run=str(h.run))  # an absolute path inside the root is fine
+
+    async def test_a_run_is_never_created_inside_a_run(self, h: Harness, mode: str) -> None:
+        """A directory named after a round's lock or result would block that round."""
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            for inner in ("seat_j1.lock", "result.json"):
+                msg = await error(c, "init", run=f"run/sealed/r1/{inner}", spec="spec.json")
+                assert "inside the run" in msg, inner
+        assert not (h.run / "sealed" / "r1" / "seat_j1.lock").exists()
+        assert not (h.run / "sealed" / "r1" / "result.json").exists()
 
     async def test_a_foreign_directory_is_not_overwritten(self, h: Harness, mode: str) -> None:
         write_spec(h)
