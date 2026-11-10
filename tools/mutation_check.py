@@ -1433,6 +1433,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    by_role = flagged_roles(entry)\n",
         '    by_role = {k: v for k, v in flagged_roles(entry).items() if k == "candidate"}\n',
     ),
+    # Only a person acknowledges a flag, and the grade line says it was.
+    "the MCP init freezes an acknowledgement": (
+        SPEC,
+        "if spec.get(INJECTION_ACK) and not acknowledge:",
+        "if False:",
+    ),
+    "the acknowledgement left off the grade line": (
+        f"{PKG}/report.py",
+        "out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))",
+        "out += _sealed_headline(spec, d, model_line(cfg))",
+    ),
 }
 
 

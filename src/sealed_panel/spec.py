@@ -336,12 +336,24 @@ def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
     ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
 
 
+def _check_acknowledgement(spec: dict[str, Any], acknowledge: bool) -> None:
+    """Refuse a spec that acknowledges injection flags, unless a person froze it: whether a
+    grade on a text addressed to a judge stands is not the author's call."""
+    if spec.get(INJECTION_ACK) and not acknowledge:
+        raise EvalError(
+            f"the spec carries {INJECTION_ACK}: acknowledging text addressed to a judge is a "
+            "person's decision, so the MCP tools never freeze it; run `sealed-panel init RUN "
+            "--spec SPEC` at a terminal"
+        )
+
+
 def init_run(
     run: Path,
     spec_path: Path,
     cfg: Config | None = None,
     library: Path | None = None,
     facts_root: Path | None = None,
+    acknowledge: bool = True,
 ) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash.
     With `facts_root`, a `facts_file` must resolve under it (the MCP server's root).
@@ -352,6 +364,8 @@ def init_run(
         cfg: The configuration; the packaged defaults when None.
         library: The user rubric library; the default one when None.
         facts_root: A folder a `facts_file` must resolve under, or None.
+        acknowledge: Whether this caller may freeze a spec that acknowledges injection flags:
+            a person at the command line may, the MCP server's caller (the author) may not.
     """
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
@@ -365,6 +379,7 @@ def init_run(
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
+    _check_acknowledgement(spec, acknowledge)
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent, facts_root)

@@ -38,7 +38,9 @@ exact version or tag: an unpinned one runs whatever is newest the day it starts.
 
 The tools are listed in [cli.md](cli.md#mcp). Every path a tool takes must resolve under the
 root, symbolic links followed: `--root DIR`, else `[mcp] root` in the configuration, else the
-directory the server starts in.
+directory the server starts in. The `init` tool refuses a spec that carries
+`injection_acknowledged`: acknowledging text addressed to a judge decides whether a grade
+stands, so a person does it, with `sealed-panel init` at a terminal.
 
 To let the server run the judges, start it with a configuration that holds a `[judge] command`,
 kept outside the root: `sealed-panel mcp --root ~/texts --config ~/.config/my-judge.toml`. The

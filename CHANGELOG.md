@@ -79,8 +79,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   report's title, and a blocked sealed grade is shown with a line saying it does not stand. A
   blocked loop goes on with the text removed; a sealed panel is refused. A text that addresses
   a judge on purpose needs the new spec key `injection_acknowledged`: a reason, frozen and
-  hashed with the rubric (a spec without it keeps its hash), and shown in the report and in
-  `status`. `feedback` is refused on a blocked grade, which does not stand.
+  hashed with the rubric (a spec without it keeps its hash), and shown in the report's header,
+  on its grade line and in `status`. Only a person acknowledges: the MCP `init` tool refuses a
+  spec that carries the key, and the command line freezes it. `feedback` is refused on a
+  blocked grade, which does not stand.
 - The development tools moved from the `dev` extra to `[dependency-groups]` (`test`, `dev`,
   `audit`), and `uv.lock` is committed: contributors and every CI job, the mutation shards and
   the nightly run included, install with `uv sync --locked`. The `dev` extra is gone; the `mcp`

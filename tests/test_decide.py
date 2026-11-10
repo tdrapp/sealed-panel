@@ -182,6 +182,8 @@ class TestInjectionGate:
         text = render_report(h.run)
         assert text.startswith("# Evaluation: test pitch\n")
         assert f"Injection flags acknowledged in the spec: {ACK!r}." in text
+        grade = next(x for x in text.splitlines() if x.startswith("**Grade (sealed panel)"))
+        assert grade.endswith(f"Injection flags acknowledged: {ACK!r}.")
         assert "the candidate item addresses a judge" in text  # the flag itself is still listed
 
     def test_a_clean_candidate_is_not_affected(self, h: Harness) -> None:
