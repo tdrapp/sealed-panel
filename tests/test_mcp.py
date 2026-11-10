@@ -210,6 +210,16 @@ class TestEndToEnd:
 
 
 class TestErrors:
+    async def test_init_refuses_an_acknowledgement(self, h: Harness, mode: str) -> None:
+        """Acknowledging text addressed to a judge decides whether a grade stands: the author
+        calling the tools may not do it; a person does, at the command line."""
+        write_spec(h, injection_acknowledged="a text about prompt injection")
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            msg = await error(c, "init", run="run", spec="spec.json")
+        assert "injection_acknowledged" in msg and "sealed-panel init" in msg
+        assert not (h.tmp / "run").exists()  # refused before anything is written
+        assert init_run(h.tmp / "run", h.tmp / "spec.json")  # the command line keeps it
+
     async def test_a_refusal_is_a_tool_error_with_its_reason(self, h: Harness, mode: str) -> None:
         async with Client(build_server(h.tmp), mode=mode) as c:
             msg = await error(c, "brief", run="run", round=1, artefact="a.md", control="b.md")

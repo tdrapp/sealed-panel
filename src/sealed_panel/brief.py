@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, resolve
-from .decide import STOP_DECISIONS, decide
+from .decide import BLOCKED, INJECTION_ACK, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
 from .spec import dims_for, load_frozen, rubric_hash, run_config
 from .store import dump_json, load_json, read_text, round_dir, under_run_lock, write_file
@@ -179,10 +179,20 @@ def build_brief(
     return "\n".join(lines) + "\n"
 
 
+def _refuse_blocked(d: dict[str, Any]) -> None:
+    """Refuse a sealed panel while the ledger says BLOCKED BY FLAG, with its next step."""
+    if d["decision"] == BLOCKED:
+        raise EvalError(
+            f"the ledger says {BLOCKED} on the {', '.join(d['roles'])} item: a sealed grade "
+            f"of this run would not stand; {d['next']}"
+        )
+
+
 def _check_sealed(run: Path, rnd: int, spec: dict[str, Any], ledger: dict[str, Any]) -> None:
     loop = [r for r in ledger["rounds"] if not r.get("sealed")]
     if loop:
         d = decide(spec, ledger)
+        _refuse_blocked(d)
         if d["decision"] not in STOP_DECISIONS:
             raise EvalError(
                 f"the ledger says {d['decision']}: a sealed panel comes after CONVERGED, "
@@ -216,6 +226,32 @@ def _check_loop(
         )
     if loop and decide(spec, ledger)["decision"] in STOP_DECISIONS:
         raise EvalError("the loop has stopped: seal instead of briefing a new round")
+
+
+def flags_by_role(roles: list[tuple[str, str]], cfg: Config) -> dict[str, list[str]]:
+    """The injection patterns each text placed in the brief matches, by role (only the roles
+    with a match).
+
+    Args:
+        roles: (role, text) of every item of the brief.
+        cfg: The run's configuration.
+    """
+    found = {role: injection_flags(text, cfg) for role, text in roles}
+    return {role: flags for role, flags in found.items() if flags}
+
+
+def _refuse_a_flagged_seal(
+    spec: dict[str, Any], roles: list[tuple[str, str]], cfg: Config, sealed: bool
+) -> None:
+    """Refuse a sealed brief that would carry text addressed to a judge, before anything is
+    written: its grade could not stand, and a run has one sealed panel."""
+    found = flags_by_role(roles, cfg) if sealed else {}
+    if found and not spec.get(INJECTION_ACK):
+        raise EvalError(
+            f"the sealed brief would carry text addressed to a judge in the "
+            f"{', '.join(sorted(found))} item: its grade could not stand. Brief it without that "
+            f"text, or {NEW_RUN}"
+        )
 
 
 @under_run_lock
@@ -263,6 +299,7 @@ def write_briefs(
             raise EvalError(
                 f"the {role} text contains an <{ITEM_TAG}> tag: it would break the fence"
             )
+    _refuse_a_flagged_seal(spec, roles, cfg, sealed)
     rdir.mkdir(parents=True, exist_ok=True)
     for role, text in roles:
         write_file(rdir / f"{role}.md", text)
@@ -305,6 +342,7 @@ def write_briefs(
             "candidate_hash": text_hash(cand),
             "roles": [r for r, _ in roles],
             "injection_flags": injection_flags(cand, cfg),
+            "injection_flags_by_role": flags_by_role(roles, cfg),
             "judges": judges,
         },
     )

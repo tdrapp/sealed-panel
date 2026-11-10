@@ -748,10 +748,12 @@ def record_from(
     return record_reply(run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed)
 
 
+@under_run_lock
 def record_measurement(
     run: Path, rnd: int, mid: str, value: str, passed: bool | None, sealed: bool
 ) -> bool:
-    """Record one instrument reading. A numeric threshold decides pass or fail.
+    """Record one instrument reading. A numeric threshold decides pass or fail. The round's
+    readings are read and rewritten under the run's lock, so concurrent readings are all kept.
 
     Args:
         run: The run directory.

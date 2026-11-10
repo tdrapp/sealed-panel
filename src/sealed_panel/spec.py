@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,9 @@ CHOICE_KEYS = frozenset({"choice", "user_said"})
 # A facts text that starts with a home or relative path prefix is a path, not facts; one
 # that starts with "/" is a path when it holds another slash ("/ marks a break" stays text).
 HOME_OR_RELATIVE = ("~/", "./", "../")
+# The run's salt for the hashes of the judge environment's values, created at init.
+ENV_SALT = "env.salt"
+SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
 
 
@@ -336,12 +340,24 @@ def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
     ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
 
 
+def _check_acknowledgement(spec: dict[str, Any], acknowledge: bool) -> None:
+    """Refuse a spec that acknowledges injection flags, unless a person froze it: whether a
+    grade on a text addressed to a judge stands is not the author's call."""
+    if spec.get(INJECTION_ACK) and not acknowledge:
+        raise EvalError(
+            f"the spec carries {INJECTION_ACK}: acknowledging text addressed to a judge is a "
+            "person's decision, so the MCP tools never freeze it; run `sealed-panel init RUN "
+            "--spec SPEC` at a terminal"
+        )
+
+
 def init_run(
     run: Path,
     spec_path: Path,
     cfg: Config | None = None,
     library: Path | None = None,
     facts_root: Path | None = None,
+    acknowledge: bool = True,
 ) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash.
     With `facts_root`, a `facts_file` must resolve under it (the MCP server's root).
@@ -352,6 +368,8 @@ def init_run(
         cfg: The configuration; the packaged defaults when None.
         library: The user rubric library; the default one when None.
         facts_root: A folder a `facts_file` must resolve under, or None.
+        acknowledge: Whether this caller may freeze a spec that acknowledges injection flags:
+            a person at the command line may, the MCP server's caller (the author) may not.
     """
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
@@ -366,6 +384,7 @@ def init_run(
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
+    _check_acknowledgement(spec, acknowledge)
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent, facts_root)
@@ -388,8 +407,24 @@ def init_run(
     dump_json(run / "spec.json", spec)
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
+    write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
     dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
+
+
+def run_salt(run: Path) -> bytes | None:
+    """The run's random salt for hashing the judge environment's values, or None when the
+    run has none (frozen before 0.3.1) or it cannot be read: then no hash is stored and no
+    environment is compared, which the docs say; it never stops a judge.
+
+    Args:
+        run: The run directory.
+    """
+    try:
+        salt = bytes.fromhex(read_text(run / ENV_SALT).strip())
+    except (OSError, ValueError, EvalError):
+        return None
+    return salt if len(salt) == SALT_BYTES else None
 
 
 def _refuse_nested(run: Path) -> None:

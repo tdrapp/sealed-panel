@@ -1315,8 +1315,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # A candidate that addresses a judge: blocked unless the spec acknowledges it.
     "a flagged candidate converges": (
         f"{PKG}/decide.py",
-        "        return _gate(spec, last, converged)",
-        "        return converged",
+        "        return _baseline_gate(spec, loop, _gate(spec, last, converged))",
+        "        return _baseline_gate(spec, loop, converged)",
     ),
     "a flagged sealed grade stands": (
         f"{PKG}/decide.py",
@@ -1362,8 +1362,52 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "the judge environment left out of the proof": (
         RUN,
-        '"env_sha256": env_hashes(cfg, env),',
+        '"env_sha256": env_hashes(cfg, env, run_salt(run)),',
         '"env_sha256": {},',
+    ),
+    # Every item of a brief is scanned for text addressed to a judge, and any flag blocks.
+    "only the candidate is scanned": (
+        BRIEF,
+        '"injection_flags_by_role": flags_by_role(roles, cfg),',
+        '"injection_flags_by_role": flags_by_role(roles[:1], cfg),',
+    ),
+    "the gate reads the candidate's flags only": (
+        f"{PKG}/decide.py",
+        "    by_role = flagged_roles(entry)\n",
+        '    by_role = {k: v for k, v in flagged_roles(entry).items() if k == "candidate"}\n',
+    ),
+    # Only a person acknowledges a flag, and the grade line says it was.
+    "the MCP init freezes an acknowledgement": (
+        SPEC,
+        "if spec.get(INJECTION_ACK) and not acknowledge:",
+        "if False:",
+    ),
+    "the acknowledgement left off the grade line": (
+        f"{PKG}/report.py",
+        "out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))",
+        "out += _sealed_headline(spec, d, model_line(cfg))",
+    ),
+    # The judge environment: salted per run, and compared between the loop and the seal.
+    "the environment hash unsalted": (
+        RUN,
+        'hashlib.sha256(salt + env[n].encode("utf-8")).hexdigest()',
+        'hashlib.sha256(env[n].encode("utf-8")).hexdigest()',
+    ),
+    "the sealed panel's environment not compared with the loop's": (
+        f"{PKG}/report.py",
+        "return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))",
+        "return []",
+    ),
+    # A sealed panel is never spent on a grade that could not stand.
+    "a flagged round 1 still offers the seal": (
+        f"{PKG}/decide.py",
+        'if not flags or spec.get(INJECTION_ACK) or d["decision"] not in STOP_DECISIONS:',
+        "if True:",
+    ),
+    "a flagged sealed brief written": (
+        BRIEF,
+        "if found and not spec.get(INJECTION_ACK):",
+        "if False:",
     ),
     # 0.4.0: the seat lock (flock) and the one containment guard.
     "host record without the seat lock": (
@@ -1446,6 +1490,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         RUN,
         "    except EvalError:\n        return {}\n",
         "    except ZeroDivisionError:\n        return {}\n",
+    ),
+    "concurrent readings lose one": (
+        REC,
+        "@under_run_lock\ndef record_measurement(",
+        "def record_measurement(",
     ),
     "a seat filled meanwhile stops the round": (
         RUN,

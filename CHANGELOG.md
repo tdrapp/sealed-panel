@@ -20,7 +20,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The run-wide checks hold under concurrent calls: an agent id used once per run, a reply
   counted once, and a round briefed once are read and written under the run's lock
   (`run.lock`), taken after any seat lock. Two concurrent `record` calls with one agent id on
-  two seats, or two concurrent briefings of one round, could both pass before.
+  two seats, or two concurrent briefings of one round, could both pass before. `measure`
+  takes the same lock, so two concurrent readings of one round are both kept.
 - `init` refuses a run path inside another run: through MCP the author could put a directory
   where a round's lock or result goes and block the round.
 - One containment guard, `contained()` (resolve, then require the path to stay under the
@@ -75,6 +76,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answers `initialize`, through `tools/smoke_mcp.py`), `actionlint` (with shellcheck) and
   `pip-audit` (every locked package, by hash). `build` and `actionlint` join the required
   checks in `.github/branch-protection.json`; `pip-audit` stays advisory.
+- A test ties `.github/branch-protection.json` to the CI workflow: every required check is a
+  job name CI produces, and only the mutation shards and `pip-audit` are left out, on purpose.
+- The release workflow builds with the same uv and the same `uv build` command as the CI build
+  job, after `uv lock --check`, so the published files are built the way the tested ones were.
 - gitleaks scans what is staged (a pre-commit hook) and the whole history (a required CI job,
   from a pinned release checked by its sha256). `.gitleaks.toml` allowlists only the sha256
   digests of the test fixtures and the lock.
@@ -83,7 +88,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   placed in a layer.
 - A complexity ceiling (a required CI job `complexity`): xenon caps the ranks at their current
   level, and `tools/complexity_check.py` freezes every function above rank B at its current
-  complexity (`tools/complexity_baseline.json`); a new function must stay at rank B.
+  complexity (`tools/complexity_baseline.json`); a new function must stay at rank B. On a pull
+  request, `--against` the base branch fails when an entry present on both sides rose, or when
+  the number of entries or their sum rose: the baseline is a budget, so a rename fits and new
+  complexity is paid for by removing some elsewhere.
 - Docstrings: every public module, class and function of the package has one (ruff `D1`), the
   public API's carry an `Args:` section naming each argument (ruff `D417` and
   `tests/test_docstrings.py`), and interrogate holds the public coverage at 80% or more (a
@@ -97,9 +105,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pyproject.toml` with `--strict-markers`; `pytest -m "not slow"` is the fast tier. A fixture
   fails an unmarked test that starts such a process.
 - The judge runner's proof holds, per attempt, the sha256 of the value of each `[judge]
-  env_allow` name it passed (never the value), and `aggregate` and the report flag a round whose
-  attempts ran under different values (`runner_env_changed`): a model read from an allowed
-  variable could change between a rejected attempt and its replacement, unseen.
+  env_allow` name it passed (never the value), salted with a random salt `init` writes into the
+  run (`env.salt`), and `aggregate` and the report flag a round whose attempts ran under
+  different values (`runner_env_changed`) and a sealed panel that ran under other values than
+  the loop rounds: a model read from an allowed variable could change between a rejected
+  attempt and its replacement, or before the seal, unseen. A run frozen without a salt stores
+  no hash and compares nothing.
 - A snapshot of the MCP tools (names, annotations, input and output schemas) in
   `tests/mcp_tools.json`, and a test that fails on any drift, in both protocol modes.
 - Repository docs: a version line in the README linking this file (a test keeps it on the
@@ -112,13 +123,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A candidate the injection scan flags no longer reaches CONVERGED or a sealed grade silently:
-  the decision becomes `BLOCKED BY FLAG`, in `status` and in the report's title, and a blocked
-  sealed grade is shown with a line saying it does not stand. A blocked loop goes on with the
-  text removed; a sealed panel is refused. A text that addresses a judge on purpose needs the
-  new spec key `injection_acknowledged`: a reason, frozen and hashed with the rubric (a spec
-  without it keeps its hash), and shown in the report and in `status`. `feedback` is refused
-  on a blocked grade, which does not stand.
+- Every text placed in a brief is scanned for text addressed to a judge (the candidate, the
+  control, the previous version, the baseline and the known-good), with the flags kept per item,
+  and a flag on any of them no longer lets the run reach CONVERGED or a sealed grade silently:
+  the decision becomes `BLOCKED BY FLAG`, naming the item, in `status` and in the report's
+  title, and a blocked sealed grade is shown with a line saying it does not stand. A blocked
+  loop goes on with the text removed; a sealed panel is refused. When the round-1 text was
+  flagged, the sealed panel would score it as its baseline, so CONVERGED, PLATEAU and CAP become
+  `BLOCKED BY FLAG` on `baseline` with a new run as the next step, never "seal"; and `brief
+  --sealed` (and the `seal` tool) refuses, before writing anything, a sealed brief that would
+  carry a flagged item. A text that addresses a judge on purpose needs the new spec key
+  `injection_acknowledged`: a reason, frozen and hashed with the rubric (a spec without it keeps
+  its hash), and shown in the report's header, on its grade line and in `status`. Only a person
+  acknowledges: the MCP `init` tool refuses a spec that carries the key, and the command line
+  freezes it. `feedback` is refused on a blocked grade, which does not stand.
 - The development tools moved from the `dev` extra to `[dependency-groups]` (`test`, `dev`,
   `audit`), and `uv.lock` is committed: contributors and every CI job, the mutation shards and
   the nightly run included, install with `uv sync --locked`. The `dev` extra is gone; the `mcp`
@@ -131,7 +149,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the run freezes it and the report shows it next to the grade, with `model_id` beside it; the
   environment carries the credential only. The template still reads `JUDGE_MODEL_COMMAND` or
   `JUDGE_MODEL_URL` when it gets no argument.
-
 - The mutation check runs each mutation against the tests that execute its lines, picked from
   a coverage map built in each run, and confirms every survivor on the whole suite. CI runs it
   on every pull request in four shards and merges their reports; a nightly workflow runs the

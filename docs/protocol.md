@@ -107,20 +107,20 @@ Statistics over a dataset do not apply to one text. Its only repetitions are its
   medians of integer differences and move in steps of 0.5, so with the noise between its 0.5
   floor and 1 this means no dimension gained a full point, two rounds running. CAP at
   `max_rounds`.
-- **Blocked by a flag.** A candidate the injection scan flags never converges and never takes a
-  sealed grade silently: CONVERGED and SEALED on such a text become BLOCKED BY FLAG, in
-  `status` and in the report's title. A blocked loop goes on to the next round with the text
-  removed; a sealed panel is refused, and a blocked sealed grade is shown but does not stand. A
-  text that addresses a judge on purpose (a notice about prompt injection, say) needs
-  `injection_acknowledged` in the spec: a reason, frozen and hashed with the rubric, and shown
-  in the report.
-- **Blocked by a flag.** A candidate the injection scan flags never converges and never takes a
-  sealed grade silently: CONVERGED and SEALED on such a text become BLOCKED BY FLAG, in
-  `status` and in the report's title. A blocked loop goes on to the next round with the text
-  removed; a sealed panel is refused, and a blocked sealed grade is shown but does not stand. A
-  text that addresses a judge on purpose (a notice about prompt injection, say) needs
-  `injection_acknowledged` in the spec: a reason, frozen and hashed with the rubric, and shown
-  in the report.
+- **Blocked by a flag.** Every text placed in a brief is scanned: the candidate, the control,
+  the previous version, the round-1 baseline and the known-good, and the flags are kept per
+  item. A round whose brief carried a flagged item never converges and never takes a sealed
+  grade silently: CONVERGED and SEALED become BLOCKED BY FLAG, naming the item, in `status` and
+  in the report's title. A blocked loop goes on to the next round with the text removed (the
+  removed text still rides along once as the previous version, so that round is blocked too); a
+  sealed panel is refused, and a blocked sealed grade is shown but does not stand. Since the
+  sealed panel scores the round-1 text as its baseline, a run whose first round was flagged
+  cannot take a sealed grade: CONVERGED, PLATEAU and CAP become BLOCKED BY FLAG on `baseline`,
+  whose next step is a new run, never "seal". A sealed brief that would carry a flagged item is
+  refused before a file is written, so the run's one sealed panel is never spent on a grade that
+  could not stand. A text that addresses a judge on purpose (a notice about prompt injection,
+  say) needs `injection_acknowledged` in the spec: a reason given by a person at the command
+  line, frozen and hashed with the rubric, and shown in the report.
 - **Suspect jump.** A paired gain of 2 or more on one dimension is reported for a human read:
   an implausible jump is suspect until checked.
 
@@ -156,27 +156,32 @@ three kinds of proof, and the report says which one each round used.
   its stdin and reads its stdout itself, so nothing stands between the brief and the reply. The
   reply's record stores the proof: the sha256 of the bytes written, the argument list, the exit
   status, the duration, the sha256 of the bytes read, the timeout, the names of the environment
-  variables passed, and the sha256 of the value of each name in `[judge] env_allow` (never the
-  value, which may be a credential). The argument list is frozen into the run, but an allowed
-  variable can change between two attempts, and a template that reads the model from one would
-  then judge with another model unseen: `aggregate` compares the hashes of every attempt of a
-  round, rejected and void ones included, and the report names the variables whose value
-  changed. So the model belongs in the argument list (`examples/runner/judge.toml`), and the
-  environment carries credentials only. One process per brief, so every runner reply comes from
-  a fresh context, and one process per seat at a time: a lock (`fcntl.flock`) held from the
-  seat's check to its record, so concurrent or retried calls cannot collect several replies and
-  keep the best. The kernel releases the lock when its holder dies, and the attempt a dead
-  runner started is recorded as a void by the next call. A process that fails, times out, writes
-  nothing or writes past the cap is a void: no reply is ever made up from partial output, and
-  every process started ends recorded, at worst as a void. A run with a judge command takes
-  runner replies only, on every seat: no reply pasted, read from a transcript or voided by hand,
-  so a rejected runner reply cannot be swapped for one from another judge. Only the runner
-  records a runner reply through the commands and tools: the library's `record_reply` refuses
-  the source. Someone who writes the run's files by hand can still forge one; `SECURITY.md`
-  keeps that out of scope. Through MCP, the judge command comes from the configuration the user
-  started the server with, never from the caller, and every tool refuses a run frozen with other
-  settings. The judge process gets a minimal environment and an empty working directory: no
-  credential beyond the ones the user allowed, and no path into the run directory.
+  variables passed, and the sha256 of the value of each name in `[judge] env_allow`, salted with
+  a random value `init` writes into the run (`env.salt`); never the value, which may be a
+  credential. The argument list is frozen into the run, but an allowed variable can change
+  between two attempts, and a template that reads the model from one would then judge with
+  another model unseen: `aggregate` compares the hashes of every attempt of a round, rejected
+  and void ones included, the report names the variables whose value changed, and it names those
+  whose value differs between the sealed panel and the loop rounds. The salt stops a lookup in a
+  table made in advance and a match across runs; someone who holds the run directory holds the
+  salt and can still guess a short value, so credentials should be long. A run frozen before
+  0.3.1 has no salt: its attempts store no hash and nothing is compared. So the model belongs in
+  the argument list (`examples/runner/judge.toml`), and the environment carries credentials
+  only. One process per brief, so every runner reply comes from a fresh context, and one process
+  per seat at a time: a lock (`fcntl.flock`) held from the seat's check to its record, so
+  concurrent or retried calls cannot collect several replies and keep the best. The kernel
+  releases the lock when its holder dies, and the attempt a dead runner started is recorded as a
+  void by the next call. A process that fails, times out, writes nothing or writes past the cap
+  is a void: no reply is ever made up from partial output, and every process started ends
+  recorded, at worst as a void. A run with a judge command takes runner replies only, on every
+  seat: no reply pasted, read from a transcript or voided by hand, so a rejected runner reply
+  cannot be swapped for one from another judge. Only the runner records a runner reply through
+  the commands and tools: the library's `record_reply` refuses the source. Someone who writes
+  the run's files by hand can still forge one; `SECURITY.md` keeps that out of scope. Through
+  MCP, the judge command comes from the configuration the user started the server with, never
+  from the caller, and every tool refuses a run frozen with other settings. The judge process
+  gets a minimal environment and an empty working directory: no credential beyond the ones the
+  user allowed, and no path into the run directory.
 - **Transcript (`record --transcript`).** The judge's own transcript must contain the whole
   brief in its prompt; text added around it is counted and reported, and an agent that holds a
   brief id but was never recorded blocks the aggregation. A transcript showing that the judge
@@ -219,11 +224,12 @@ three kinds of proof, and the report says which one each round used.
 - The judges' prompt is checked only through transcripts: text added around the brief is counted
   and reported, but its effect is not measured.
 - `record` and `judge` calls may overlap: each holds its seat's lock, and the run-wide checks
-  (an agent id or a reply used twice in the run, a round briefed twice) run under the run's
-  lock. Lock order: a call takes its seat locks first and the run lock last, never the reverse
-  (`aggregate`: every seat of the round, then the run), so two calls never wait on each other.
-- The locks are advisory (`flock`): it binds sealed-panel's own calls, not another program,
-  and it may not hold on a network filesystem (NFS). A filesystem that refuses `flock` is
+  (an agent id or a reply used twice in the run, a round briefed twice, a reading lost) run
+  under the run's lock. Lock order: a call takes its seat locks first and the run lock last,
+  never the reverse (`aggregate`: every seat of the round, then the run), so two calls never
+  wait on each other.
+- The locks are advisory (`flock`): they bind sealed-panel's own calls, not another program,
+  and they may not hold on a network filesystem (NFS). A filesystem that refuses `flock` is
   refused. The run's files are not protected from someone who edits them by hand: deleting a
   started record or a reply, or planting a link, is out of scope (`SECURITY.md`).
 - The runner proves what sealed-panel wrote and read, not what the judge command did in

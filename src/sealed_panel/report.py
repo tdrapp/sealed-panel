@@ -12,6 +12,7 @@ from .decide import (
     SUSPECT_JUMP,
     TOP_SCORE,
     decide,
+    flagged_roles,
     measured_ok,
     sealed_done,
 )
@@ -22,7 +23,10 @@ from .store import load_json, write_file
 
 # Hex characters of the rubric hash shown in the report.
 HASH_CHARS = 12
-INJECTION_WARNING = "WARNING: the candidate contains text addressed to a judge; remove it."
+INJECTION_WARNING = (
+    "WARNING: the {roles} item contains text addressed to a judge; remove it, or brief with "
+    "another control or known-good."
+)
 FEEDBACK_CLOSING = (
     "One idea per round. Remove what does not serve the purpose (de-fluff).",
     "Cosmetic points are not reasons for a round. Do not write the rubric into the artefact.",
@@ -42,8 +46,9 @@ def feedback_for_author(entry: dict[str, Any]) -> str:
     for m in entry.get("measured", []):
         if not m["pass"]:
             lines.append(f"- measured {m['id']} failed: {m['value']}")
-    if entry.get("injection_flags"):
-        lines.append(INJECTION_WARNING)
+    roles = sorted(flagged_roles(entry))
+    if roles:
+        lines.append(INJECTION_WARNING.format(roles=", ".join(roles)))
     lines += ["", *FEEDBACK_CLOSING]
     return "\n".join(lines) + "\n"
 
@@ -98,6 +103,12 @@ def _cell(e: dict[str, Any]) -> str:
     return f"{e['median']:g} ({'/'.join(map(str, e['scores']))})"
 
 
+def acknowledgement_line(spec: dict[str, Any]) -> str:
+    """The injection acknowledgement, printed on the grade line when the spec has one."""
+    ack = spec.get(INJECTION_ACK)
+    return f" Injection flags acknowledged: {ack!r}." if ack else ""
+
+
 def model_line(cfg: Config) -> str:
     """The judge model the run declared, printed next to the grade."""
     model_id = str(cfg.judge.get("model_id", ""))
@@ -118,9 +129,10 @@ def _sealed_headline(spec: dict[str, Any], d: dict[str, Any], model: str) -> lis
     out = []
     if d["decision"] == BLOCKED:
         out += [
-            f"**{BLOCKED}: the sealed candidate contains text addressed to a judge "
-            f"({', '.join(d['flags'])}); the grade below does not stand. Grade the text without "
-            f"it in a new run, or acknowledge the flag in that run's spec ({INJECTION_ACK}).**",
+            f"**{BLOCKED}: the sealed panel's {', '.join(d['roles'])} item contains text "
+            f"addressed to a judge ({', '.join(d['flags'])}); the grade below does not stand. "
+            f"Grade the text without it in a new run, or acknowledge the flag in that run's "
+            f"spec ({INJECTION_ACK}).**",
             "",
         ]
     out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.** {model}", ""]
@@ -207,8 +219,8 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 f"- {name}: paired jump of {SUSPECT_JUMP} or more on "
                 f"{', '.join(r['suspect_jumps'])}; verify by hand before believing it"
             )
-        if r["injection_flags"]:
-            out.append(f"- {name}: candidate addresses a judge {r['injection_flags']}")
+        for role, found in sorted(flagged_roles(r).items()):
+            out.append(f"- {name}: the {role} item addresses a judge {found}")
         for x in r.get("rejected_judges") or []:
             out.append(f"- {name}: judge {x['judge']} rejected: {'; '.join(x['errors'][:3])}")
         for v in r.get("voided") or []:
@@ -231,7 +243,43 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 "candidate; its scores may not rest on distinct evidence"
             )
         out += _source_notes(name, r)
-    return out
+    return out + _panel_env_note(ledger)
+
+
+def _panel_env_note(ledger: dict[str, Any]) -> list[str]:
+    changed = panel_env_changes(ledger)
+    if not changed:
+        return []
+    return [
+        f"- sealed panel: the judge command ran under different values of {', '.join(changed)} "
+        "than in the loop rounds (another model or key): the loop's scores and the sealed grade "
+        "come from different judges"
+    ]
+
+
+def _env_union(rounds: list[dict[str, Any]]) -> dict[str, set[str]] | None:
+    found: dict[str, set[str]] | None = None
+    for r in rounds:
+        hashes = r.get("runner_env_hashes")
+        if isinstance(hashes, dict):
+            found = found if found is not None else {}
+            for name, values in hashes.items():
+                found.setdefault(name, set()).update(values)
+    return found
+
+
+def panel_env_changes(ledger: dict[str, Any]) -> list[str]:
+    """The `[judge] env_allow` names whose values differ between the sealed panel and the loop
+    rounds, by their salted hashes; empty when either side carries no hashes.
+
+    Args:
+        ledger: The run's ledger.
+    """
+    sealed = _env_union([r for r in ledger["rounds"] if r.get("sealed")])
+    loop = _env_union([r for r in ledger["rounds"] if not r.get("sealed")])
+    if sealed is None or loop is None:
+        return []
+    return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))
 
 
 def _source_notes(name: str, r: dict[str, Any]) -> list[str]:
@@ -295,7 +343,7 @@ def render_report(run: Path) -> str:
         "",
     ]
     if sealed_done(d):
-        out += _sealed_headline(spec, d, model_line(cfg))
+        out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))
     out += _round_table(spec, ledger)
     out += _notes(run, ledger, d)
     return "\n".join(out) + "\n"

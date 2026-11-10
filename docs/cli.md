@@ -19,10 +19,10 @@ it, prints `REJECTED`, and exits 0.
 `record` and `judge` calls may overlap: each holds its judge slot's lock from the slot's check
 to the stored attempt, and a call on a slot another call holds is refused with "seat J is held
 by another call" (`judge` skips it). The run-wide checks (an agent id or a reply already used in
-the run, a round already briefed) run under the run's lock, which `record`, `brief` and
-`aggregate` wait for briefly. The locks are `fcntl.flock` on `seat_j<J>.lock` beside the brief
-and on `run.lock` in the run; a filesystem that does not support them is refused, never written
-unlocked.
+the run, a round already briefed, the round's readings) run under the run's lock, which
+`record`, `brief`, `measure` and `aggregate` wait for briefly. The locks are `fcntl.flock` on
+`seat_j<J>.lock` beside the brief and on `run.lock` in the run; a filesystem that does not
+support them is refused, never written unlocked.
 
 ## init
 
@@ -76,7 +76,7 @@ Writes `brief_j<J>.md` for each judge (personas times `judges_per_persona`) and 
 | `--artefact FILE` | The candidate text. |
 | `--control FILE` | The deliberately bad version, planted in every brief. Use the same one for the whole run. |
 | `--good FILE` | A known-good text the user validated. A judge who scores it below `good_min` is discarded. |
-| `--sealed` | Brief the sealed panel. Allowed only after CONVERGED, PLATEAU or CAP, or before any loop round (a one-shot grade). Once per run. |
+| `--sealed` | Brief the sealed panel. Allowed only after CONVERGED, PLATEAU or CAP, or before any loop round (a one-shot grade). Once per run. Refused before anything is written while the ledger says BLOCKED BY FLAG (a flagged round-1 text would come back as the baseline), or when any text of the sealed brief (candidate, control, baseline, known-good) addresses a judge and the spec has no `injection_acknowledged`: start a new run, or acknowledge it at init with the command line. |
 
 From round 2, the previous round's text rides along as a blind paired comparator. In a sealed
 panel, the round-1 text rides along as a blind baseline when it differs from the candidate.
@@ -111,10 +111,12 @@ the configured list, an empty reasoning, more than a third of quotes not found i
 control mean above `control_max`, a known-good mean below `good_min`, or, from a transcript, any
 tool call by the judge other than the configured handback tool (a judge gets no tools), or a
 transcript whose last non-empty line is not a JSON object (cut off while being written: the
-final reply may be lost, and the text before it is not that reply). Other unreadable lines are
-skipped and counted in the result as `unreadable_lines`. Scores above the severity cap are
-lowered to the cap. A quote that is not found voids that score. A judge that quoted the same
-words on every dimension of the candidate is noted for the report.
+final reply may be lost, and the text before it is not that reply). So record a transcript only
+after the judge has returned: recording a file still being written stores a rejection, and the
+seat needs a replacement judge. Other unreadable lines are skipped and counted in the result as
+`unreadable_lines`. Scores above the severity cap are lowered to the cap. A quote that is not
+found voids that score. A judge that quoted the same words on every dimension of the candidate
+is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
 used in the run, a reply already recorded, a judge slot that already has a valid reply, any
@@ -220,12 +222,13 @@ sealed-panel status RUN
 
 Read-only. Prints the decision as JSON: `CONTINUE` (with `next_round` and, after a round, the
 path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`),
-`SEALED`, or `BLOCKED BY FLAG`: the candidate of a round that would converge, or of the sealed
-panel, contains text addressed to a judge, and the spec has no `injection_acknowledged`. A
-blocked decision names what it replaced (`blocked`), the patterns that matched (`flags`) and
-the next step: the next round with the text removed, or a new run. Every decision carries
-`overrides`: the settings that differ from the defaults, and `injection_acknowledged` when the
-spec has one.
+`SEALED`, or `BLOCKED BY FLAG`: an item of the brief of a round that would converge, or of the
+sealed panel (the candidate, the control, the previous version, the baseline or the known-good),
+contains text addressed to a judge, and the spec has no `injection_acknowledged`. A blocked
+decision names what it replaced (`blocked`), the items (`roles`), the patterns that matched
+(`flags`) and the next step: the next round with the text removed, or a new run. Every decision
+carries `overrides`: the settings that differ from the defaults, and `injection_acknowledged`
+when the spec has one.
 
 ## report
 

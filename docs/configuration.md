@@ -107,7 +107,7 @@ settings:
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. A match in the candidate is flagged in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
+| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. Every text placed in a brief is scanned (candidate, control, previous version, baseline, known-good); a match is flagged per item in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
 | `samples` | one line per default pattern | one per pattern, in the same order | A line each pattern must match after the scan's normalisation, the built-in one (default punctuation map and stripped characters, whitespace, case): a pattern holding a character that normalisation removes or maps can never match, and is refused. A pattern that matches nothing would switch the check off, so it is refused. |
 
 ## `[transcript]`
@@ -203,8 +203,12 @@ environment often holds credentials (cloud tokens, repository tokens, other API 
 judge has no use for, and a judge is a program that reads text written by someone else. So it
 gets `PATH`, `HOME` and `LANG`, the names you list in `env_allow`, and nothing else: a key
 reaches a judge only when you named it. The names passed are stored with each reply, with a
-sha256 of each allowed value; the values never are. A round whose attempts ran under different
-values of an allowed variable is flagged in the report. Put the model in `command` (the template
+sha256 of each allowed value salted with the run's own random salt (`env.salt`, written by
+`init`); the values never are. A round whose attempts ran under different values of an allowed
+variable is flagged in the report, and so is a sealed panel that ran under other values than the
+loop rounds. The salt stops a lookup in a table made in advance; whoever holds the run directory
+holds the salt too and can guess a short value, so keep credentials long. A run frozen before
+0.3.1 has no salt, stores no hash and compares nothing. Put the model in `command` (the template
 takes it after `--`), where the run freezes it and the report shows it, and keep the environment
 for credentials; declare the same model in `model_id`.
 

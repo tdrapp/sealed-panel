@@ -77,6 +77,23 @@ class TestWrites:
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
         assert json.loads(path.read_text()) == {"a": 1}
 
+    def test_every_file_a_run_holds_is_owner_only(self, h: Harness) -> None:
+        """init (env.salt included), brief, record and the locks, under an open umask."""
+        old = os.umask(0)
+        try:
+            h.init(judges_per_persona=2)
+            h.brief(1, "cand")
+            meta = h.keys(1)["judges"][0]
+            sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
+            record_reply(h.run, 1, 1, "a1", judge_json(meta, h.texts(1, meta), sc), False)
+        finally:
+            os.umask(old)
+        files = [p for p in h.run.rglob("*") if p.is_file()]
+        assert {"env.salt", "run.lock", "seat_j1.lock", "keys.json"} <= {p.name for p in files}
+        assert {p.name: oct(stat.S_IMODE(p.stat().st_mode)) for p in files} == {
+            p.name: oct(0o600) for p in files
+        }
+
     def test_nothing_is_left_behind(self, tmp_path: Path) -> None:
         folder = tmp_path / "here"
         folder.mkdir()
