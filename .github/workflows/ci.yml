@@ -176,6 +176,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # the base branch, for the baseline it is compared with
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.12.1"
@@ -183,6 +185,9 @@ jobs:
       - run: uv sync --locked
       - run: uv run --no-sync xenon --max-absolute F --max-modules D --max-average B src tools examples
       - run: uv run --no-sync python tools/complexity_check.py
+      # The baseline may not hold more entries, or a higher sum, than on the base branch.
+      - if: github.event_name == 'pull_request'
+        run: uv run --no-sync python tools/complexity_check.py --against "origin/$GITHUB_BASE_REF"
 
   # Docstring coverage of the public API ([tool.interrogate]); ruff's D1 and D417 run in lint.
   docstrings:

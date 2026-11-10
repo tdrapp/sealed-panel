@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 from types import ModuleType
 
@@ -65,3 +66,34 @@ def test_a_new_block_may_not_pass_rank_b(tool: ModuleType) -> None:
 
 def test_the_code_stays_within_the_baseline(tool: ModuleType) -> None:
     assert tool.main([]) == 0
+
+
+def test_a_baseline_that_rises_is_refused(tool: ModuleType) -> None:
+    before = {"a.py:f": 20, "a.py:g": 15}
+    assert tool.raised(before, {"b.py:f": 20, "a.py:g": 15}) == []  # a move keeps both figures
+    assert tool.raised(before, {"a.py:f": 19}) == []  # lowered
+    assert tool.raised(None, {"a.py:f": 99}) == []  # the reference had no baseline
+    grew = tool.raised(before, {"a.py:f": 21, "a.py:g": 15})
+    assert grew == ["the baseline sums to 36, 35 at the reference"]
+    added = tool.raised(before, {"a.py:f": 10, "a.py:g": 11, "a.py:h": 11})
+    assert added == ["the baseline holds 3 entries, 2 at the reference"]
+
+
+def test_the_reference_baseline_is_read_from_git(tool: ModuleType, tmp_path: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    (tmp_path / "README").write_text("x\n")
+    git("add", "README")
+    git("commit", "-q", "-m", "first")
+    assert tool.baseline_at("HEAD", tmp_path) is None  # before the baseline existed
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "complexity_baseline.json").write_text('{"a.py:f": 12}\n')
+    git("add", "tools")
+    git("commit", "-q", "-m", "second")
+    assert tool.baseline_at("HEAD", tmp_path) == {"a.py:f": 12}
+    with pytest.raises(RuntimeError, match="not a commit"):
+        tool.baseline_at("no-such-ref", tmp_path)

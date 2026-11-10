@@ -20,7 +20,7 @@ uv sync --locked --python 3.12          # the package and the dev group, from uv
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/mypy
 .venv/bin/lint-imports
-.venv/bin/python tools/complexity_check.py
+.venv/bin/python tools/complexity_check.py --against origin/main
 .venv/bin/interrogate src
 .venv/bin/python tools/mutation_check.py --jobs 4   # every seeded defect must be caught
 ```
@@ -40,7 +40,7 @@ are in [docs/decisions/](docs/decisions/).
 | The MCP server speaks stdio only, and its judge command comes only from the configuration the server was started with, never from a tool call. | `tests/test_mcp.py`; [stdio](docs/decisions/2026-11-07-mcp-over-stdio-only.md) and [judge command](docs/decisions/2026-11-07-judge-command-from-server-config.md) decisions |
 | An MCP tool's name, annotations or schemas change only on purpose. | `tests/test_mcp_schema.py` against `tests/mcp_tools.json` |
 | `cli` and `mcp_server` sit above the core; `store` and `errors` at the bottom; a new module is placed in a layer. | import-linter contract in `pyproject.toml` (CI `imports`) |
-| No function grows more complex; a new one stays at complexity 10 or less. | `tools/complexity_check.py` and xenon (CI `complexity`) |
+| No function grows past its entry in `tools/complexity_baseline.json`; a new one stays at complexity 10 or less; the baseline itself may not hold more entries or a higher sum than on the base branch, so `--update` only lowers it. | `tools/complexity_check.py`, with `--against` the pull request's base, and xenon (CI `complexity`) |
 | Every public module, class and function has a docstring; the public API's have an `Args:` section. | ruff `D1`, `D417`; `tests/test_docstrings.py`; interrogate (CI `docstrings`) |
 | Typed code, ruff clean, including the security rules and no stray `print`. | mypy strict and ruff (CI `lint`, `types`, pre-commit) |
 | Coverage of the package stays at 97% or more. | `--cov-fail-under` in `pyproject.toml` |

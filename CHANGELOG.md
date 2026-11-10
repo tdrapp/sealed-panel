@@ -37,7 +37,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   placed in a layer.
 - A complexity ceiling (a required CI job `complexity`): xenon caps the ranks at their current
   level, and `tools/complexity_check.py` freezes every function above rank B at its current
-  complexity (`tools/complexity_baseline.json`); a new function must stay at rank B.
+  complexity (`tools/complexity_baseline.json`); a new function must stay at rank B. On a pull
+  request, `--against` the base branch fails when the baseline holds more entries or a higher
+  sum of complexities than there, so `--update` cannot raise it unseen.
 - Docstrings: every public module, class and function of the package has one (ruff `D1`), the
   public API's carry an `Args:` section naming each argument (ruff `D417` and
   `tests/test_docstrings.py`), and interrogate holds the public coverage at 80% or more (a
