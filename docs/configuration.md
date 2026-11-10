@@ -203,8 +203,12 @@ environment often holds credentials (cloud tokens, repository tokens, other API 
 judge has no use for, and a judge is a program that reads text written by someone else. So it
 gets `PATH`, `HOME` and `LANG`, the names you list in `env_allow`, and nothing else: a key
 reaches a judge only when you named it. The names passed are stored with each reply, with a
-sha256 of each allowed value; the values never are. A round whose attempts ran under different
-values of an allowed variable is flagged in the report. Put the model in `command` (the template
+sha256 of each allowed value salted with the run's own random salt (`env.salt`, written by
+`init`); the values never are. A round whose attempts ran under different values of an allowed
+variable is flagged in the report, and so is a sealed panel that ran under other values than the
+loop rounds. The salt stops a lookup in a table made in advance; whoever holds the run directory
+holds the salt too and can guess a short value, so keep credentials long. A run frozen before
+0.3.1 has no salt, stores no hash and compares nothing. Put the model in `command` (the template
 takes it after `--`), where the run freezes it and the report shows it, and keep the environment
 for credentials; declare the same model in `model_id`.
 

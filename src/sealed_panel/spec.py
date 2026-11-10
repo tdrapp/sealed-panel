@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from .config import (
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import dump_json, load_json, read_text, write_file
+from .store import dump_json, load_json, read_no_follow, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -57,6 +58,9 @@ CHOICE_KEYS = frozenset({"choice", "user_said"})
 # A facts text that starts with a home or relative path prefix is a path, not facts; one
 # that starts with "/" is a path when it holds another slash ("/ marks a break" stays text).
 HOME_OR_RELATIVE = ("~/", "./", "../")
+# The run's salt for the hashes of the judge environment's values, created at init.
+ENV_SALT = "env.salt"
+SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
 
 
@@ -402,8 +406,24 @@ def init_run(
     dump_json(run / "spec.json", spec)
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
+    write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
     dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
+
+
+def run_salt(run: Path) -> bytes | None:
+    """The run's random salt for hashing the judge environment's values, or None when the
+    run has none (frozen before 0.3.1) or it cannot be read: then no hash is stored and no
+    environment is compared, which the docs say; it never stops a judge.
+
+    Args:
+        run: The run directory.
+    """
+    try:
+        salt = bytes.fromhex(read_no_follow(run / ENV_SALT).decode("ascii").strip())
+    except (OSError, ValueError, EvalError):
+        return None
+    return salt if len(salt) == SALT_BYTES else None
 
 
 def load_frozen(run: Path) -> dict[str, Any]:

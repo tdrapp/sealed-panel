@@ -57,9 +57,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pyproject.toml` with `--strict-markers`; `pytest -m "not slow"` is the fast tier. A fixture
   fails an unmarked test that starts such a process.
 - The judge runner's proof holds, per attempt, the sha256 of the value of each `[judge]
-  env_allow` name it passed (never the value), and `aggregate` and the report flag a round whose
-  attempts ran under different values (`runner_env_changed`): a model read from an allowed
-  variable could change between a rejected attempt and its replacement, unseen.
+  env_allow` name it passed (never the value), salted with a random salt `init` writes into the
+  run (`env.salt`), and `aggregate` and the report flag a round whose attempts ran under
+  different values (`runner_env_changed`) and a sealed panel that ran under other values than
+  the loop rounds: a model read from an allowed variable could change between a rejected
+  attempt and its replacement, or before the seal, unseen. A run frozen without a salt stores
+  no hash and compares nothing.
 - A snapshot of the MCP tools (names, annotations, input and output schemas) in
   `tests/mcp_tools.json`, and a test that fails on any drift, in both protocol modes.
 - Repository docs: a version line in the README linking this file (a test keeps it on the

@@ -19,7 +19,7 @@ from sealed_panel.aggregate import aggregate_round
 from sealed_panel.config import load_config
 from sealed_panel.report import render_report
 from sealed_panel.runner import judge_round
-from sealed_panel.spec import init_run
+from sealed_panel.spec import init_run, run_salt
 
 # Every test here starts a judge command or a model endpoint.
 pytestmark = pytest.mark.slow
@@ -263,7 +263,10 @@ def test_a_model_changed_through_the_environment_is_flagged(
     assert "ran under different values of JUDGE_MODEL_COMMAND across attempts" in report
     stored = "".join(p.read_text() for p in (h.run / "rounds" / "r1").glob("*.json"))
     assert "no-such-word" not in stored  # a hash of the value, never the value
-    assert hashlib.sha256(first.encode()).hexdigest() in stored
+    salt = run_salt(h.run)
+    assert salt is not None
+    assert hashlib.sha256(salt + first.encode()).hexdigest() in stored  # salted, per run
+    assert hashlib.sha256(first.encode()).hexdigest() not in stored
 
 
 def test_one_model_through_the_environment_is_not_flagged(h: Harness, model_command: None) -> None:
@@ -271,3 +274,39 @@ def test_one_model_through_the_environment_is_not_flagged(h: Harness, model_comm
     h.brief(1, "cand")
     judge_round(h.run, 1, False)
     assert aggregate_round(h.run, 1, False)["runner_env_changed"] == []
+
+
+def test_a_sealed_panel_under_another_model_is_flagged(
+    h: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loop judged under one model and the sealed panel under another: each round is
+    consistent on its own, so only the comparison between the panels can see it."""
+    for name in ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("JUDGE_MODEL_COMMAND", json.dumps([sys.executable, str(STUB)]))
+    init_run(h.run, spec_file(h), load_config(template_config(h)))
+    h.brief(1, "cand")
+    judge_round(h.run, 1, False)
+    assert aggregate_round(h.run, 1, False)["runner_env_changed"] == []
+    other = json.dumps([sys.executable, str(STUB), "--score", "5"])
+    monkeypatch.setenv("JUDGE_MODEL_COMMAND", other)
+    h.brief(1, "v2", sealed=True)
+    judge_round(h.run, 1, True)
+    assert aggregate_round(h.run, 1, True)["runner_env_changed"] == []
+    report = render_report(h.run)
+    assert "sealed panel: the judge command ran under different values of JUDGE_MODEL_COMMAND" in (
+        report
+    )
+
+
+def test_one_model_for_the_loop_and_the_seal_is_not_flagged(
+    h: Harness, model_command: None
+) -> None:
+    init_run(h.run, spec_file(h), load_config(template_config(h)))
+    h.brief(1, "cand")
+    judge_round(h.run, 1, False)
+    aggregate_round(h.run, 1, False)
+    h.brief(1, "v2", sealed=True)
+    judge_round(h.run, 1, True)
+    aggregate_round(h.run, 1, True)
+    assert "sealed panel: the judge command ran under different values" not in render_report(h.run)

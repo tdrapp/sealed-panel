@@ -151,26 +151,31 @@ three kinds of proof, and the report says which one each round used.
   its stdin and reads its stdout itself, so nothing stands between the brief and the reply. The
   reply's record stores the proof: the sha256 of the bytes written, the argument list, the exit
   status, the duration, the sha256 of the bytes read, the timeout, the names of the environment
-  variables passed, and the sha256 of the value of each name in `[judge] env_allow` (never the
-  value, which may be a credential). The argument list is frozen into the run, but an allowed
-  variable can change between two attempts, and a template that reads the model from one would
-  then judge with another model unseen: `aggregate` compares the hashes of every attempt of a
-  round, rejected and void ones included, and the report names the variables whose value
-  changed. So the model belongs in the argument list (`examples/runner/judge.toml`), and the
-  environment carries credentials only. One process per brief, so every runner reply comes from
-  a fresh context, and one process per seat at a time: a marker created only when absent holds
-  the seat from its check to its record, so concurrent or retried calls cannot collect several
-  replies and keep the best. A process that fails, times out, writes nothing or writes past the
-  cap is a void: no reply is ever made up from partial output, and every process started ends
-  recorded, at worst as a void. A run with a judge command takes runner replies only, on every
-  seat: no reply pasted, read from a transcript or voided by hand, so a rejected runner reply
-  cannot be swapped for one from another judge. Only the runner records a runner reply through
-  the commands and tools: the library's `record_reply` refuses the source. Someone who writes
-  the run's files by hand can still forge one; `SECURITY.md` keeps that out of scope. Through
-  MCP, the judge command comes from the configuration the user started the server with, never
-  from the caller, and every tool refuses a run frozen with other settings. The judge process
-  gets a minimal environment and an empty working directory: no credential beyond the ones the
-  user allowed, and no path into the run directory.
+  variables passed, and the sha256 of the value of each name in `[judge] env_allow`, salted with
+  a random value `init` writes into the run (`env.salt`); never the value, which may be a
+  credential. The argument list is frozen into the run, but an allowed variable can change
+  between two attempts, and a template that reads the model from one would then judge with
+  another model unseen: `aggregate` compares the hashes of every attempt of a round, rejected
+  and void ones included, the report names the variables whose value changed, and it names those
+  whose value differs between the sealed panel and the loop rounds. The salt stops a lookup in a
+  table made in advance and a match across runs; someone who holds the run directory holds the
+  salt and can still guess a short value, so credentials should be long. A run frozen before
+  0.3.1 has no salt: its attempts store no hash and nothing is compared. So the model belongs in
+  the argument list (`examples/runner/judge.toml`), and the environment carries credentials
+  only. One process per brief, so every runner reply comes from a fresh context, and one process
+  per seat at a time: a marker created only when absent holds the seat from its check to its
+  record, so concurrent or retried calls cannot collect several replies and keep the best. A
+  process that fails, times out, writes nothing or writes past the cap is a void: no reply is
+  ever made up from partial output, and every process started ends recorded, at worst as a void.
+  A run with a judge command takes runner replies only, on every seat: no reply pasted, read
+  from a transcript or voided by hand, so a rejected runner reply cannot be swapped for one from
+  another judge. Only the runner records a runner reply through the commands and tools: the
+  library's `record_reply` refuses the source. Someone who writes the run's files by hand can
+  still forge one; `SECURITY.md` keeps that out of scope. Through MCP, the judge command comes
+  from the configuration the user started the server with, never from the caller, and every tool
+  refuses a run frozen with other settings. The judge process gets a minimal environment and an
+  empty working directory: no credential beyond the ones the user allowed, and no path into the
+  run directory.
 - **Transcript (`record --transcript`).** The judge's own transcript must contain the whole
   brief in its prompt; text added around it is counted and reported, and an agent that holds a
   brief id but was never recorded blocks the aggregation. A transcript showing that the judge

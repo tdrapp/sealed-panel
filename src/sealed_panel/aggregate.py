@@ -167,6 +167,31 @@ def env_changes(by_judge: dict[int, list[dict[str, Any]]]) -> list[str]:
     return sorted(n for n in names if len({hashes.get(n) for hashes in seen}) > 1)
 
 
+def _hashed_attempts(by_judge: dict[int, list[dict[str, Any]]]) -> list[dict[str, str]]:
+    return [
+        r["runner"]["env_sha256"]
+        for attempts in by_judge.values()
+        for r in attempts
+        if isinstance((r.get("runner") or {}).get("env_sha256"), dict)
+    ]
+
+
+def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]] | None:
+    """Every salted hash each `[judge] env_allow` name had over the round's attempts.
+
+    Args:
+        by_judge: The round's recorded attempts, per judge slot.
+
+    Returns:
+        The hashes by name, sorted; None when no attempt carries hashes.
+    """
+    seen = _hashed_attempts(by_judge)
+    if not seen:
+        return None
+    names = {n for hashes in seen for n in hashes}
+    return {n: sorted({h[n] for h in seen if n in h}) for n in sorted(names)}
+
+
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
@@ -251,6 +276,7 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         "injection_flags": keys.get("injection_flags", []),
         "injection_flags_by_role": keys.get("injection_flags_by_role"),
         "runner_env_changed": env_changes(by_judge),
+        "runner_env_hashes": env_values(by_judge),
         "prompt_extras": {
             str(r["judge"]): r["prompt_extra_chars"] for r in valid if r.get("prompt_extra_chars")
         },

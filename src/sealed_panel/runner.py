@@ -3,7 +3,8 @@
 sealed-panel writes the brief and reads the reply itself, so a runner reply carries its own
 proof, stored with it: the sha256 of the brief bytes written, the argument list, the exit
 status, the duration, the sha256 of what came back, and the sha256 of the value of each
-name in `[judge] env_allow` it passed (never the value: it may be a credential). The process is
+name in `[judge] env_allow` it passed, salted with the run's own random salt (never the value:
+it may be a credential). The process is
 started from an argument list (never a shell), in an empty temporary directory, with an
 explicit minimal environment: PATH, HOME and LANG, plus the names in `[judge] env_allow`. Its
 stderr goes to a log file beside the brief, never into the reply.
@@ -36,7 +37,7 @@ from .config import Config
 from .errors import EvalError
 from .ledger import results_by_judge
 from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys
-from .spec import load_frozen, run_config
+from .spec import load_frozen, run_config, run_salt
 from .store import read_no_follow, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
@@ -78,21 +79,29 @@ def child_env(cfg: Config, environ: Mapping[str, str] | None = None) -> dict[str
     return {n: source[n] for n in names if n in source}
 
 
-def env_hashes(cfg: Config, env: Mapping[str, str]) -> dict[str, str]:
-    """The sha256 of the value of each `[judge] env_allow` name the judge process gets.
+def env_hashes(cfg: Config, env: Mapping[str, str], salt: bytes | None) -> dict[str, str] | None:
+    """The salted sha256 of the value of each `[judge] env_allow` name the judge process gets.
 
-    The value is never stored: it may be a credential. Two attempts whose hashes differ ran
-    under different values (another model, another key), which the report flags.
+    The value is never stored: it may be a credential. The salt is the run's own, random, so a
+    hash cannot be looked up in a table made in advance nor matched across runs. Two attempts
+    whose hashes differ ran under different values (another model, another key), which the
+    report flags.
 
     Args:
         cfg: The run's configuration.
         env: The judge process's environment.
+        salt: The run's salt; None for a run frozen without one.
 
     Returns:
-        The hash of each allowed name that is set, by name.
+        The hash of each allowed name that is set, by name; None without a salt, so nothing is
+        compared.
     """
+    if salt is None:
+        return None
     allowed = cfg.judge["env_allow"]
-    return {n: hashlib.sha256(env[n].encode("utf-8")).hexdigest() for n in allowed if n in env}
+    return {
+        n: hashlib.sha256(salt + env[n].encode("utf-8")).hexdigest() for n in allowed if n in env
+    }
 
 
 def _runnable(judge: int, prior: list[dict[str, Any]], cfg: Config) -> None:
@@ -436,7 +445,7 @@ def judge_seat(
         "max_reply_bytes": cap,
         "max_stderr_bytes": cap_err,
         "env_names": sorted(env),
-        "env_sha256": env_hashes(cfg, env),
+        "env_sha256": env_hashes(cfg, env, run_salt(run)),
         "stderr_log": log.name,
     }
     try:

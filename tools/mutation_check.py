@@ -1419,7 +1419,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "the judge environment left out of the proof": (
         RUN,
-        '"env_sha256": env_hashes(cfg, env),',
+        '"env_sha256": env_hashes(cfg, env, run_salt(run)),',
         '"env_sha256": {},',
     ),
     # Every item of a brief is scanned for text addressed to a judge, and any flag blocks.
@@ -1443,6 +1443,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/report.py",
         "out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))",
         "out += _sealed_headline(spec, d, model_line(cfg))",
+    ),
+    # The judge environment: salted per run, and compared between the loop and the seal.
+    "the environment hash unsalted": (
+        RUN,
+        'hashlib.sha256(salt + env[n].encode("utf-8")).hexdigest()',
+        'hashlib.sha256(env[n].encode("utf-8")).hexdigest()',
+    ),
+    "the sealed panel's environment not compared with the loop's": (
+        f"{PKG}/report.py",
+        "return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))",
+        "return []",
     ),
 }
 

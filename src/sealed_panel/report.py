@@ -243,7 +243,43 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 "candidate; its scores may not rest on distinct evidence"
             )
         out += _source_notes(name, r)
-    return out
+    return out + _panel_env_note(ledger)
+
+
+def _panel_env_note(ledger: dict[str, Any]) -> list[str]:
+    changed = panel_env_changes(ledger)
+    if not changed:
+        return []
+    return [
+        f"- sealed panel: the judge command ran under different values of {', '.join(changed)} "
+        "than in the loop rounds (another model or key): the loop's scores and the sealed grade "
+        "come from different judges"
+    ]
+
+
+def _env_union(rounds: list[dict[str, Any]]) -> dict[str, set[str]] | None:
+    found: dict[str, set[str]] | None = None
+    for r in rounds:
+        hashes = r.get("runner_env_hashes")
+        if isinstance(hashes, dict):
+            found = found if found is not None else {}
+            for name, values in hashes.items():
+                found.setdefault(name, set()).update(values)
+    return found
+
+
+def panel_env_changes(ledger: dict[str, Any]) -> list[str]:
+    """The `[judge] env_allow` names whose values differ between the sealed panel and the loop
+    rounds, by their salted hashes; empty when either side carries no hashes.
+
+    Args:
+        ledger: The run's ledger.
+    """
+    sealed = _env_union([r for r in ledger["rounds"] if r.get("sealed")])
+    loop = _env_union([r for r in ledger["rounds"] if not r.get("sealed")])
+    if sealed is None or loop is None:
+        return []
+    return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))
 
 
 def _source_notes(name: str, r: dict[str, Any]) -> list[str]:
