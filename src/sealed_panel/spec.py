@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,9 @@ from .config import (
     run_value_error,
     schema_errors,
 )
+from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import dump_json, load_json, read_text, write_file
+from .store import dump_json, load_json, read_no_follow, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -40,9 +42,10 @@ RUBRIC_KEYS = (
     "good_min",
     "noise_floor_min",
     "template",
+    INJECTION_ACK,
 )
 # Keys hashed only when present, so a spec without them keeps the hash it had before.
-OPTIONAL_HASH_KEYS = frozenset({"template"})
+OPTIONAL_HASH_KEYS = frozenset({"template", INJECTION_ACK})
 # A string a skeleton leaves for the user to fill; `init` refuses a spec that still holds one.
 TODO_MARKER = "TODO(sealed-panel)"
 TEMPLATE_REF_KEYS = frozenset({"id", "version", "sha256", "modified"})
@@ -55,10 +58,19 @@ CHOICE_KEYS = frozenset({"choice", "user_said"})
 # A facts text that starts with a home or relative path prefix is a path, not facts; one
 # that starts with "/" is a path when it holds another slash ("/ marks a break" stays text).
 HOME_OR_RELATIVE = ("~/", "./", "../")
+# The run's salt for the hashes of the judge environment's values, created at init.
+ENV_SALT = "env.salt"
+SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
 
 
 def dims_for(spec: dict[str, Any], persona_id: str) -> list[dict[str, Any]]:
+    """The dimensions a persona is scored on.
+
+    Args:
+        spec: The spec.
+        persona_id: The persona's id.
+    """
     return [
         d
         for d in spec.get("dimensions") or []
@@ -89,7 +101,7 @@ def shape_errors(spec: Any) -> list[str]:
     if not isinstance(spec, dict):
         return ["the spec must be a JSON object"]
     errors = _unknown(spec, SPEC_KEYS, "spec")
-    for key in ("title", "purpose", "facts", "facts_file"):
+    for key in ("title", "purpose", "facts", "facts_file", INJECTION_ACK):
         if key in spec and not isinstance(spec[key], str):
             errors.append(f"spec.{key} must be a string")
     for key in ("personas", "dimensions", "measured", "declared_choices"):
@@ -169,6 +181,12 @@ def todo_paths(value: Any, where: str = "spec") -> list[str]:
 
 
 def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
+    """Every problem with a spec, in shape and in values; empty when it can be frozen.
+
+    Args:
+        spec: The spec as loaded from JSON.
+        cfg: The configuration; the packaged defaults when None.
+    """
     cfg = resolve(cfg)
     errors = shape_errors(spec)
     if errors:
@@ -245,10 +263,20 @@ def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
             )
     if "facts" in spec and "facts_file" in spec:
         errors.append("give either facts (text) or facts_file (a path), not both")
+    if INJECTION_ACK in spec and not spec[INJECTION_ACK].strip():
+        errors.append(
+            f"spec.{INJECTION_ACK} must say why a text addressed to a judge belongs in the "
+            "candidate; leave the key out otherwise"
+        )
     return errors
 
 
 def rubric_hash(spec: dict[str, Any]) -> str:
+    """The sha256 of what the rubric asks: the hashed keys of the spec.
+
+    Args:
+        spec: The spec.
+    """
     core = {k: spec.get(k) for k in RUBRIC_KEYS if k not in OPTIONAL_HASH_KEYS or k in spec}
     canon = json.dumps(core, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
@@ -312,15 +340,37 @@ def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
     ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
 
 
+def _check_acknowledgement(spec: dict[str, Any], acknowledge: bool) -> None:
+    """Refuse a spec that acknowledges injection flags, unless a person froze it: whether a
+    grade on a text addressed to a judge stands is not the author's call."""
+    if spec.get(INJECTION_ACK) and not acknowledge:
+        raise EvalError(
+            f"the spec carries {INJECTION_ACK}: acknowledging text addressed to a judge is a "
+            "person's decision, so the MCP tools never freeze it; run `sealed-panel init RUN "
+            "--spec SPEC` at a terminal"
+        )
+
+
 def init_run(
     run: Path,
     spec_path: Path,
     cfg: Config | None = None,
     library: Path | None = None,
     facts_root: Path | None = None,
+    acknowledge: bool = True,
 ) -> str:
     """Validate the spec, freeze it and the configuration into `run`, return the rubric hash.
-    With `facts_root`, a `facts_file` must resolve under it (the MCP server's root)."""
+    With `facts_root`, a `facts_file` must resolve under it (the MCP server's root).
+
+    Args:
+        run: A new or empty directory for the run.
+        spec_path: The spec file.
+        cfg: The configuration; the packaged defaults when None.
+        library: The user rubric library; the default one when None.
+        facts_root: A folder a `facts_file` must resolve under, or None.
+        acknowledge: Whether this caller may freeze a spec that acknowledges injection flags:
+            a person at the command line may, the MCP server's caller (the author) may not.
+    """
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
@@ -333,6 +383,7 @@ def init_run(
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
+    _check_acknowledgement(spec, acknowledge)
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent, facts_root)
@@ -355,11 +406,32 @@ def init_run(
     dump_json(run / "spec.json", spec)
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
+    write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
     dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
 
 
+def run_salt(run: Path) -> bytes | None:
+    """The run's random salt for hashing the judge environment's values, or None when the
+    run has none (frozen before 0.3.1) or it cannot be read: then no hash is stored and no
+    environment is compared, which the docs say; it never stops a judge.
+
+    Args:
+        run: The run directory.
+    """
+    try:
+        salt = bytes.fromhex(read_no_follow(run / ENV_SALT).decode("ascii").strip())
+    except (OSError, ValueError, EvalError):
+        return None
+    return salt if len(salt) == SALT_BYTES else None
+
+
 def load_frozen(run: Path) -> dict[str, Any]:
+    """The run's spec, refused when it changed after the freeze.
+
+    Args:
+        run: The run directory.
+    """
     lock = run / "rubric.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")

@@ -2,10 +2,12 @@
 
 sealed-panel writes the brief and reads the reply itself, so a runner reply carries its own
 proof, stored with it: the sha256 of the brief bytes written, the argument list, the exit
-status, the duration, and the sha256 of what came back. The process is started from an
-argument list (never a shell), in an empty temporary directory, with an explicit minimal
-environment: PATH, HOME and LANG, plus the names in `[judge] env_allow`. Its stderr goes to a
-log file beside the brief, never into the reply.
+status, the duration, the sha256 of what came back, and the sha256 of the value of each
+name in `[judge] env_allow` it passed, salted with the run's own random salt (never the value:
+it may be a credential). The process is
+started from an argument list (never a shell), in an empty temporary directory, with an
+explicit minimal environment: PATH, HOME and LANG, plus the names in `[judge] env_allow`. Its
+stderr goes to a log file beside the brief, never into the reply.
 
 A process that exits with a non-zero status, runs past `[judge] timeout_s`, writes nothing, or
 writes more than `[judge] max_reply_bytes` gives no reply: the attempt is recorded as void,
@@ -35,7 +37,7 @@ from .config import Config
 from .errors import EvalError
 from .ledger import results_by_judge
 from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys
-from .spec import load_frozen, run_config
+from .spec import load_frozen, run_config, run_salt
 from .store import read_no_follow, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
@@ -75,6 +77,31 @@ def child_env(cfg: Config, environ: Mapping[str, str] | None = None) -> dict[str
     source = os.environ if environ is None else environ
     names = [*BASE_ENV, *cfg.judge["env_allow"]]
     return {n: source[n] for n in names if n in source}
+
+
+def env_hashes(cfg: Config, env: Mapping[str, str], salt: bytes | None) -> dict[str, str] | None:
+    """The salted sha256 of the value of each `[judge] env_allow` name the judge process gets.
+
+    The value is never stored: it may be a credential. The salt is the run's own, random, so a
+    hash cannot be looked up in a table made in advance nor matched across runs. Two attempts
+    whose hashes differ ran under different values (another model, another key), which the
+    report flags.
+
+    Args:
+        cfg: The run's configuration.
+        env: The judge process's environment.
+        salt: The run's salt; None for a run frozen without one.
+
+    Returns:
+        The hash of each allowed name that is set, by name; None without a salt, so nothing is
+        compared.
+    """
+    if salt is None:
+        return None
+    allowed = cfg.judge["env_allow"]
+    return {
+        n: hashlib.sha256(salt + env[n].encode("utf-8")).hexdigest() for n in allowed if n in env
+    }
 
 
 def _runnable(judge: int, prior: list[dict[str, Any]], cfg: Config) -> None:
@@ -229,7 +256,16 @@ def open_seats(
     """The judge slots of a round without a valid reply and not being judged by another call,
     in order (only those in `only` when given). A marker a stopped runner left is recorded as
     a void first. Every refusal is checked here, before any process starts. `expected` is the
-    judge section the caller must match (see check_judge)."""
+    judge section the caller must match (see check_judge).
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+        only: The judge slots to consider, or None for all.
+        expected: The judge section the caller must match (the MCP server's own), or None to take
+            the run's.
+    """
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     settle_stale_files(run, rnd, sealed)
     slots = [j["judge"] for j in keys["judges"] if isinstance(j, dict)]
@@ -305,7 +341,8 @@ def _launch(
         stdin.write(brief)
         stdin.seek(0)
         try:
-            proc = subprocess.Popen(
+            # The user's judge command, as an argument list and never through a shell.
+            proc = subprocess.Popen(  # noqa: S603
                 argv,
                 stdin=stdin,
                 stdout=subprocess.PIPE,
@@ -316,7 +353,7 @@ def _launch(
             )
         except OSError as exc:
             raise EvalError(f"cannot start the judge command {argv[0]!r}: {exc}") from exc
-        assert proc.stdout is not None and proc.stderr is not None
+        assert proc.stdout is not None and proc.stderr is not None  # noqa: S101 (typing only)
         chunks: list[bytes] = []
         over_out, over_err = threading.Event(), threading.Event()
         reader = threading.Thread(
@@ -356,7 +393,16 @@ def judge_seat(
     """Start one fresh judge process on one brief and record what it gave: a reply (valid or
     rejected), or a void when it failed, timed out, wrote nothing or too much, or its reply was
     refused. The seat is held by an in-progress marker from the check to the record, so two
-    calls never judge it at once; every process started ends recorded. Returns the result."""
+    calls never judge it at once; every process started ends recorded. Returns the result.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        judge: The judge slot.
+        sealed: Whether the round is the sealed panel's.
+        expected: The judge section the caller must match (the MCP server's own), or None to take
+            the run's.
+    """
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):
         raise EvalError(f"no judge {judge} in {rdir}/keys.json")
@@ -399,6 +445,7 @@ def judge_seat(
         "max_reply_bytes": cap,
         "max_stderr_bytes": cap_err,
         "env_names": sorted(env),
+        "env_sha256": env_hashes(cfg, env, run_salt(run)),
         "stderr_log": log.name,
     }
     try:
@@ -461,7 +508,16 @@ def judge_round(
 ) -> list[dict[str, Any]]:
     """Run the judge command once for every open seat of a round, one after the other, and
     return each recorded result. A seat another call takes meanwhile is skipped; any other
-    refusal stops the round, and what was recorded stays."""
+    refusal stops the round, and what was recorded stays.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+        only: The judge slots to run, or None for every open one.
+        expected: The judge section the caller must match (the MCP server's own), or None to take
+            the run's.
+    """
     results = []
     for seat in open_seats(run, rnd, sealed, only, expected):
         try:

@@ -10,7 +10,13 @@
       "test (3.11, core)",
       "test (3.12, core)",
       "test (3.13, core)",
-      "mutation"
+      "mutation",
+      "build",
+      "actionlint",
+      "gitleaks",
+      "imports",
+      "complexity",
+      "docstrings"
     ]
   },
   "enforce_admins": true,

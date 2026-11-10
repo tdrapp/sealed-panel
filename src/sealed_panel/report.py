@@ -5,8 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .config import overrides
-from .decide import SUSPECT_JUMP, TOP_SCORE, decide, measured_ok
+from .config import Config, overrides
+from .decide import (
+    BLOCKED,
+    INJECTION_ACK,
+    SUSPECT_JUMP,
+    TOP_SCORE,
+    decide,
+    flagged_roles,
+    measured_ok,
+    sealed_done,
+)
 from .ledger import other_runs, used_agent_ids
 from .record import RUNNER
 from .spec import dims_for, load_frozen, run_config
@@ -14,7 +23,10 @@ from .store import load_json, write_file
 
 # Hex characters of the rubric hash shown in the report.
 HASH_CHARS = 12
-INJECTION_WARNING = "WARNING: the candidate contains text addressed to a judge; remove it."
+INJECTION_WARNING = (
+    "WARNING: the {roles} item contains text addressed to a judge; remove it, or brief with "
+    "another control or known-good."
+)
 FEEDBACK_CLOSING = (
     "One idea per round. Remove what does not serve the purpose (de-fluff).",
     "Cosmetic points are not reasons for a round. Do not write the rubric into the artefact.",
@@ -34,24 +46,41 @@ def feedback_for_author(entry: dict[str, Any]) -> str:
     for m in entry.get("measured", []):
         if not m["pass"]:
             lines.append(f"- measured {m['id']} failed: {m['value']}")
-    if entry.get("injection_flags"):
-        lines.append(INJECTION_WARNING)
+    roles = sorted(flagged_roles(entry))
+    if roles:
+        lines.append(INJECTION_WARNING.format(roles=", ".join(roles)))
     lines += ["", *FEEDBACK_CLOSING]
     return "\n".join(lines) + "\n"
 
 
 def feedback_path(run: Path, rnd: int) -> Path:
+    """Where the author's findings after a loop round are written.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+    """
     return run / "feedback" / f"after_r{rnd}.md"
 
 
 def write_feedback(run: Path, entry: dict[str, Any]) -> Path:
+    """Write the author's findings for a loop round and return their path.
+
+    Args:
+        run: The run directory.
+        entry: The round's ledger entry.
+    """
     path = feedback_path(run, entry["round"])
     write_file(path, feedback_for_author(entry))
     return path
 
 
 def status(run: Path) -> dict[str, Any]:
-    """The decision for the run, read-only. On CONTINUE, names the author's findings file."""
+    """The decision for the run, read-only. On CONTINUE, names the author's findings file.
+
+    Args:
+        run: The run directory.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     ledger = load_json(run / "ledger.json")
@@ -63,6 +92,9 @@ def status(run: Path) -> dict[str, Any]:
             d["feedback"] = str(fb)
     if d["decision"] == "SEALED":
         d = {"decision": "SEALED", "panels": d["panels"], "next": "report"}
+    d.pop("final", None)
+    if spec.get(INJECTION_ACK):
+        d[INJECTION_ACK] = spec[INJECTION_ACK]
     d["overrides"] = overrides(cfg, spec)
     return d
 
@@ -71,7 +103,19 @@ def _cell(e: dict[str, Any]) -> str:
     return f"{e['median']:g} ({'/'.join(map(str, e['scores']))})"
 
 
-def _sealed_headline(spec: dict[str, Any], d: dict[str, Any]) -> list[str]:
+def acknowledgement_line(spec: dict[str, Any]) -> str:
+    """The injection acknowledgement, printed on the grade line when the spec has one."""
+    ack = spec.get(INJECTION_ACK)
+    return f" Injection flags acknowledged: {ack!r}." if ack else ""
+
+
+def model_line(cfg: Config) -> str:
+    """The judge model the run declared, printed next to the grade."""
+    model_id = str(cfg.judge.get("model_id", ""))
+    return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."
+
+
+def _sealed_headline(spec: dict[str, Any], d: dict[str, Any], model: str) -> list[str]:
     f = d["final"]
     dims = [(pid, did, e) for pid, p in f["personas"].items() for did, e in p["dimensions"].items()]
     lows = [f"{pid}/{did}" for pid, did, e in dims if e["median"] < TOP_SCORE]
@@ -82,7 +126,16 @@ def _sealed_headline(spec: dict[str, Any], d: dict[str, Any]) -> list[str]:
         verdict = f"below {TOP_SCORE} on " + ", ".join(lows)
     else:
         verdict = "a measured criterion failed or was not measured"
-    out = [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.**", ""]
+    out = []
+    if d["decision"] == BLOCKED:
+        out += [
+            f"**{BLOCKED}: the sealed panel's {', '.join(d['roles'])} item contains text "
+            f"addressed to a judge ({', '.join(d['flags'])}); the grade below does not stand. "
+            f"Grade the text without it in a new run, or acknowledge the flag in that run's "
+            f"spec ({INJECTION_ACK}).**",
+            "",
+        ]
+    out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.** {model}", ""]
     moves = [
         f"{did} {e['baseline_median']:g} -> {e['median']:g}"
         for _, did, e in dims
@@ -133,7 +186,7 @@ def _round_table(spec: dict[str, Any], ledger: dict[str, Any]) -> list[str]:
 
 def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
     out = []
-    if d["decision"] == "SEALED":
+    if sealed_done(d):
         f = d["final"]
         for pid, p in f["personas"].items():
             for x in p["findings"]:
@@ -166,8 +219,8 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 f"- {name}: paired jump of {SUSPECT_JUMP} or more on "
                 f"{', '.join(r['suspect_jumps'])}; verify by hand before believing it"
             )
-        if r["injection_flags"]:
-            out.append(f"- {name}: candidate addresses a judge {r['injection_flags']}")
+        for role, found in sorted(flagged_roles(r).items()):
+            out.append(f"- {name}: the {role} item addresses a judge {found}")
         for x in r.get("rejected_judges") or []:
             out.append(f"- {name}: judge {x['judge']} rejected: {'; '.join(x['errors'][:3])}")
         for v in r.get("voided") or []:
@@ -189,18 +242,72 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 f"- {name}: judge {j} quoted the same words for every dimension of the "
                 "candidate; its scores may not rest on distinct evidence"
             )
-        if "output" in r.get("sources", []):
-            out.append(f"- {name}: some replies were pasted, not read from a transcript")
-        if RUNNER in r.get("sources", []):
-            out.append(
-                f"- {name}: some replies were read by sealed-panel from the judge command "
-                "(judge.command in the settings above)"
-            )
+        out += _source_notes(name, r)
+    return out + _panel_env_note(ledger)
+
+
+def _panel_env_note(ledger: dict[str, Any]) -> list[str]:
+    changed = panel_env_changes(ledger)
+    if not changed:
+        return []
+    return [
+        f"- sealed panel: the judge command ran under different values of {', '.join(changed)} "
+        "than in the loop rounds (another model or key): the loop's scores and the sealed grade "
+        "come from different judges"
+    ]
+
+
+def _env_union(rounds: list[dict[str, Any]]) -> dict[str, set[str]] | None:
+    found: dict[str, set[str]] | None = None
+    for r in rounds:
+        hashes = r.get("runner_env_hashes")
+        if isinstance(hashes, dict):
+            found = found if found is not None else {}
+            for name, values in hashes.items():
+                found.setdefault(name, set()).update(values)
+    return found
+
+
+def panel_env_changes(ledger: dict[str, Any]) -> list[str]:
+    """The `[judge] env_allow` names whose values differ between the sealed panel and the loop
+    rounds, by their salted hashes; empty when either side carries no hashes.
+
+    Args:
+        ledger: The run's ledger.
+    """
+    sealed = _env_union([r for r in ledger["rounds"] if r.get("sealed")])
+    loop = _env_union([r for r in ledger["rounds"] if not r.get("sealed")])
+    if sealed is None or loop is None:
+        return []
+    return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))
+
+
+def _source_notes(name: str, r: dict[str, Any]) -> list[str]:
+    """What the report says about where a round's replies came from."""
+    out = []
+    if "output" in r.get("sources", []):
+        out.append(f"- {name}: some replies were pasted, not read from a transcript")
+    if RUNNER in r.get("sources", []):
+        out.append(
+            f"- {name}: some replies were read by sealed-panel from the judge command "
+            "(judge.command in the settings above)"
+        )
+    changed = r.get("runner_env_changed") or []
+    if changed:
+        out.append(
+            f"- {name}: the judge command ran under different values of {', '.join(changed)} "
+            "across attempts (another model or key between judges): the declared judge model "
+            "does not cover every attempt; put the model in judge.command to freeze it"
+        )
     return out
 
 
 def render_report(run: Path) -> str:
-    """The run's report in markdown: the sealed grade, the round table and the notes."""
+    """The run's report in markdown: the sealed grade, the round table and the notes.
+
+    Args:
+        run: The run directory.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     ledger = load_json(run / "ledger.json")
@@ -220,15 +327,23 @@ def render_report(run: Path) -> str:
         if not changed
         else "settings that differ from the defaults: " + "; ".join(changed)
     )
+    title = f"# Evaluation: {spec['title']}"
+    if d["decision"] == BLOCKED:
+        title += f" ({BLOCKED})"
+    ack = (
+        f" Injection flags acknowledged in the spec: {spec[INJECTION_ACK]!r}."
+        if spec.get(INJECTION_ACK)
+        else ""
+    )
     out = [
-        f"# Evaluation: {spec['title']}",
+        title,
         "",
         f"Rubric sha256 `{ledger['rubric_sha256'][:HASH_CHARS]}`, "
-        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.",
+        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.{ack}",
         "",
     ]
-    if d["decision"] == "SEALED":
-        out += _sealed_headline(spec, d)
+    if sealed_done(d):
+        out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))
     out += _round_table(spec, ledger)
     out += _notes(run, ledger, d)
     return "\n".join(out) + "\n"

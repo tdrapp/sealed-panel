@@ -110,6 +110,14 @@ def test_the_docs_pin_every_install_line_to_this_release() -> None:
         assert found and set(found) == {__version__}, name
 
 
+def test_the_readme_names_this_version() -> None:
+    path = ROOT / "README.md"
+    if not path.exists():
+        pytest.skip("not a checkout")
+    found = re.search(r"^Version (\d+\.\d+\.\d+)\. .*\(CHANGELOG\.md\)", path.read_text(), re.M)
+    assert found and found[1] == __version__
+
+
 def test_no_uvx_line_runs_an_unpinned_server() -> None:
     for name in ("README.md", "docs/integrations.md"):
         path = ROOT / name
@@ -151,3 +159,35 @@ def test_a_release_cannot_be_pushed_with_a_mutable_publisher() -> None:
     if not path.exists():
         pytest.skip("an sdist has no workflows")
     assert re.search(r"gh-action-pypi-publish@[0-9a-f]{40}", path.read_text(encoding="utf-8"))
+
+
+def ci_check_names(text: str) -> set[str]:
+    """Every check name the CI workflow produces: each job's name, expanded over its matrix."""
+    names: set[str] = set()
+    for block in re.split(r"\n(?=  [a-z][\w-]*:\n)", text):
+        found = re.search(r"\n    name: (.+)", block)
+        if not found:
+            continue
+        name = found[1].strip()
+        axes = dict(re.findall(r"\n        ([\w-]+): \[(.*)\]", block))
+        expanded = [name]
+        for axis, values in axes.items():
+            items = [v.strip().strip('"') for v in values.split(",")]
+            token = "${{ matrix." + axis + " }}"
+            expanded = [n.replace(token, v) for n in expanded for v in items]
+        names.update(expanded)
+    return names
+
+
+def test_branch_protection_requires_checks_ci_produces() -> None:
+    ci = ROOT / ".github" / "workflows" / "ci.yml"
+    if not ci.exists():
+        pytest.skip("an sdist has no workflows")
+    produced = ci_check_names(ci.read_text(encoding="utf-8"))
+    assert {"mutation (0/4)", "test (3.13, core)", "pip-audit"} <= produced  # the parse works
+    protection = json.loads((ROOT / ".github" / "branch-protection.json").read_text())
+    required = set(protection["required_status_checks"]["contexts"])
+    assert required <= produced, required - produced  # a required check CI never reports
+    # Deliberately not required: the shards (their gate `mutation` is) and pip-audit, so a
+    # vulnerability published tomorrow does not block an unrelated pull request.
+    assert produced - required == {f"mutation ({k}/4)" for k in range(4)} | {"pip-audit"}

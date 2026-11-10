@@ -104,6 +104,20 @@ Statistics over a dataset do not apply to one text. Its only repetitions are its
   medians of integer differences and move in steps of 0.5, so with the noise between its 0.5
   floor and 1 this means no dimension gained a full point, two rounds running. CAP at
   `max_rounds`.
+- **Blocked by a flag.** Every text placed in a brief is scanned: the candidate, the control,
+  the previous version, the round-1 baseline and the known-good, and the flags are kept per
+  item. A round whose brief carried a flagged item never converges and never takes a sealed
+  grade silently: CONVERGED and SEALED become BLOCKED BY FLAG, naming the item, in `status` and
+  in the report's title. A blocked loop goes on to the next round with the text removed (the
+  removed text still rides along once as the previous version, so that round is blocked too); a
+  sealed panel is refused, and a blocked sealed grade is shown but does not stand. Since the
+  sealed panel scores the round-1 text as its baseline, a run whose first round was flagged
+  cannot take a sealed grade: CONVERGED, PLATEAU and CAP become BLOCKED BY FLAG on `baseline`,
+  whose next step is a new run, never "seal". A sealed brief that would carry a flagged item is
+  refused before a file is written, so the run's one sealed panel is never spent on a grade that
+  could not stand. A text that addresses a judge on purpose (a notice about prompt injection,
+  say) needs `injection_acknowledged` in the spec: a reason given by a person at the command
+  line, frozen and hashed with the rubric, and shown in the report.
 - **Suspect jump.** A paired gain of 2 or more on one dimension is reported for a human read:
   an implausible jump is suspect until checked.
 
@@ -138,29 +152,41 @@ three kinds of proof, and the report says which one each round used.
 - **Runner (`judge`).** sealed-panel starts the judge process, writes the brief file's bytes to
   its stdin and reads its stdout itself, so nothing stands between the brief and the reply. The
   reply's record stores the proof: the sha256 of the bytes written, the argument list, the exit
-  status, the duration, the sha256 of the bytes read, the timeout, and the names of the
-  environment variables passed. One process per brief, so every runner reply comes from a fresh
-  context, and one process per seat at a time: a marker created only when absent holds the seat
-  from its check to its record, so concurrent or retried calls cannot collect several replies
-  and keep the best. A process that fails, times out, writes nothing or writes past the cap is a
-  void: no reply is ever made up from partial output, and every process started ends recorded,
-  at worst as a void. A run with a judge command takes runner replies only, on every seat: no
-  reply pasted, read from a transcript or voided by hand, so a rejected runner reply cannot be
-  swapped for one from another judge. Only the runner records a runner reply through the
-  commands and tools: the library's `record_reply` refuses the source. Someone who writes the
-  run's files by hand can still forge one; `SECURITY.md` keeps that out of scope. Through MCP,
-  the judge command comes from the configuration the user started the server with, never from
-  the caller, and every tool refuses a run frozen with other settings. The judge process gets a
-  minimal environment and an empty working directory: no credential beyond the ones the user
-  allowed, and no path into the run directory.
+  status, the duration, the sha256 of the bytes read, the timeout, the names of the environment
+  variables passed, and the sha256 of the value of each name in `[judge] env_allow`, salted with
+  a random value `init` writes into the run (`env.salt`); never the value, which may be a
+  credential. The argument list is frozen into the run, but an allowed variable can change
+  between two attempts, and a template that reads the model from one would then judge with
+  another model unseen: `aggregate` compares the hashes of every attempt of a round, rejected
+  and void ones included, the report names the variables whose value changed, and it names those
+  whose value differs between the sealed panel and the loop rounds. The salt stops a lookup in a
+  table made in advance and a match across runs; someone who holds the run directory holds the
+  salt and can still guess a short value, so credentials should be long. A run frozen before
+  0.3.1 has no salt: its attempts store no hash and nothing is compared. So the model belongs in
+  the argument list (`examples/runner/judge.toml`), and the environment carries credentials
+  only. One process per brief, so every runner reply comes from a fresh context, and one process
+  per seat at a time: a marker created only when absent holds the seat from its check to its
+  record, so concurrent or retried calls cannot collect several replies and keep the best. A
+  process that fails, times out, writes nothing or writes past the cap is a void: no reply is
+  ever made up from partial output, and every process started ends recorded, at worst as a void.
+  A run with a judge command takes runner replies only, on every seat: no reply pasted, read
+  from a transcript or voided by hand, so a rejected runner reply cannot be swapped for one from
+  another judge. Only the runner records a runner reply through the commands and tools: the
+  library's `record_reply` refuses the source. Someone who writes the run's files by hand can
+  still forge one; `SECURITY.md` keeps that out of scope. Through MCP, the judge command comes
+  from the configuration the user started the server with, never from the caller, and every tool
+  refuses a run frozen with other settings. The judge process gets a minimal environment and an
+  empty working directory: no credential beyond the ones the user allowed, and no path into the
+  run directory.
 - **Transcript (`record --transcript`).** The judge's own transcript must contain the whole
   brief in its prompt; text added around it is counted and reported, and an agent that holds a
   brief id but was never recorded blocks the aggregation. A transcript showing that the judge
   called any tool other than the configured handback tool is rejected: a judge with a tool
-  could have read the run's keys and known which item is the candidate. Through MCP a
-  transcript counts only under a `--transcript-root`, away from the root: a file the author
-  wrote in its workspace is no proof. An author with shell access to that folder can still
-  forge one, so the runner stays the strong proof.
+  could have read the run's keys and known which item is the candidate. A transcript whose
+  last line is cut off is rejected, never read back to the reply before it, which may be a
+  draft the judge replaced. Through MCP a transcript counts only under a `--transcript-root`,
+  away from the root: a file the author wrote in its workspace is no proof. An author with
+  shell access to that folder can still forge one, so the runner stays the strong proof.
 - **Pasted (`record --output`).** Nothing shows that the judge received the brief verbatim,
   or that no other judge was asked and discarded. The report flags such rounds.
 

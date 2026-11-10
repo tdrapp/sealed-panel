@@ -24,7 +24,7 @@ from typing import Any
 
 from . import library
 from .config import Config
-from .decide import decide
+from .decide import BLOCKED, decide
 from .errors import EvalError
 from .ledger import results_by_judge
 from .spec import TODO_MARKER, load_frozen, run_config, run_library
@@ -240,6 +240,11 @@ def user_disagreement(
     spec = load_frozen(run)
     ledger = load_json(run / "ledger.json")
     d = decide(spec, ledger)
+    if d["decision"] == BLOCKED:
+        raise EvalError(
+            "the sealed grade is blocked by an injection flag and does not stand: there is no "
+            "grade to disagree with"
+        )
     if d["decision"] != "SEALED":
         raise EvalError("feedback disagrees with a sealed grade: seal the run first")
     final = d["final"]

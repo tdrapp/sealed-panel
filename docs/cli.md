@@ -70,7 +70,7 @@ Writes `brief_j<J>.md` for each judge (personas times `judges_per_persona`) and 
 | `--artefact FILE` | The candidate text. |
 | `--control FILE` | The deliberately bad version, planted in every brief. Use the same one for the whole run. |
 | `--good FILE` | A known-good text the user validated. A judge who scores it below `good_min` is discarded. |
-| `--sealed` | Brief the sealed panel. Allowed only after CONVERGED, PLATEAU or CAP, or before any loop round (a one-shot grade). Once per run. |
+| `--sealed` | Brief the sealed panel. Allowed only after CONVERGED, PLATEAU or CAP, or before any loop round (a one-shot grade). Once per run. Refused before anything is written while the ledger says BLOCKED BY FLAG (a flagged round-1 text would come back as the baseline), or when any text of the sealed brief (candidate, control, baseline, known-good) addresses a judge and the spec has no `injection_acknowledged`: start a new run, or acknowledge it at init with the command line. |
 
 From round 2, the previous round's text rides along as a blind paired comparator. In a sealed
 panel, the round-1 text rides along as a blind baseline when it differs from the candidate.
@@ -102,9 +102,14 @@ A reply is rejected (stored, but not counted) when it is not JSON, misses an ite
 dimension, has a score that is not an integer from 1 to 5 (`true` included), a severity outside
 the configured list, an empty reasoning, more than a third of quotes not found in the items, a
 control mean above `control_max`, a known-good mean below `good_min`, or, from a transcript, any
-tool call by the judge other than the configured handback tool (a judge gets no tools). Scores
-above the severity cap are lowered to the cap. A quote that is not found voids that score. A
-judge that quoted the same words on every dimension of the candidate is noted for the report.
+tool call by the judge other than the configured handback tool (a judge gets no tools), or a
+transcript whose last non-empty line is not a JSON object (cut off while being written: the
+final reply may be lost, and the text before it is not that reply). So record a transcript only
+after the judge has returned: recording a file still being written stores a rejection, and the
+seat needs a replacement judge. Other unreadable lines are skipped and counted in the result as
+`unreadable_lines`. Scores above the severity cap are lowered to the cap. A quote that is not
+found voids that score. A judge that quoted the same words on every dimension of the candidate
+is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
 used in the run, a reply already recorded, a judge slot that already has a valid reply, any
@@ -202,8 +207,14 @@ sealed-panel status RUN
 ```
 
 Read-only. Prints the decision as JSON: `CONTINUE` (with `next_round` and, after a round, the
-path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`), or
-`SEALED`. Every decision carries `overrides`: the settings that differ from the defaults.
+path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`),
+`SEALED`, or `BLOCKED BY FLAG`: an item of the brief of a round that would converge, or of the
+sealed panel (the candidate, the control, the previous version, the baseline or the known-good),
+contains text addressed to a judge, and the spec has no `injection_acknowledged`. A blocked
+decision names what it replaced (`blocked`), the items (`roles`), the patterns that matched
+(`flags`) and the next step: the next round with the text removed, or a new run. Every decision
+carries `overrides`: the settings that differ from the defaults, and `injection_acknowledged`
+when the spec has one.
 
 ## report
 
@@ -211,9 +222,12 @@ path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "s
 sealed-panel report RUN
 ```
 
-Prints the run's report in markdown: a header with the rubric hash, the decision, the number
+Prints the run's report in markdown. A blocked run says `(BLOCKED BY FLAG)` in its title, and
+a blocked sealed grade is preceded by a line saying it does not stand. Then a header with the
+rubric hash, the decision, any `injection_acknowledged` reason, the number
 of judge contexts and the settings that differ from the defaults; the sealed grade per
-dimension with every judge's score and the verdict; the round-1 baseline against the sealed
+dimension with every judge's score, the verdict and the declared judge model (`[judge]
+model_id`, or "not declared"); the round-1 baseline against the sealed
 text, scored by the same sealed panel; the table of rounds with instruments, the informational
 composite, best gain, noise and rejected attempts; the open findings; each rejected judge
 with its reasons, and each void with its label (no reply, or after replying when the brief was

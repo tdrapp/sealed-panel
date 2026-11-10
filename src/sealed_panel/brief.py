@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, resolve
-from .decide import STOP_DECISIONS, decide
+from .decide import BLOCKED, INJECTION_ACK, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
 from .spec import dims_for, load_frozen, rubric_hash, run_config
 from .store import dump_json, load_json, read_text, refuse_links, round_dir, write_file
@@ -87,6 +87,11 @@ def _lines(template: str, **values: str) -> list[str]:
 
 
 def anchor_lines(d: dict[str, Any]) -> list[str]:
+    """The anchor lines of one dimension, 5 down to 1, with the defaults for 4 and 2.
+
+    Args:
+        d: The dimension, with its `anchors`.
+    """
     a = d["anchors"]
     return [
         f"- 5: {a['5']}{ANCHOR_5_SUFFIX}",
@@ -105,6 +110,16 @@ def build_brief(
     nonce: str = "",
     cfg: Config | None = None,
 ) -> str:
+    """The text of one blind brief: persona, stance, facts, rubric, items and reply shape.
+
+    Args:
+        spec: The frozen spec.
+        persona: The persona this judge reads as.
+        framing: The reading stance given to this judge.
+        items: (label, text) pairs, in the order the judge sees them.
+        nonce: The brief id written into the brief, so a transcript can be tied to it.
+        cfg: The configuration; the packaged defaults when None.
+    """
     cfg = resolve(cfg)
     dims = dims_for(spec, persona["id"])
     lines = _lines(
@@ -164,10 +179,20 @@ def build_brief(
     return "\n".join(lines) + "\n"
 
 
+def _refuse_blocked(d: dict[str, Any]) -> None:
+    """Refuse a sealed panel while the ledger says BLOCKED BY FLAG, with its next step."""
+    if d["decision"] == BLOCKED:
+        raise EvalError(
+            f"the ledger says {BLOCKED} on the {', '.join(d['roles'])} item: a sealed grade "
+            f"of this run would not stand; {d['next']}"
+        )
+
+
 def _check_sealed(run: Path, rnd: int, spec: dict[str, Any], ledger: dict[str, Any]) -> None:
     loop = [r for r in ledger["rounds"] if not r.get("sealed")]
     if loop:
         d = decide(spec, ledger)
+        _refuse_blocked(d)
         if d["decision"] not in STOP_DECISIONS:
             raise EvalError(
                 f"the ledger says {d['decision']}: a sealed panel comes after CONVERGED, "
@@ -203,10 +228,45 @@ def _check_loop(
         raise EvalError("the loop has stopped: seal instead of briefing a new round")
 
 
+def flags_by_role(roles: list[tuple[str, str]], cfg: Config) -> dict[str, list[str]]:
+    """The injection patterns each text placed in the brief matches, by role (only the roles
+    with a match).
+
+    Args:
+        roles: (role, text) of every item of the brief.
+        cfg: The run's configuration.
+    """
+    found = {role: injection_flags(text, cfg) for role, text in roles}
+    return {role: flags for role, flags in found.items() if flags}
+
+
+def _refuse_a_flagged_seal(
+    spec: dict[str, Any], roles: list[tuple[str, str]], cfg: Config, sealed: bool
+) -> None:
+    """Refuse a sealed brief that would carry text addressed to a judge, before anything is
+    written: its grade could not stand, and a run has one sealed panel."""
+    found = flags_by_role(roles, cfg) if sealed else {}
+    if found and not spec.get(INJECTION_ACK):
+        raise EvalError(
+            f"the sealed brief would carry text addressed to a judge in the "
+            f"{', '.join(sorted(found))} item: its grade could not stand. Brief it without that "
+            f"text, or {NEW_RUN}"
+        )
+
+
 def write_briefs(
     run: Path, rnd: int, artefact: Path, control: Path, good: Path | None, sealed: bool
 ) -> list[Path]:
-    """Write one blind brief per judge for round `rnd` and return their paths."""
+    """Write one blind brief per judge for round `rnd` and return their paths.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        artefact: The candidate text.
+        control: The deliberately bad version planted in every brief.
+        good: An optional known-good text, validated by the user.
+        sealed: Whether to brief the sealed panel.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     ledger = load_json(run / "ledger.json")
@@ -238,6 +298,7 @@ def write_briefs(
             raise EvalError(
                 f"the {role} text contains an <{ITEM_TAG}> tag: it would break the fence"
             )
+    _refuse_a_flagged_seal(spec, roles, cfg, sealed)
     if rdir.is_dir():
         refuse_links(*rdir.iterdir())
     rdir.mkdir(parents=True, exist_ok=True)
@@ -245,7 +306,8 @@ def write_briefs(
         write_file(rdir / f"{role}.md", text)
     framings = spec.get("framings") or cfg.framings
     seed = secrets.randbits(SEED_BITS)
-    rng = random.Random(seed)
+    # Shuffling, not secrecy: the seed comes from `secrets` and is kept in keys.json.
+    rng = random.Random(seed)  # noqa: S311
     offset = rng.randrange(len(framings))  # which judge gets which stance changes per round
     paths, judges, j = [], [], 0
     for persona in spec["personas"]:
@@ -281,6 +343,7 @@ def write_briefs(
             "candidate_hash": text_hash(cand),
             "roles": [r for r, _ in roles],
             "injection_flags": injection_flags(cand, cfg),
+            "injection_flags_by_role": flags_by_role(roles, cfg),
             "judges": judges,
         },
     )

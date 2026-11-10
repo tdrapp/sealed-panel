@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sealed-panel"
-version = "0.3.0"
+version = "0.3.1"
 description = "Grade a text with blind panels of LLM judges, then let a sealed panel give the final grade."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,15 +33,33 @@ dependencies = []
 
 [project.optional-dependencies]
 mcp = ["fastmcp>=4.1.6,<4.2"]
-dev = [
-    "ruff>=0.6",
-    "mypy>=1.11",
+
+[dependency-groups]
+# What the tests need, with or without the mcp extra.
+test = [
     "pytest>=8",
     "pytest-cov>=5",
-    "pre-commit>=3.7",
-    "fastmcp>=4.1.6,<4.2",
     "pytest-asyncio>=1.0",
 ]
+# Everything a contributor runs; `uv sync` installs it by default.
+dev = [
+    { include-group = "test" },
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+    "fastmcp>=4.1.6,<4.2",
+    # The workflow linter, and the shell checker it runs on each step's script.
+    "actionlint-py>=1.7",
+    "shellcheck-py>=0.10",
+    # The import contract below.
+    "import-linter>=2.1",
+    # The complexity ceiling (see CONTRIBUTING.md).
+    "xenon>=0.9",
+    # Docstring coverage of the public API.
+    "interrogate>=1.7",
+]
+# The vulnerability audit, kept apart so it never lands in a test environment.
+audit = ["pip-audit>=2.7"]
 
 [project.scripts]
 sealed-panel = "sealed_panel.cli:main"
@@ -79,12 +97,25 @@ target-version = "py311"
 src = ["src", "tests", "tools"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+# S: the security rules (bandit); T20: no stray print outside the command-line front ends.
+# D1 and D417: every public module, class and function has a docstring, and an `Args:` section
+# names every argument.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "T20", "D1", "D417"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["B011"]
-# Mutation anchors are verbatim lines of code.
-"tools/mutation_check.py" = ["E501"]
+# Tests assert, and start git and the judge scripts by name; test names are their docs.
+"tests/**" = ["B011", "S101", "S603", "S607", "D1"]
+# The stand-in judges speak on stdout: that is their protocol.
+"tests/stub_judge.py" = ["T20"]
+"tests/orphan_judge.py" = ["T20"]
+# The command line prints its results.
+"src/sealed_panel/cli.py" = ["T20"]
+# Mutation anchors are verbatim lines of code; another change owns this tool's engine.
+"tools/mutation_check.py" = ["E501", "D1"]
+# Developer tools print, and start the interpreter or the command under test.
+"tools/**" = ["T20", "S603"]
+# The examples print, start a model command, and call the endpoint the user configured.
+"examples/**" = ["T20", "S603", "S310", "D1"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -95,10 +126,48 @@ python_version = "3.11"
 files = ["src", "tools", "examples"]
 mypy_path = "src"
 
+# radon (the complexity check's measure) ships no type information.
+[[tool.mypy.overrides]]
+module = ["radon.*"]
+ignore_missing_imports = true
+
+# The command line and the MCP server sit above the core; store and errors sit at the bottom, so
+# the core never reaches for an interface and the files layer never reaches for the protocol.
+[tool.importlinter]
+root_package = "sealed_panel"
+
+[[tool.importlinter.contracts]]
+name = "cli and mcp_server above the core, store and errors at the bottom"
+type = "layers"
+containers = ["sealed_panel"]
+exhaustive = true
+layers = [
+    "__main__",
+    "cli",
+    "mcp_server",
+    "aggregate : brief : config : decide : learn : ledger : library : record : report : runner : spec : text",
+    "store",
+    "errors",
+]
+
+# Docstring coverage of the public API (private, semi-private, magic and nested functions are
+# left out); ruff's D1 already requires every public one, so this is a floor, not the target.
+[tool.interrogate]
+fail-under = 80
+ignore-private = true
+ignore-semiprivate = true
+ignore-magic = true
+ignore-nested-functions = true
+verbose = 1
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-q --cov=sealed_panel --cov-report=term-missing --cov-fail-under=97"
+addopts = "-q --strict-markers --cov=sealed_panel --cov-report=term-missing --cov-fail-under=97"
+# Test tiers (CONTRIBUTING.md): `pytest -m "not slow"` is the fast tier; the full suite is both.
+markers = [
+    "slow: starts a process other than git (a judge command, the MCP server, a model endpoint)",
+]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

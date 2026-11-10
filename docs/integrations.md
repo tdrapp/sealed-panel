@@ -22,23 +22,25 @@ logging are deprecated too; paths come from the tool parameters, and logs go to 
 Install the extra and start the server over stdio:
 
 ```sh
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
 sealed-panel mcp
 ```
 
 Or let `uvx` fetch it on demand:
 
 ```sh
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1' sealed-panel mcp
 ```
 
 Once the package is published on the index, `pip install 'sealed-panel[mcp]'` and
-`uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp` do the same. Pin a `uvx` line to an
+`uvx --from 'sealed-panel[mcp]==0.3.1' sealed-panel mcp` do the same. Pin a `uvx` line to an
 exact version or tag: an unpinned one runs whatever is newest the day it starts.
 
 The tools are listed in [cli.md](cli.md#mcp). Every path a tool takes must resolve under the
 root, symbolic links followed: `--root DIR`, else `[mcp] root` in the configuration, else the
-directory the server starts in.
+directory the server starts in. The `init` tool refuses a spec that carries
+`injection_acknowledged`: acknowledging text addressed to a judge decides whether a grade
+stands, so a person does it, with `sealed-panel init` at a terminal.
 
 To let the server run the judges, start it with a configuration that holds a `[judge] command`,
 kept outside the root: `sealed-panel mcp --root ~/texts --config ~/.config/my-judge.toml`. The
@@ -126,7 +128,7 @@ TOML configuration file. The skill is there already (`.agents/skills/sealed-pane
 ```toml
 [mcp_servers.sealed-panel]
 command = "uvx"
-args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0", "sealed-panel", "mcp", "--transcript-root", "/path/to/your/host/sessions"]
+args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1", "sealed-panel", "mcp", "--transcript-root", "/path/to/your/host/sessions"]
 tool_timeout_sec = 300
 env_vars = ["MY_MODEL_API_KEY"]
 ```
@@ -150,7 +152,9 @@ that reads the brief on stdin and prints the model's answer on stdout, set it in
 command`, and name the variables it needs (your API key) in `[judge] env_allow`. Start from
 `examples/runner/judge_template.py`, which reaches a model through a model command line or an
 HTTP endpoint, both set by environment variables; adapt the one function that speaks to your
-model's API. `examples/runner/judge.toml` is the matching configuration.
+model's API. `examples/runner/judge.toml` is the matching configuration. Declare the model in
+`[judge] model_id`, printed next to the grade: a dated model id, never an alias, which may point
+to another model the next day.
 
 The same steps are a Python library: the functions the command line and the MCP server call.
 

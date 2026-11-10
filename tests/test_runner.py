@@ -18,16 +18,26 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import runner
-from sealed_panel.aggregate import aggregate_round
+from sealed_panel.aggregate import aggregate_round, env_changes
 from sealed_panel.cli import main
 from sealed_panel.config import Config, ConfigError, default_data, load_config, merge, overrides
 from sealed_panel.errors import EvalError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import MAX_VOIDS, _record_reply, record_from, record_reply
 from sealed_panel.report import render_report, status
-from sealed_panel.runner import SeatTaken, child_env, judge_round, judge_seat, open_seats
-from sealed_panel.spec import init_run, run_config
+from sealed_panel.runner import (
+    SeatTaken,
+    child_env,
+    env_hashes,
+    judge_round,
+    judge_seat,
+    open_seats,
+)
+from sealed_panel.spec import init_run, run_config, run_salt
 from sealed_panel.store import round_dir
+
+# Every test here starts a judge command or a model endpoint.
+pytestmark = pytest.mark.slow
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
 ORPHAN = Path(__file__).resolve().parent / "orphan_judge.py"
@@ -589,3 +599,49 @@ def test_a_live_marker_moved_by_a_late_settle_is_put_back(
     assert marker.read_text() == live
     assert results_by_judge(round_dir(h.run, 1)) == {}
     assert not list(round_dir(h.run, 1).glob("running_j1.json.*"))
+
+
+class TestEnvironmentHashes:
+    def test_attempts_under_one_value_are_not_flagged(self) -> None:
+        a = {"runner": {"env_sha256": {"KEY": "1", "MODEL": "m"}}}
+        host = {"source": "transcript"}  # no runner proof: left out
+        assert env_changes({1: [a, host], 2: [dict(a)]}) == []
+
+    def test_a_changed_or_dropped_value_is_flagged(self) -> None:
+        a = {"runner": {"env_sha256": {"KEY": "1", "MODEL": "m"}}}
+        b = {"runner": {"env_sha256": {"KEY": "2"}}}
+        assert env_changes({1: [a], 2: [b]}) == ["KEY", "MODEL"]
+
+    def test_the_proof_holds_a_salted_hash_per_allowed_value(self) -> None:
+        cfg = Config(merge(default_data(), {"judge": {"env_allow": ["KEY", "UNSET"]}}))
+        salt = b"s" * 32
+        hashes = env_hashes(cfg, {"KEY": "secret", "PATH": "/bin"}, salt)
+        assert hashes == {"KEY": hashlib.sha256(salt + b"secret").hexdigest()}
+        assert hashes["KEY"] != hashlib.sha256(b"secret").hexdigest()  # never the bare hash
+        assert env_hashes(cfg, {"KEY": "secret"}, None) is None  # no salt: nothing compared
+
+    def test_each_run_gets_its_own_salt(self, h: Harness, tmp_path: Path) -> None:
+        h.init()
+        other = tmp_path / "other"
+        init_run(other, h.tmp / "spec.json")
+        first, second = run_salt(h.run), run_salt(other)
+        assert first is not None and second is not None and first != second
+        assert len(first) == 32
+
+    def test_a_run_without_a_salt_judges_and_compares_nothing(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        init_runner(h, command=[sys.executable, str(STUB)], extra='env_allow = ["MODEL"]\n')
+        (h.run / "env.salt").unlink()  # a run frozen before 0.3.1 has none
+        h.brief(1, "cand")
+        monkeypatch.setenv("MODEL", "m")
+        results = judge_round(h.run, 1, False)
+        assert all(r["ok"] and r["runner"]["env_sha256"] is None for r in results)
+        entry = aggregate_round(h.run, 1, False)
+        assert entry["runner_env_changed"] == [] and entry["runner_env_hashes"] is None
+
+    def test_a_damaged_salt_reads_as_none(self, h: Harness) -> None:
+        h.init()
+        for text in ("not hex\n", "abcd\n"):
+            (h.run / "env.salt").write_text(text)
+            assert run_salt(h.run) is None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -221,6 +222,26 @@ def no_inherited_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config.write_text(f"[core]\n\texcludesFile = {no_excludes}\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.fixture(autouse=True)
+def slow_tier(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the fast tier honest: a test not marked `slow` may start git, and no other process.
+    Starting a judge command, the MCP server or an endpoint's model fails it with the reason."""
+    if request.node.get_closest_marker("slow"):
+        return
+    real = subprocess.Popen
+
+    class FastTierPopen(real):  # type: ignore[valid-type,misc]
+        def __init__(self, args: Any, *rest: Any, **kw: Any) -> None:
+            first = args[0] if isinstance(args, (list, tuple)) else str(args).split()[0]
+            if Path(str(first)).name != "git":
+                raise AssertionError(
+                    f"this test starts {first!r}: mark it @pytest.mark.slow (CONTRIBUTING.md)"
+                )
+            super().__init__(args, *rest, **kw)
+
+    monkeypatch.setattr(subprocess, "Popen", FastTierPopen)
 
 
 @pytest.fixture

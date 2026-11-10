@@ -107,7 +107,7 @@ settings:
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. A match in the candidate is flagged in the author's findings and in the report. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
+| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. Every text placed in a brief is scanned (candidate, control, previous version, baseline, known-good); a match is flagged per item in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
 | `samples` | one line per default pattern | one per pattern, in the same order | A line each pattern must match after the scan's normalisation, the built-in one (default punctuation map and stripped characters, whitespace, case): a pattern holding a character that normalisation removes or maps can never match, and is refused. A pattern that matches nothing would switch the check off, so it is refused. |
 
 ## `[transcript]`
@@ -178,31 +178,42 @@ root: the server reads that file once, freezes it into every run it starts and c
 frozen with it, so the caller of a tool never picks its judge. It is frozen into the run like
 every other setting, so the judges cannot change in the middle of a run, and a command that
 differs from the default (empty) is listed in full next to the grade. A run with a judge command
-takes runner replies only.
+takes runner replies only. `model_id` declares the model the judges run on, in host mode as
+well, and is printed next to the sealed grade.
 
 ```toml
 [judge]
 command = ["python", "/path/to/my_judge.py"]
 timeout_s = 300
 env_allow = ["MY_MODEL_API_KEY"]
+model_id = "my-model-2026-01-15"
 ```
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
 | `command` | `[]` | a list of non-empty strings | The judge command as an argument list, started once per brief without a shell. It reads the brief on stdin and prints the reply on stdout. Empty means host mode: your agent host runs the judges and `record` stores their replies. The list is stored with every reply and shown in the report: never put a credential in it. |
 | `timeout_s` | `300` | 1 to 3600 | Seconds a judge process may run. Past it, the process and every process it started are stopped, and the attempt is recorded as void. |
-| `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). |
+| `env_allow` | `[]` | environment variable names | Variables passed to the judge process besides `PATH`, `HOME` and `LANG` (each only when set). Each attempt stores a sha256 of each value, never the value, and the report flags a round whose attempts ran under different values. For credentials: name the model in `command`. |
 | `max_reply_bytes` | `1048576` | 1024 to 16777216 | Bytes a judge may write to stdout. Past it, the process is stopped and the attempt is recorded as void; only the bytes up to the cap are kept. |
 | `max_stderr_bytes` | `1048576` | 1024 to 16777216 | The same for stderr, kept in the log beside the brief. |
+| `model_id` | `""` | one printable line, at most 200 characters | The model the judges run on, as free text: frozen into the run and printed next to the sealed grade ("not declared" when empty). Pin a dated model id, never an alias: an alias may point to another model the next day, and two grades under one alias may come from two models. sealed-panel does not check that the command uses it. |
 
 The judge process never inherits the environment of the process that runs sealed-panel. That
 environment often holds credentials (cloud tokens, repository tokens, other API keys) that a
 judge has no use for, and a judge is a program that reads text written by someone else. So it
 gets `PATH`, `HOME` and `LANG`, the names you list in `env_allow`, and nothing else: a key
-reaches a judge only when you named it. The names passed are stored with each reply; their
-values never are.
+reaches a judge only when you named it. The names passed are stored with each reply, with a
+sha256 of each allowed value salted with the run's own random salt (`env.salt`, written by
+`init`); the values never are. A round whose attempts ran under different values of an allowed
+variable is flagged in the report, and so is a sealed panel that ran under other values than the
+loop rounds. The salt stops a lookup in a table made in advance; whoever holds the run directory
+holds the salt too and can guess a short value, so keep credentials long. A run frozen before
+0.3.1 has no salt, stores no hash and compares nothing. Put the model in `command` (the template
+takes it after `--`), where the run freezes it and the report shows it, and keep the environment
+for credentials; declare the same model in `model_id`.
 
-A run frozen before 0.3.0 has no `[judge]` section and is in host mode.
+A run frozen before 0.3.0 has no `[judge]` section and is in host mode. A run frozen before
+0.3.1 has no `model_id` and reads as not declared.
 
 ## `[mcp]`
 

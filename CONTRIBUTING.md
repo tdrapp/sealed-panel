@@ -5,19 +5,25 @@ code, with a test for every refusal. Changes that keep it that way are welcome.
 
 ## Setup
 
-You need Python 3.11 or later and [uv](https://docs.astral.sh/uv/) (or plain `pip` and
-`venv`).
+You need Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 git clone https://github.com/tdrapp/sealed-panel
 cd sealed-panel
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
+uv sync --locked --python 3.12
 .venv/bin/pre-commit install
 ```
 
-`pre-commit install` installs two hooks: on commit (ruff lint and format, mypy, file
-checks) and on push (the test suite).
+`uv sync --locked` installs the package and the `dev` dependency group into `.venv`, at the
+versions `uv.lock` pins, and fails if the lock no longer matches `pyproject.toml`. The
+development tools live in `[dependency-groups]`: `test` (what the tests need), `dev` (`test`
+plus the linters, the type checker and the MCP server's package) and `audit` (the vulnerability
+audit). After changing a dependency, run `uv lock` and commit `uv.lock` with it. The `mcp` extra
+stays for users who install the package.
+
+`pre-commit install` installs three hooks: on commit (ruff lint and format, mypy, file
+checks, and gitleaks on what is staged), on the commit message (the rule below), and on push
+(the test suite).
 
 ## Checks
 
@@ -26,9 +32,54 @@ checks) and on push (the test suite).
 .venv/bin/pytest
 .venv/bin/mypy
 .venv/bin/python tools/mutation_check.py --jobs 4
+uv run --no-sync actionlint
+uv run --no-sync lint-imports
+uv run --no-sync xenon --max-absolute F --max-modules D --max-average B src tools examples
+uv run --no-sync python tools/complexity_check.py --against origin/main
+uv run --no-sync interrogate src
+uv export --locked --all-extras --all-groups --no-emit-project -o audit.txt
+uv run --locked --only-group audit pip-audit --strict --require-hashes --disable-pip -r audit.txt
 ```
 
-CI runs the same: lint, types, tests on Python 3.11 to 3.13, and the mutation check.
+CI runs the same checks, one job each. Every job but `pip-audit` is a required check in
+`.github/branch-protection.json`: a vulnerability published tomorrow must not block an unrelated
+pull request, so a red `pip-audit` is fixed in its own pull request.
+
+| Job | What it checks |
+|---|---|
+| `lint`, `types` | ruff (lint, format, the security rules, docstrings) and mypy strict |
+| `test (3.11)` to `test (3.13)` | the test suite with the `mcp` extra, and the coverage floor |
+| `test (3.11, core)` to `test (3.13, core)` | the test suite without the extra: the MCP tests skip |
+| `mutation` | the gate over the four `mutation (N/4)` shards: every seeded defect of `tools/mutation_check.py` is caught (see below); the shards themselves are not required checks |
+| `build` | the sdist and the wheel build; the wheel installs in a fresh environment with the lock's versions, `sealed-panel --version` names the package version, and the MCP server answers `initialize` (`tools/smoke_mcp.py`) |
+| `actionlint` | the workflows, with shellcheck on each step's script |
+| `gitleaks` | secrets in the whole history, with a pinned release checked by its sha256; `.gitleaks.toml` allowlists only the sha256 digests of the test fixtures and the lock |
+| `imports` | the import contract in `pyproject.toml`: the command line and the MCP server above the core, `store` and `errors` at the bottom; a new module must be placed in a layer |
+| `complexity` | xenon caps the ranks at their 0.3.1 level (worst block F, worst module D, average B), and `tools/complexity_check.py` holds every function above rank B at its complexity in `tools/complexity_baseline.json`; a new function stays at rank B (complexity 10 or less); on a pull request, `--against` the base branch fails when an entry present on both sides rose, or when the number of entries or their sum rose |
+| `docstrings` | interrogate: at least 80% of the public functions, classes and modules of the package have a docstring |
+| `pip-audit` | known vulnerabilities in every locked package, by hash |
+
+When a refactor lowers a function's complexity, run `tools/complexity_check.py --update` and
+commit the lower baseline. `--update` writes whatever the code measures, so the `complexity` job
+also runs `--against` the pull request's base branch, with three rules: no entry present on both
+sides may rise, the number of entries may not rise, and their sum may not rise. The baseline is
+a budget, not a list of fixed ceilings: a moved or renamed function shows as one entry removed
+and one added, of the same value, and fits; complexity added somewhere has to be paid for by
+removing at least as much elsewhere. The JSON diff of `tools/complexity_baseline.json` is what a
+reviewer reads to judge such a trade.
+
+Two test tiers. A test that starts a process other than git (a judge command, the MCP server
+over stdio, a model endpoint) is marked `@pytest.mark.slow`; `.venv/bin/pytest -m "not slow"`
+runs the fast tier in seconds, and the full suite (both tiers, with the coverage floor) runs on
+push and in CI. The markers are declared in `pyproject.toml` and `--strict-markers` refuses an
+unknown one; an autouse fixture in `tests/conftest.py` fails an unmarked test that starts any
+other process, so the fast tier stays fast.
+
+The MCP tools' names, annotations and input and output schemas are frozen in
+`tests/mcp_tools.json`, and `tests/test_mcp_schema.py` fails on any difference: a host reads
+them, so a change is an interface change. When it is deliberate, regenerate the snapshot with
+`SEALED_PANEL_UPDATE_MCP_SNAPSHOT=1 .venv/bin/pytest tests/test_mcp_schema.py`, commit it with
+the change, and say so in the CHANGELOG.
 
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.
@@ -89,14 +140,27 @@ mutation each night, so a fault in the selection shows within a day.
 1. Branch from `main`: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`.
 2. Keep a pull request to one logical change. Update `docs/` and the `Unreleased` section of
    `CHANGELOG.md` in the same pull request.
-3. Open the pull request with the template filled in. CI must be green.
-4. Pull requests are merged with squash, so the title becomes the commit on `main`.
+3. Open the pull request with the template filled in, its trade-offs included. CI must be
+   green.
+4. Every pull request carries the verdict of an independent cold review, linked or pasted in
+   the template's "Independent review" section: a reviewer who did not write the change reads
+   the diff and the description cold and says SHIP, SHIP WITH FIXES or DO NOT SHIP, with
+   findings. Each finding is fixed or answered before the merge. `main` requires no approving
+   review on GitHub (`required_approving_review_count` is 0 in
+   `.github/branch-protection.json`), because the project has one maintainer, who cannot
+   approve their own pull request; the review verdict is what stands in for that approval.
+5. Pull requests are merged with squash, so the title becomes the commit on `main`.
 
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
-`test:`, `ci:`, `build:`, `chore:`, `refactor:`. Imperative mood, a subject under 72
-characters, and a short body when the reason is not obvious from the subject.
+`test:`, `ci:`, `build:`, `chore:`, `refactor:`, `style:`, `perf:`, with an optional
+`(scope)` and `!` for a breaking change. Imperative mood, a subject under 72 characters, a blank
+line after it, and a short body when the reason is not obvious from the subject.
+
+The commit-msg hook enforces it (`tools/check_commit_msg.py`, installed by `pre-commit
+install`); `fixup!` and `squash!` commits are read past their prefix. Pull requests are merged
+with squash, so the pull request title follows the same rule: it becomes the commit on `main`.
 
 ```
 fix: refuse a known-good identical to the candidate
@@ -115,9 +179,12 @@ A known-good equal to the candidate made the calibration check pass by construct
   scores, kept as written, so never re-wrap them.
 - Examples are synthetic. Do not commit real CVs, messages or other personal material.
 - Code: typed (mypy strict on `src`, `tools` and `examples`), formatted by ruff, standard
-  library only at runtime. A setting goes in `defaults.toml` and `docs/configuration.md`; a
-  setting that guards the protocol also gets a hard bound in `config.py`. The brief texts stay
-  in `brief.py`: they are the instrument.
+  library only at runtime. Every public module, class and function of the package has a
+  docstring (ruff `D1`). Each function of the public API (`sealed_panel.__all__`) has an `Args:`
+  section (`tests/test_docstrings.py`), and an `Args:` section anywhere names every argument
+  (ruff `D417`); give a new public function one. A setting goes in `defaults.toml` and
+  `docs/configuration.md`; a setting that guards the protocol also gets a hard bound in
+  `config.py`. The brief texts stay in `brief.py`: they are the instrument.
 
 ## Vendor names
 
@@ -127,42 +194,10 @@ root, whose name the host requires.
 
 ## Maintainers
 
-Releases go to the package index through trusted publishing, so no token exists anywhere. The
-workflows pin every action by commit, with the version in a trailing comment that Dependabot
-keeps up to date.
-
-The first release, in this order:
-
-1. Make the repository public: the plugin marketplace and the git install need it.
-2. On the index, add a pending trusted publisher for this repository with the workflow
-   `release.yml` and the environment `pypi`. In the repository settings, create the `pypi`
-   environment with a required reviewer, before any tag.
-3. In a release commit, move `[Unreleased]` in `CHANGELOG.md` to `[0.3.0]` with its compare
-   link.
-4. Tag `v0.1.0` on `0d1bb9e`, `v0.2.0` on `bf103bb` and `v0.2.1` on `a7ba6dc`, and push them
-   together: none of these commits holds `release.yml`, so nothing publishes.
-5. Tag the release commit of step 3 `v0.3.0` and push it alone: GitHub creates no event when
-   more than three tags are pushed at once.
-
-A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
-version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace
-file, `.mcp.json` and the install lines (`tests/test_packaging.py` checks they agree), merge,
-and push a tag `v<version>`. The workflow checks that the tag names the package version, builds
-the sdist and the wheel, and publishes them.
-
-After the first publish, the docs' index lines apply: the
-hint `sealed-panel mcp` prints without the extra (`cli.py`) may then name the index. Until then
-it names the tag, because an agent reading it would install whatever holds that free name.
-`.mcp.json` may then move from the git form to `sealed-panel[mcp]==<version>`, and
-`tests/test_packaging.py` moves with it.
-
-Branch protection for `main` is kept in `.github/branch-protection.json` (required checks,
-strict status, pull request required, linear history, no force push, no deletion, resolved
-conversations). Apply it with:
-
-```sh
-gh api -X PUT repos/tdrapp/sealed-panel/branches/main/protection --input .github/branch-protection.json
-```
+Releasing, branch protection and recovery (yanking a release, an interrupted run, stale
+markers) are in [docs/runbook.md](docs/runbook.md). The reasons behind the fixed choices are in
+[docs/decisions/](docs/decisions/). A large change starts from a plan in
+[docs/plans/](docs/plans/README.md). Coding agents read [AGENTS.md](AGENTS.md).
 
 ## Reporting a security issue
 

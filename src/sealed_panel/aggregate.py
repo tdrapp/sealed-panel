@@ -144,10 +144,64 @@ def _check_complete(
         )
 
 
+def env_changes(by_judge: dict[int, list[dict[str, Any]]]) -> list[str]:
+    """The `[judge] env_allow` names whose value differed between the round's runner attempts.
+
+    Every attempt counts, rejected and void ones included: a judge replaced after a rejection
+    may have run another model. An attempt without hashes (host mode, or recorded by an older
+    version) is left out.
+
+    Args:
+        by_judge: The round's recorded attempts, per judge slot.
+
+    Returns:
+        The names, sorted; empty when every attempt ran under the same values.
+    """
+    seen = [
+        r["runner"]["env_sha256"]
+        for attempts in by_judge.values()
+        for r in attempts
+        if isinstance((r.get("runner") or {}).get("env_sha256"), dict)
+    ]
+    names = {n for hashes in seen for n in hashes}
+    return sorted(n for n in names if len({hashes.get(n) for hashes in seen}) > 1)
+
+
+def _hashed_attempts(by_judge: dict[int, list[dict[str, Any]]]) -> list[dict[str, str]]:
+    return [
+        r["runner"]["env_sha256"]
+        for attempts in by_judge.values()
+        for r in attempts
+        if isinstance((r.get("runner") or {}).get("env_sha256"), dict)
+    ]
+
+
+def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]] | None:
+    """Every salted hash each `[judge] env_allow` name had over the round's attempts.
+
+    Args:
+        by_judge: The round's recorded attempts, per judge slot.
+
+    Returns:
+        The hashes by name, sorted; None when no attempt carries hashes.
+    """
+    seen = _hashed_attempts(by_judge)
+    if not seen:
+        return None
+    names = {n for hashes in seen for n in hashes}
+    return {n: sorted({h[n] for h in seen if n in h}) for n in sorted(names)}
+
+
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
-    panel, write learned candidates to the user library's inbox (listed under `inbox`)."""
+    panel, write learned candidates to the user library's inbox (listed under `inbox`).
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+    """
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
@@ -220,6 +274,9 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         ],
         "sources": sorted({r.get("source", "output") for r in valid}),
         "injection_flags": keys.get("injection_flags", []),
+        "injection_flags_by_role": keys.get("injection_flags_by_role"),
+        "runner_env_changed": env_changes(by_judge),
+        "runner_env_hashes": env_values(by_judge),
         "prompt_extras": {
             str(r["judge"]): r["prompt_extra_chars"] for r in valid if r.get("prompt_extra_chars")
         },

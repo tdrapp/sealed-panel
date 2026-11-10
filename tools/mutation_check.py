@@ -1358,6 +1358,114 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '                    "; ".join(turned_off)\n                    if turned_off\n',
         '                    ""\n                    if turned_off\n',
     ),
+    # A transcript cut off on its last line.
+    "a cut-off last line read as the earlier reply": (
+        REC,
+        "if lines and lines[-1][1] is None:",
+        "if False:",
+    ),
+    "a line separator inside a string splits the line": (
+        REC,
+        'read_text(transcript).split("\\n")',
+        "read_text(transcript).splitlines()",
+    ),
+    # A candidate that addresses a judge: blocked unless the spec acknowledges it.
+    "a flagged candidate converges": (
+        f"{PKG}/decide.py",
+        "        return _baseline_gate(spec, loop, _gate(spec, last, converged))",
+        "        return _baseline_gate(spec, loop, converged)",
+    ),
+    "a flagged sealed grade stands": (
+        f"{PKG}/decide.py",
+        "        return _gate(spec, sealed[-1], done)",
+        "        return done",
+    ),
+    "the acknowledgement ignored": (
+        f"{PKG}/decide.py",
+        "if not flags or spec.get(INJECTION_ACK):",
+        "if not flags:",
+    ),
+    "the acknowledgement left out of the rubric hash": (
+        SPEC,
+        '    "template",\n    INJECTION_ACK,\n)',
+        '    "template",\n)',
+    ),
+    "an empty acknowledgement accepted": (
+        SPEC,
+        "if INJECTION_ACK in spec and not spec[INJECTION_ACK].strip():",
+        "if False:",
+    ),
+    "a blocked report title says nothing": (
+        f"{PKG}/report.py",
+        '        title += f" ({BLOCKED})"',
+        "        pass",
+    ),
+    # The judge model declared next to the grade.
+    "an unbounded judge model id accepted": (
+        CFG,
+        "if not model_id.isprintable() or len(model_id) > MODEL_ID_MAX_CHARS:",
+        "if False:",
+    ),
+    "the declared judge model hidden": (
+        f"{PKG}/report.py",
+        'return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."',
+        'return "Judge model: not declared."',
+    ),
+    # The values the judge command ran under.
+    "a changed judge environment not flagged": (
+        AGG,
+        "return sorted(n for n in names if len({hashes.get(n) for hashes in seen}) > 1)",
+        "return []",
+    ),
+    "the judge environment left out of the proof": (
+        RUN,
+        '"env_sha256": env_hashes(cfg, env, run_salt(run)),',
+        '"env_sha256": {},',
+    ),
+    # Every item of a brief is scanned for text addressed to a judge, and any flag blocks.
+    "only the candidate is scanned": (
+        BRIEF,
+        '"injection_flags_by_role": flags_by_role(roles, cfg),',
+        '"injection_flags_by_role": flags_by_role(roles[:1], cfg),',
+    ),
+    "the gate reads the candidate's flags only": (
+        f"{PKG}/decide.py",
+        "    by_role = flagged_roles(entry)\n",
+        '    by_role = {k: v for k, v in flagged_roles(entry).items() if k == "candidate"}\n',
+    ),
+    # Only a person acknowledges a flag, and the grade line says it was.
+    "the MCP init freezes an acknowledgement": (
+        SPEC,
+        "if spec.get(INJECTION_ACK) and not acknowledge:",
+        "if False:",
+    ),
+    "the acknowledgement left off the grade line": (
+        f"{PKG}/report.py",
+        "out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))",
+        "out += _sealed_headline(spec, d, model_line(cfg))",
+    ),
+    # The judge environment: salted per run, and compared between the loop and the seal.
+    "the environment hash unsalted": (
+        RUN,
+        'hashlib.sha256(salt + env[n].encode("utf-8")).hexdigest()',
+        'hashlib.sha256(env[n].encode("utf-8")).hexdigest()',
+    ),
+    "the sealed panel's environment not compared with the loop's": (
+        f"{PKG}/report.py",
+        "return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))",
+        "return []",
+    ),
+    # A sealed panel is never spent on a grade that could not stand.
+    "a flagged round 1 still offers the seal": (
+        f"{PKG}/decide.py",
+        'if not flags or spec.get(INJECTION_ACK) or d["decision"] not in STOP_DECISIONS:',
+        "if True:",
+    ),
+    "a flagged sealed brief written": (
+        BRIEF,
+        "if found and not spec.get(INJECTION_ACK):",
+        "if False:",
+    ),
 }
 
 

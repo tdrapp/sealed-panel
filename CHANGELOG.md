@@ -7,8 +7,101 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-09
+
+### Fixed
+
+- A transcript whose last line was cut off while being written no longer yields the assistant
+  text before it as the reply: `record` rejects it as malformed, and counts the other unreadable
+  lines it skipped in the result (`unreadable_lines`). Transcript lines end at a newline only,
+  so a line separator inside a JSON string no longer splits an entry.
+
+### Added
+
+- `[judge] model_id`: the model the judges run on, as free text (one printable line, at most
+  200 characters), frozen into the run and printed next to the sealed grade, or "not declared".
+  The docs say to pin a dated model id, never an alias. A run frozen earlier reads as not
+  declared.
+- Tests for the HTTP path of `examples/runner/judge_template.py`: a 429, a 500, a body that is
+  not JSON, or an answer without a text field each end as a void after one call, never a reply.
+- CI jobs `build` (the sdist and the wheel build; the wheel installs in a fresh environment with
+  the lock's versions, `sealed-panel --version` names the package version, and the MCP server
+  answers `initialize`, through `tools/smoke_mcp.py`), `actionlint` (with shellcheck) and
+  `pip-audit` (every locked package, by hash). `build` and `actionlint` join the required
+  checks in `.github/branch-protection.json`; `pip-audit` stays advisory.
+- A test ties `.github/branch-protection.json` to the CI workflow: every required check is a
+  job name CI produces, and only the mutation shards and `pip-audit` are left out, on purpose.
+- The release workflow builds with the same uv and the same `uv build` command as the CI build
+  job, after `uv lock --check`, so the published files are built the way the tested ones were.
+- gitleaks scans what is staged (a pre-commit hook) and the whole history (a required CI job,
+  from a pinned release checked by its sha256). `.gitleaks.toml` allowlists only the sha256
+  digests of the test fixtures and the lock.
+- An import contract (import-linter, a required CI job `imports`): `cli` and `mcp_server` sit
+  above the core, `store` and `errors` at the bottom, and every module of the package must be
+  placed in a layer.
+- A complexity ceiling (a required CI job `complexity`): xenon caps the ranks at their current
+  level, and `tools/complexity_check.py` freezes every function above rank B at its current
+  complexity (`tools/complexity_baseline.json`); a new function must stay at rank B. On a pull
+  request, `--against` the base branch fails when an entry present on both sides rose, or when
+  the number of entries or their sum rose: the baseline is a budget, so a rename fits and new
+  complexity is paid for by removing some elsewhere.
+- Docstrings: every public module, class and function of the package has one (ruff `D1`), the
+  public API's carry an `Args:` section naming each argument (ruff `D417` and
+  `tests/test_docstrings.py`), and interrogate holds the public coverage at 80% or more (a
+  required CI job `docstrings`; it is 100% today).
+- A commit-msg hook, `tools/check_commit_msg.py`: a Conventional Commits subject under 72
+  characters, then a blank line. `pre-commit install` installs it with the other hooks.
+- The pull request template asks for the trade-offs and for the verdict of an independent cold
+  review, which every pull request carries; `main` still requires no approving review on GitHub,
+  with one maintainer (CONTRIBUTING).
+- Test tiers: a `slow` marker on every test that starts a process other than git, declared in
+  `pyproject.toml` with `--strict-markers`; `pytest -m "not slow"` is the fast tier. A fixture
+  fails an unmarked test that starts such a process.
+- The judge runner's proof holds, per attempt, the sha256 of the value of each `[judge]
+  env_allow` name it passed (never the value), salted with a random salt `init` writes into the
+  run (`env.salt`), and `aggregate` and the report flag a round whose attempts ran under
+  different values (`runner_env_changed`) and a sealed panel that ran under other values than
+  the loop rounds: a model read from an allowed variable could change between a rejected
+  attempt and its replacement, or before the seal, unseen. A run frozen without a salt stores
+  no hash and compares nothing.
+- A snapshot of the MCP tools (names, annotations, input and output schemas) in
+  `tests/mcp_tools.json`, and a test that fails on any drift, in both protocol modes.
+- Repository docs: a version line in the README linking this file (a test keeps it on the
+  package version); `AGENTS.md`, the rules for a coding agent with what enforces each, and the
+  neutrality rule; `docs/runbook.md` (run, release, moved from CONTRIBUTING, and recovery:
+  yanking a release, an interrupted run, stale markers); dated decision records in
+  `docs/decisions/` (zero runtime dependency, briefs built in code, MCP over stdio only, the
+  judge command only from the server's configuration); and `docs/plans/`, where a large change
+  starts.
+
 ### Changed
 
+- Every text placed in a brief is scanned for text addressed to a judge (the candidate, the
+  control, the previous version, the baseline and the known-good), with the flags kept per item,
+  and a flag on any of them no longer lets the run reach CONVERGED or a sealed grade silently:
+  the decision becomes `BLOCKED BY FLAG`, naming the item, in `status` and in the report's
+  title, and a blocked sealed grade is shown with a line saying it does not stand. A blocked
+  loop goes on with the text removed; a sealed panel is refused. When the round-1 text was
+  flagged, the sealed panel would score it as its baseline, so CONVERGED, PLATEAU and CAP become
+  `BLOCKED BY FLAG` on `baseline` with a new run as the next step, never "seal"; and `brief
+  --sealed` (and the `seal` tool) refuses, before writing anything, a sealed brief that would
+  carry a flagged item. A text that addresses a judge on purpose needs the new spec key
+  `injection_acknowledged`: a reason, frozen and hashed with the rubric (a spec without it keeps
+  its hash), and shown in the report's header, on its grade line and in `status`. Only a person
+  acknowledges: the MCP `init` tool refuses a spec that carries the key, and the command line
+  freezes it. `feedback` is refused on a blocked grade, which does not stand.
+- The development tools moved from the `dev` extra to `[dependency-groups]` (`test`, `dev`,
+  `audit`), and `uv.lock` is committed: contributors and every CI job, the mutation shards and
+  the nightly run included, install with `uv sync --locked`. The `dev` extra is gone; the `mcp`
+  extra is unchanged. Dependabot follows the lock.
+- ruff also runs its security rules (`S`, from bandit) and `T20` (no stray `print`). The
+  exceptions are per file (the command line, tools, examples, the stand-in judges, tests'
+  asserts and subprocesses) or carry their reason inline.
+- `examples/runner/judge_template.py` takes the model on its own command line (`-- MODEL
+  ARGV...` or `--url URL`), and `examples/runner/judge.toml` puts it in `judge.command`, where
+  the run freezes it and the report shows it next to the grade, with `model_id` beside it; the
+  environment carries the credential only. The template still reads `JUDGE_MODEL_COMMAND` or
+  `JUDGE_MODEL_URL` when it gets no argument.
 - The mutation check runs each mutation against the tests that execute its lines, picked from
   a coverage map built in each run, and confirms every survivor on the whole suite. CI runs it
   on every pull request in four shards and merges their reports; a nightly workflow runs the
@@ -169,7 +262,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Agent skill in `skill/`, synthetic example with demo judges in `examples/announcement/`.
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
-[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/tdrapp/sealed-panel/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tdrapp/sealed-panel/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tdrapp/sealed-panel/compare/v0.1.0...v0.2.0

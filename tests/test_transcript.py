@@ -12,8 +12,15 @@ from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
 from sealed_panel.config import load_config
-from sealed_panel.errors import EvalError
-from sealed_panel.record import judge_tools, last_reply, record_reply
+from sealed_panel.errors import EvalError, MalformedReply
+from sealed_panel.ledger import results_by_judge
+from sealed_panel.record import (
+    judge_tools,
+    last_reply,
+    record_from,
+    record_reply,
+    unreadable_lines,
+)
 from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import round_dir
 
@@ -43,8 +50,39 @@ class TestTranscript:
             {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "x"}]}},
             entry("assistant", '{"items": {}}'),
         ]
-        p = write_jsonl(tmp_path / "agent.jsonl", rows, "not json\n")
+        p = write_jsonl(tmp_path / "agent.jsonl", rows)
         assert last_reply(p) == '{"items": {}}'
+
+    def test_an_unreadable_line_before_the_reply_is_skipped(self, tmp_path: Path) -> None:
+        p = tmp_path / "agent.jsonl"
+        rows = [entry("user", "brief"), entry("assistant", "draft")]
+        p.write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n[1, 2]\n\n")
+        p.write_text(p.read_text() + json.dumps(entry("assistant", "the reply")) + "\n\n")
+        assert last_reply(p) == "the reply"
+        assert unreadable_lines(p) == [3, 4]
+
+    def test_a_cut_off_last_line_is_a_malformed_reply(self, tmp_path: Path) -> None:
+        early = '{"items": {"A": "draft scores, written first"}}'
+        final = json.dumps(entry("assistant", '{"items": {"A": "final scores"}}'))
+        p = write_jsonl(
+            tmp_path / "t.jsonl", [entry("user", "BRIEF"), entry("assistant", early)], final[:40]
+        )
+        with pytest.raises(MalformedReply, match="line 3"):
+            last_reply(p)
+        p.write_text(p.read_text() + "\n\n")  # trailing blank lines change nothing
+        with pytest.raises(MalformedReply, match="cut off"):
+            last_reply(p)
+
+    def test_a_line_separator_inside_a_string_is_not_a_line_break(self, tmp_path: Path) -> None:
+        reply = "first\u2028second\x85third"
+        p = tmp_path / "t.jsonl"
+        lines = [
+            json.dumps(entry("user", "b")),
+            json.dumps(entry("assistant", reply), ensure_ascii=False),
+        ]
+        p.write_text("\n".join(lines) + "\n")
+        assert last_reply(p) == reply
+        assert unreadable_lines(p) == []
 
     def test_no_reply_is_an_error_not_a_guess(self, tmp_path: Path) -> None:
         p = tmp_path / "empty.jsonl"
@@ -97,6 +135,39 @@ class TestTranscriptRefusals:
         fake_transcript(folder, "hidden", (rdir / "brief_j1.md").read_text())  # a 4th, kept quiet
         with pytest.raises(EvalError, match="never recorded"):
             aggregate_round(h.run, 1, False)
+
+
+class TestCutOffTranscripts:
+    def record(self, h: Harness, agent: str, tail: str, middle: str = "") -> dict[str, Any]:
+        meta = h.keys(1)["judges"][0]
+        raw = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
+        brief = (round_dir(h.run, 1) / "brief_j1.md").read_text()
+        t = h.tmp / "tasks" / f"{agent}.jsonl"
+        t.parent.mkdir(exist_ok=True)
+        head = json.dumps(entry("user", brief, agent))
+        reply = json.dumps(entry("assistant", raw, agent))
+        t.write_text(head + "\n" + middle + reply + "\n" + tail)
+        return record_from(h.run, 1, 1, agent, False, transcript=t)
+
+    def test_a_cut_off_transcript_is_recorded_rejected(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        r = self.record(h, "cut1", '{"type": "assistant", "message": {"cont')
+        assert not r["ok"] and "cut off" in r["errors"][0]
+        assert r["source"] == "transcript"
+
+    def test_skipped_lines_are_counted_in_the_result(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        r = self.record(h, "ok1", "", middle="garbage\n{broken\n")
+        assert r["ok"] and r["unreadable_lines"] == 2
+        stored = results_by_judge(round_dir(h.run, 1))[1][-1]
+        assert stored["unreadable_lines"] == 2
+
+    def test_a_clean_transcript_counts_none(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        assert self.record(h, "ok2", "")["unreadable_lines"] == 0
 
 
 class TestJudgeTools:

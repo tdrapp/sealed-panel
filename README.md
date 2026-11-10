@@ -3,6 +3,8 @@
 [![CI](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+Version 0.3.1. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+
 Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final
 grade.
 
@@ -22,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 327 mutations, 324
+bound or boundary at a time and requires the suite to fail on each. Of its 347 mutations, 344
 are killed; the three that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -113,11 +115,11 @@ relies on POSIX process groups and directory descriptors, untested there).
 From GitHub, at a release tag:
 
 ```sh
-pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
 # plus the MCP server:
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
 # run the server without installing it:
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1' sealed-panel mcp
 ```
 
 From the package index, once published:
@@ -125,7 +127,7 @@ From the package index, once published:
 ```sh
 pip install sealed-panel
 pip install 'sealed-panel[mcp]'
-uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp]==0.3.1' sealed-panel mcp
 ```
 
 Pin a `uvx` line to an exact version or tag, as above: an unpinned one runs whatever is newest
@@ -288,7 +290,7 @@ The report starts with the sealed grade, every judge's score per dimension, and 
 
 Rubric sha256 `0d16bd433b43`, decision **SEALED**, 4 judge contexts, settings that differ from the defaults: spec.judges_per_persona = 2 (default 3); spec.max_rounds = 1 (default 6).
 
-**Grade (sealed panel): ask 5 (5/5); relevance 4 (4/4); evidence 5 (5/5). Verdict: below 5 on em/relevance.**
+**Grade (sealed panel): ask 5 (5/5); relevance 4 (4/4); evidence 5 (5/5). Verdict: below 5 on em/relevance.** Judge model: not declared.
 ```
 
 Then come the round table, the open findings, the repeat-test line when the sealed text was
@@ -349,7 +351,8 @@ server is in the integrations guide.
 your model's answer, name its API key in `[judge] env_allow`, and call `judge_round` from
 Python or `sealed-panel judge` from a shell. The judge process gets an empty directory and
 only `PATH`, `HOME`, `LANG` and the allowed names from the environment.
-`examples/runner/judge_template.py` is a template to adapt.
+`examples/runner/judge_template.py` is a template to adapt. Declare the judges' model in
+`[judge] model_id`, printed next to the grade: pin a dated model id, never an alias.
 
 ## Configuration
 
@@ -391,6 +394,9 @@ sealed-panel/
   tests/                 the behaviour contract (pytest), one file per concern
   tools/
     mutation_check.py    seeded defects the tests must catch
+    smoke_mcp.py         the installed MCP server answers initialize (build job)
+    complexity_check.py  no function grows past complexity_baseline.json
+    check_commit_msg.py  the commit-msg hook: Conventional Commits, subject under 72
   skill/
     SKILL.md             the procedure an agent follows (the one source of the skill)
     judge.md             the judge instructions
@@ -418,31 +424,35 @@ sealed-panel/
     cli.md               every command and flag
     protocol.md          why each rule exists
     integrations.md      MCP server, plugin, host configuration, API pipelines
+    runbook.md           run, release, recovery (yank, interrupted run, stale markers)
+    decisions/           dated records of the choices that hold the design
+    plans/               a large change starts from a plan here
   .github/
     workflows/ci.yml     lint, types, tests on 3.11 to 3.13 with and without the mcp
-                         extra, mutation check
+                         extra, mutation check, build, actionlint, pip-audit, gitleaks,
+                         import contracts, complexity, docstrings
     workflows/release.yml  a tag v* publishes through trusted publishing
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
-  pyproject.toml, .pre-commit-config.yaml, .editorconfig
+  pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig
   README.md, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md, LICENSE, NOTICE
+  AGENTS.md              the rules for a coding agent, each with what enforces it
 ```
 
 ## Development
 
 ```sh
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
+uv sync --locked --python 3.12
 .venv/bin/pre-commit install
 .venv/bin/pre-commit run --all-files
 .venv/bin/pytest
 .venv/bin/python tools/mutation_check.py
 ```
 
-`pre-commit install` sets up two stages: lint, format and types on commit; the test suite on
-push. CI runs the same checks on Python 3.11, 3.12 and 3.13, and the tests once more without
-the `mcp` extra, where the MCP tests skip. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+`pre-commit install` sets up three stages: lint, format, types and a secret scan on commit; a
+Conventional Commits check on the message; the test suite on push. CI runs the same checks on
+Python 3.11, 3.12 and 3.13, and the tests once more without the `mcp` extra, where the MCP tests
+skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
@@ -478,9 +488,16 @@ aggregating. Pasted replies (`--output`) carry no proof that the judge received 
 verbatim, or that no other judge was asked and discarded; the report flags such rounds. The
 judge runner proves what sealed-panel wrote and read, not what the judge command did between the
 two: a command that asks a model several times and prints the best answer is a re-roll it cannot
-see, so the command is frozen into the run and listed next to the grade. `record` calls for one
-round must be made one after the other, not in parallel, because each call reads the files the
-previous one wrote; `judge` calls may overlap, since a marker holds each seat.
+see, so the command is frozen into the run and listed next to the grade. What the command reads
+from the environment is not frozen: the run keeps a hash of each allowed value, salted with a
+random value of its own, and the report flags a round whose attempts ran under different values
+and a sealed panel that ran under other values than the loop, but cannot say which model each
+used, so the shipped example puts the model in the command and keeps the environment for
+credentials. The salt sits in the run directory: it stops a lookup in a table made in advance
+and a match across runs, not someone who holds the run directory from guessing a short value, so
+keep credentials long. `record` calls for one round must be made one after the other, not in
+parallel, because each call reads the files the previous one wrote; `judge` calls may overlap,
+since a marker holds each seat.
 
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and

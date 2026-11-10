@@ -37,6 +37,7 @@ class TestExitCodes:
     ) -> None:
         assert mc.outcome(code) == expected
 
+    @pytest.mark.slow  # starts pytest in a subprocess
     @pytest.mark.parametrize(
         ("files", "tests", "code", "expected"),
         [

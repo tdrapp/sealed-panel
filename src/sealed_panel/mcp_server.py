@@ -36,14 +36,15 @@ from . import __version__
 from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import config_differences, library_dir, load_config
+from .config import Config, config_differences, library_dir, load_config
 from .errors import ConfigError, EvalError, user_message
 from .learn import user_disagreement
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .runner import SeatTaken, judge_seat, open_seats
-from .spec import init_run, library_for, run_config
+from .spec import init_run as init_any_run
+from .spec import library_for, run_config
 from .store import resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
@@ -169,6 +170,8 @@ class ReportResult(BaseModel):
 
 
 class TemplateRow(BaseModel):
+    """A rubric template the library serves."""
+
     id: str
     version: int
     source: str
@@ -176,6 +179,8 @@ class TemplateRow(BaseModel):
 
 
 class CandidateRow(BaseModel):
+    """An open rubric candidate in the library's inbox."""
+
     id: str
     kind: str
     template: str | None
@@ -195,6 +200,8 @@ class RubricsList(BaseModel):
 
 
 class Suggestion(BaseModel):
+    """A template for the kind of text: when to use it, its dimensions."""
+
     id: str
     version: int
     source: str
@@ -289,6 +296,26 @@ def _candidate_row(lib: Path, c: dict[str, Any]) -> CandidateRow:
         ],
         commands=_decide_commands(lib, c["id"]),
     )
+
+
+def init_run(
+    run: Path,
+    spec_path: Path,
+    cfg: Config | None = None,
+    library: Path | None = None,
+    facts_root: Path | None = None,
+) -> str:
+    """`init` for the MCP caller, who is the author: a spec that acknowledges injection flags
+    is refused, since acknowledging one is a person's decision (see spec.init_run).
+
+    Args:
+        run: A new or empty directory for the run.
+        spec_path: The spec file.
+        cfg: The server's configuration.
+        library: The user rubric library; the default one when None.
+        facts_root: The server's root: a `facts_file` must resolve under it.
+    """
+    return init_any_run(run, spec_path, cfg, library, facts_root, acknowledge=False)
 
 
 def build_server(
@@ -399,7 +426,9 @@ def build_server(
         library: LibraryPath = None,
     ) -> InitResult:
         """Validate a spec and freeze it into a new run directory, with the configuration the
-        server was started with (its judge command included): a caller never picks its judge."""
+        server was started with (its judge command included): a caller never picks its judge.
+        A spec carrying injection_acknowledged is refused: a person acknowledges a flag, at the
+        command line."""
 
         def call() -> InitResult:
             digest = init_run(path(run), path(spec), server, opt(library), base)
@@ -568,7 +597,8 @@ def build_server(
 
     @mcp.tool(annotations=READ)
     def status(run: RunPath) -> StatusResult:
-        """The stop rule's decision: CONTINUE, CONVERGED, PLATEAU, CAP or SEALED."""
+        """The stop rule's decision: CONTINUE, CONVERGED, PLATEAU, CAP, SEALED, or BLOCKED BY
+        FLAG when the candidate addresses a judge and the spec does not acknowledge it."""
         where = _calling(lambda: readable(run))
         d = _calling(lambda: run_status(where))
         rest = {k: v for k, v in d.items() if k not in ("decision", "overrides")}

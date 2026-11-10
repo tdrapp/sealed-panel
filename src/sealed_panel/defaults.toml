@@ -125,6 +125,9 @@ max_stderr_bytes = 1048576
 # Names of environment variables passed to the judge process, besides PATH, HOME and LANG.
 # Nothing else from the environment reaches it.
 env_allow = []
+# The model the judges run on, as free text, frozen and printed next to the grade. Pin a dated
+# model id, never an alias: an alias can point to another model the day after. Empty: not declared.
+model_id = ""
 
 [mcp]
 # The MCP server's root: every path a tool takes must resolve under it (symlinks followed).
