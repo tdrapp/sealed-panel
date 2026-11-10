@@ -517,14 +517,19 @@ class TestResources:
         assert r["void"] and r["errors"] == ["the judge command wrote more than 1024 bytes"]
         assert len(stored(h, 1)[0]["raw"]) <= 1024
 
-    def test_a_process_left_holding_stdout_cannot_hang_the_runner(self, h: Harness) -> None:
+    def test_a_process_left_holding_stdout_cannot_hang_the_runner(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The runner waits up to the grace twice for a stream nobody closes; a shorter grace
+        # keeps the test fast and the bound below still holds it to the grace.
+        monkeypatch.setattr(runner, "STOP_GRACE_S", 0.5)
         init_runner(h, command=[sys.executable, str(ORPHAN)], extra="timeout_s = 1\n")
         h.brief(1, "cand")
         start = time.monotonic()
         r = judge_seat(h.run, 1, 1, False)
         try:
             assert r["void"] and r["errors"] == ["the judge command timed out after 1 s"]
-            # About 11 s here; the grandchild holds stdout for 300 s.
+            # About 2 s here; the grandchild holds stdout for 300 s.
             assert time.monotonic() - start < 1 + 2 * runner.STOP_GRACE_S + 30
         finally:
             log = (round_dir(h.run, 1) / r["runner"]["stderr_log"]).read_text()
