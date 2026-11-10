@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0",
+        "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1",
         "sealed-panel",
         "mcp",
         "--transcript-root",

@@ -3,7 +3,7 @@
 [![CI](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Version 0.3.0. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+Version 0.3.1. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final
 grade.
@@ -115,11 +115,11 @@ relies on POSIX process groups and directory descriptors, untested there).
 From GitHub, at a release tag:
 
 ```sh
-pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
 # plus the MCP server:
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
 # run the server without installing it:
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1' sealed-panel mcp
 ```
 
 From the package index, once published:
@@ -127,7 +127,7 @@ From the package index, once published:
 ```sh
 pip install sealed-panel
 pip install 'sealed-panel[mcp]'
-uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp]==0.3.1' sealed-panel mcp
 ```
 
 Pin a `uvx` line to an exact version or tag, as above: an unpinned one runs whatever is newest

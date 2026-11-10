@@ -22,18 +22,18 @@ logging are deprecated too; paths come from the tool parameters, and logs go to 
 Install the extra and start the server over stdio:
 
 ```sh
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
 sealed-panel mcp
 ```
 
 Or let `uvx` fetch it on demand:
 
 ```sh
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1' sealed-panel mcp
 ```
 
 Once the package is published on the index, `pip install 'sealed-panel[mcp]'` and
-`uvx --from 'sealed-panel[mcp]==0.3.0' sealed-panel mcp` do the same. Pin a `uvx` line to an
+`uvx --from 'sealed-panel[mcp]==0.3.1' sealed-panel mcp` do the same. Pin a `uvx` line to an
 exact version or tag: an unpinned one runs whatever is newest the day it starts.
 
 The tools are listed in [cli.md](cli.md#mcp). Every path a tool takes must resolve under the
@@ -126,7 +126,7 @@ TOML configuration file. The skill is there already (`.agents/skills/sealed-pane
 ```toml
 [mcp_servers.sealed-panel]
 command = "uvx"
-args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.0", "sealed-panel", "mcp", "--transcript-root", "/path/to/your/host/sessions"]
+args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1", "sealed-panel", "mcp", "--transcript-root", "/path/to/your/host/sessions"]
 tool_timeout_sec = 300
 env_vars = ["MY_MODEL_API_KEY"]
 ```
