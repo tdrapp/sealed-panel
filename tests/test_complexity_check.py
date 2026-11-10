@@ -74,9 +74,26 @@ def test_a_baseline_that_rises_is_refused(tool: ModuleType) -> None:
     assert tool.raised(before, {"a.py:f": 19}) == []  # lowered
     assert tool.raised(None, {"a.py:f": 99}) == []  # the reference had no baseline
     grew = tool.raised(before, {"a.py:f": 21, "a.py:g": 15})
-    assert grew == ["the baseline sums to 36, 35 at the reference"]
+    assert grew == ["a.py:f rose from 20 to 21", "the baseline sums to 36, 35 at the reference"]
     added = tool.raised(before, {"a.py:f": 10, "a.py:g": 11, "a.py:h": 11})
     assert added == ["the baseline holds 3 entries, 2 at the reference"]
+
+
+def test_a_trade_between_two_functions_is_refused(tool: ModuleType) -> None:
+    """Lowering one function by 3 does not buy 3 for another that is in both baselines."""
+    before = {"a.py:f": 20, "a.py:g": 15}
+    assert tool.raised(before, {"a.py:f": 17, "a.py:g": 18}) == ["a.py:g rose from 15 to 18"]
+
+
+def test_a_moved_function_fits_the_budget(tool: ModuleType) -> None:
+    """A move or rename is one entry removed and one added, of the same value; deleting a
+    baselined function pays for a new one of no higher value."""
+    before = {"a.py:f": 20, "a.py:g": 15}
+    assert tool.raised(before, {"b.py:f": 20, "a.py:g": 15}) == []
+    assert tool.raised(before, {"a.py:f": 20, "c.py:new": 15}) == []
+    assert tool.raised(before, {"a.py:f": 20, "c.py:new": 16}) == [
+        "the baseline sums to 36, 35 at the reference"
+    ]
 
 
 def test_the_reference_baseline_is_read_from_git(tool: ModuleType, tmp_path: Path) -> None:

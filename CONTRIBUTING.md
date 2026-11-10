@@ -55,15 +55,18 @@ pull request, so a red `pip-audit` is fixed in its own pull request.
 | `actionlint` | the workflows, with shellcheck on each step's script |
 | `gitleaks` | secrets in the whole history, with a pinned release checked by its sha256; `.gitleaks.toml` allowlists only the sha256 digests of the test fixtures and the lock |
 | `imports` | the import contract in `pyproject.toml`: the command line and the MCP server above the core, `store` and `errors` at the bottom; a new module must be placed in a layer |
-| `complexity` | xenon caps the ranks at their 0.3.1 level (worst block F, worst module D, average B), and `tools/complexity_check.py` holds every function above rank B at its complexity in `tools/complexity_baseline.json`; a new function stays at rank B (complexity 10 or less); on a pull request, `--against` the base branch fails when the baseline holds more entries or a higher sum of complexities than there |
+| `complexity` | xenon caps the ranks at their 0.3.1 level (worst block F, worst module D, average B), and `tools/complexity_check.py` holds every function above rank B at its complexity in `tools/complexity_baseline.json`; a new function stays at rank B (complexity 10 or less); on a pull request, `--against` the base branch fails when an entry present on both sides rose, or when the number of entries or their sum rose |
 | `docstrings` | interrogate: at least 80% of the public functions, classes and modules of the package have a docstring |
 | `pip-audit` | known vulnerabilities in every locked package, by hash |
 
 When a refactor lowers a function's complexity, run `tools/complexity_check.py --update` and
-commit the lower baseline. `--update` writes whatever the code measures, so it could also raise
-the baseline; the `complexity` job runs `--against` the pull request's base branch and fails
-when the baseline holds more entries, or a higher sum of complexities, than there. Moving or
-renaming a function keeps both figures and passes; a function that grew does not.
+commit the lower baseline. `--update` writes whatever the code measures, so the `complexity` job
+also runs `--against` the pull request's base branch, with three rules: no entry present on both
+sides may rise, the number of entries may not rise, and their sum may not rise. The baseline is
+a budget, not a list of fixed ceilings: a moved or renamed function shows as one entry removed
+and one added, of the same value, and fits; complexity added somewhere has to be paid for by
+removing at least as much elsewhere. The JSON diff of `tools/complexity_baseline.json` is what a
+reviewer reads to judge such a trade.
 
 Two test tiers. A test that starts a process other than git (a judge command, the MCP server
 over stdio, a model endpoint) is marked `@pytest.mark.slow`; `.venv/bin/pytest -m "not slow"`

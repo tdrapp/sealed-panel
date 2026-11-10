@@ -7,9 +7,11 @@ the baseline must stay at rank B or better (at most MAX_NEW); a block in it must
 block that shrank is reported, so the baseline can be lowered with --update.
 
 --update rewrites the baseline from the code, so on its own it could raise the baseline to let
-growth in. --against REF closes that: it fails when the baseline holds more entries, or a
-higher sum of complexities, than the baseline at the git ref REF (CI passes the pull request's
-base). Moving or renaming a function keeps both figures, so it passes; growth does not.
+growth in. --against REF bounds it against the baseline at the git ref REF (CI passes the pull
+request's base): no entry present on both sides may rise, and neither the number of entries nor
+the sum of their values may rise. The baseline is a budget: a moved or renamed function shows
+as one entry removed and one added, of the same value, and fits; new complexity has to be paid
+for by removing some elsewhere. The JSON diff of the baseline is what a reviewer reads.
 
     python tools/complexity_check.py                    # check against complexity_baseline.json
     python tools/complexity_check.py --update           # rewrite the baseline from the code
@@ -90,18 +92,24 @@ def compare(baseline: dict[str, int], current: dict[str, int]) -> tuple[list[str
 
 
 def raised(before: dict[str, int] | None, now: dict[str, int]) -> list[str]:
-    """How the baseline rose against an earlier one: more entries, or a higher sum.
+    """How the baseline rose against an earlier one: an entry on both sides that rose, more
+    entries, or a higher sum. The baseline is a budget: a renamed function (one entry removed,
+    one added, of the same value) fits; raising one function while lowering another does not.
 
     Args:
         before: The baseline at the reference, or None when it had none.
         now: The baseline now.
 
     Returns:
-        One line per figure that rose; empty when neither did, or with no earlier baseline.
+        One line per rise; empty when nothing rose, or with no earlier baseline.
     """
     if before is None:
         return []
-    out = []
+    out = [
+        f"{key} rose from {before[key]} to {now[key]}"
+        for key in sorted(set(before) & set(now))
+        if now[key] > before[key]
+    ]
     if len(now) > len(before):
         out.append(f"the baseline holds {len(now)} entries, {len(before)} at the reference")
     if sum(now.values()) > sum(before.values()):
