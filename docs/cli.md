@@ -70,7 +70,7 @@ Writes `brief_j<J>.md` for each judge (personas times `judges_per_persona`) and 
 | `--artefact FILE` | The candidate text. |
 | `--control FILE` | The deliberately bad version, planted in every brief. Use the same one for the whole run. |
 | `--good FILE` | A known-good text the user validated. A judge who scores it below `good_min` is discarded. |
-| `--sealed` | Brief the sealed panel. Allowed only after CONVERGED, PLATEAU or CAP, or before any loop round (a one-shot grade). Once per run. |
+| `--sealed` | Brief the sealed panel. Allowed only after CONVERGED, PLATEAU or CAP, or before any loop round (a one-shot grade). Once per run. Refused before anything is written while the ledger says BLOCKED BY FLAG (a flagged round-1 text would come back as the baseline), or when any text of the sealed brief (candidate, control, baseline, known-good) addresses a judge and the spec has no `injection_acknowledged`: start a new run, or acknowledge it at init with the command line. |
 
 From round 2, the previous round's text rides along as a blind paired comparator. In a sealed
 panel, the round-1 text rides along as a blind baseline when it differs from the candidate.

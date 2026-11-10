@@ -1372,8 +1372,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # A candidate that addresses a judge: blocked unless the spec acknowledges it.
     "a flagged candidate converges": (
         f"{PKG}/decide.py",
-        "        return _gate(spec, last, converged)",
-        "        return converged",
+        "        return _baseline_gate(spec, loop, _gate(spec, last, converged))",
+        "        return _baseline_gate(spec, loop, converged)",
     ),
     "a flagged sealed grade stands": (
         f"{PKG}/decide.py",
@@ -1454,6 +1454,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/report.py",
         "return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))",
         "return []",
+    ),
+    # A sealed panel is never spent on a grade that could not stand.
+    "a flagged round 1 still offers the seal": (
+        f"{PKG}/decide.py",
+        'if not flags or spec.get(INJECTION_ACK) or d["decision"] not in STOP_DECISIONS:',
+        "if True:",
+    ),
+    "a flagged sealed brief written": (
+        BRIEF,
+        "if found and not spec.get(INJECTION_ACK):",
+        "if False:",
     ),
 }
 

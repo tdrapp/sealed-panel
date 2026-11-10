@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
 from conftest import BAD, FLAT, Harness, make_spec
+from sealed_panel import brief as brief_module
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
 from sealed_panel.decide import BLOCKED, flagged_roles
@@ -101,6 +103,10 @@ class TestInjectionGate:
         h.files["inj"] = p
         return "inj"
 
+    def no_sealed_files(self, h: Harness) -> bool:
+        sealed = h.run / "sealed"
+        return not sealed.exists() or not any(sealed.rglob("*"))
+
     def test_a_flagged_candidate_never_converges(self, h: Harness) -> None:
         h.init()
         h.full(1, self.flagged(h), FIVE)
@@ -112,33 +118,77 @@ class TestInjectionGate:
         h.full(2, "v2", FIVE, FIVE)  # the author removed the text: the loop goes on
         d = h.decision()  # but round 1's text rode along as `previous`, and it is scanned too
         assert (d["decision"], d["roles"]) == (BLOCKED, ["previous"])
-        h.full(3, "v3", FIVE, FIVE)  # no flagged item left in the brief
-        assert h.decision()["decision"] == "CONVERGED"
 
-    def test_the_flagged_text_cannot_come_back_as_the_baseline(self, h: Harness) -> None:
-        """The reviewer's probe: round 1 is flagged and blocked, the author removes the text,
-        and the run then stops on CAP; the sealed panel scores round 1's text blind as the
-        baseline, so its grade must not stand either."""
-        h.init(max_rounds=2)
+    def test_a_flagged_round_1_never_says_seal(self, h: Harness) -> None:
+        """The reviewer's probe: round 1 is flagged, round 2 is blocked on `previous`, round 3
+        is clean and converges. The sealed panel would score round 1's text as its baseline, so
+        no sealed grade of this run can stand: status must not say seal, and the sealed brief
+        is refused before a file is written, so the panel is never spent."""
+        h.init()
         h.full(1, self.flagged(h), FIVE)
-        assert h.decision()["decision"] == BLOCKED
-        h.full(2, "v2", THREE, FIVE)
-        assert h.decision()["decision"] == "CAP"  # not CONVERGED, so the gate has nothing to do
-        h.full(1, "v3", FIVE, sealed=True)
+        h.full(2, "v2", FIVE, FIVE)
+        assert h.decision()["roles"] == ["previous"]
+        h.full(3, "v3", FIVE, FIVE)
         d = h.decision()
-        assert (d["decision"], d["blocked"], d["roles"]) == (BLOCKED, "SEALED", ["baseline"])
-        assert "baseline item contains text addressed to a judge" in render_report(h.run)
+        assert (d["decision"], d["blocked"], d["roles"]) == (BLOCKED, "CONVERGED", ["baseline"])
+        assert d["next"] != "seal" and "new run" in d["next"]
+        assert status(h.run)["next"] == d["next"]
+        with pytest.raises(EvalError, match="new run"):
+            h.brief(1, "v3", sealed=True)
+        assert self.no_sealed_files(h)
+
+    def test_a_flagged_round_1_blocks_plateau_and_cap_too(self, h: Harness) -> None:
+        h.init(max_rounds=2)
+        h.full(1, self.flagged(h), THREE)
+        h.full(2, "v2", THREE, THREE)
+        d = h.decision()
+        assert (d["decision"], d["blocked"], d["roles"]) == (BLOCKED, "CAP", ["baseline"])
+        with pytest.raises(EvalError, match="baseline"):
+            h.brief(1, "v3", sealed=True)
+        assert self.no_sealed_files(h)
+
+    def test_an_acknowledged_round_1_flag_lets_the_run_seal(self, h: Harness) -> None:
+        h.init(injection_acknowledged=ACK, max_rounds=2)
+        h.full(1, self.flagged(h), THREE)
+        h.full(2, "v2", THREE, THREE)
+        assert h.decision()["decision"] == "CAP"
+        h.full(1, "v3", FIVE, sealed=True)
+        assert h.decision()["decision"] == "SEALED"
 
     @pytest.mark.parametrize("role", ["control", "known_good"])
-    def test_a_flagged_control_or_known_good_blocks_the_grade(self, h: Harness, role: str) -> None:
+    def test_a_flagged_sealed_brief_is_refused_before_it_is_written(
+        self, h: Harness, role: str
+    ) -> None:
         key = "ctrl" if role == "control" else "good"
-        h.files[key].write_text(h.files[key].read_text() + INJECTED)
+        clean = h.files[key].read_text()
+        h.files[key].write_text(clean + INJECTED)
         h.init()
+        with pytest.raises(EvalError, match=f"in the {role} item"):
+            h.brief(1, "cand", sealed=True, good=True)
+        assert self.no_sealed_files(h)
+        h.files[key].write_text(clean)  # the panel was not spent: a clean brief seals
         h.full(1, "cand", FIVE, sealed=True, good=True)
-        d = h.decision()
-        assert (d["decision"], d["roles"]) == (BLOCKED, [role])
-        keys = h.keys(1, sealed=True)
-        assert keys["injection_flags"] == [] and list(keys["injection_flags_by_role"]) == [role]
+        assert h.decision()["decision"] == "SEALED"
+
+    def test_the_mcp_seal_refuses_a_flagged_round_1_too(self, h: Harness) -> None:
+        pytest.importorskip("fastmcp")
+        from fastmcp import Client
+
+        from sealed_panel.mcp_server import build_server
+
+        h.init(max_rounds=2)
+        h.full(1, self.flagged(h), THREE)
+        h.full(2, "v2", THREE, THREE)
+
+        async def seal() -> str:
+            async with Client(build_server(h.tmp)) as c:
+                args = {"run": "run", "artefact": "v3.md", "control": "ctrl.md"}
+                r = await c.call_tool_mcp("seal", args)
+                assert r.is_error
+                return str(r.content[0].text)  # type: ignore[union-attr]
+
+        assert "baseline" in asyncio.run(seal())
+        assert self.no_sealed_files(h)
 
     def test_a_round_briefed_before_0_3_1_reads_the_candidate_flags(self) -> None:
         assert flagged_roles({"injection_flags": ["x"]}) == {"candidate": ["x"]}
@@ -150,9 +200,16 @@ class TestInjectionGate:
         d = h.decision()
         assert d["decision"] == BLOCKED and "round limit" in d["next"]
 
-    def test_a_flagged_sealed_grade_is_blocked(self, h: Harness) -> None:
-        h.init()
+    def seal_flagged_as_0_3_0_did(self, h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A run briefed by 0.3.0 could seal a flagged text: the decision still blocks it."""
+        monkeypatch.setattr(brief_module, "_refuse_a_flagged_seal", lambda *a: None)
         h.full(1, self.flagged(h), FIVE, sealed=True)
+
+    def test_a_flagged_sealed_grade_is_blocked(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        h.init()
+        self.seal_flagged_as_0_3_0_did(h, monkeypatch)
         d = h.decision()
         assert (d["decision"], d["blocked"]) == (BLOCKED, "SEALED")
         s = status(h.run)
@@ -164,10 +221,10 @@ class TestInjectionGate:
         assert "**Grade (sealed panel):" in text  # shown, never silently
 
     def test_a_blocked_sealed_run_still_learns_but_has_no_grade_to_dispute(
-        self, h: Harness
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         h.init()
-        h.full(1, self.flagged(h), FIVE, sealed=True)
+        self.seal_flagged_as_0_3_0_did(h, monkeypatch)
         assert main(["learn", str(h.run)]) == 0  # learning reads the rubric, not the grade
         with pytest.raises(EvalError, match="does not stand"):
             user_disagreement(h.run, "my read differs")
