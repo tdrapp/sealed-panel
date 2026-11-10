@@ -111,13 +111,6 @@ Statistics over a dataset do not apply to one text. Its only repetitions are its
   text that addresses a judge on purpose (a notice about prompt injection, say) needs
   `injection_acknowledged` in the spec: a reason, frozen and hashed with the rubric, and shown
   in the report.
-- **Blocked by a flag.** A candidate the injection scan flags never converges and never takes a
-  sealed grade silently: CONVERGED and SEALED on such a text become BLOCKED BY FLAG, in
-  `status` and in the report's title. A blocked loop goes on to the next round with the text
-  removed; a sealed panel is refused, and a blocked sealed grade is shown but does not stand. A
-  text that addresses a judge on purpose (a notice about prompt injection, say) needs
-  `injection_acknowledged` in the spec: a reason, frozen and hashed with the rubric, and shown
-  in the report.
 - **Suspect jump.** A paired gain of 2 or more on one dimension is reported for a human read:
   an implausible jump is suspect until checked.
 

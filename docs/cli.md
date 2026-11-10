@@ -104,10 +104,12 @@ the configured list, an empty reasoning, more than a third of quotes not found i
 control mean above `control_max`, a known-good mean below `good_min`, or, from a transcript, any
 tool call by the judge other than the configured handback tool (a judge gets no tools), or a
 transcript whose last non-empty line is not a JSON object (cut off while being written: the
-final reply may be lost, and the text before it is not that reply). Other unreadable lines are
-skipped and counted in the result as `unreadable_lines`. Scores above the severity cap are
-lowered to the cap. A quote that is not found voids that score. A judge that quoted the same
-words on every dimension of the candidate is noted for the report.
+final reply may be lost, and the text before it is not that reply). So record a transcript only
+after the judge has returned: recording a file still being written stores a rejection, and the
+seat needs a replacement judge. Other unreadable lines are skipped and counted in the result as
+`unreadable_lines`. Scores above the severity cap are lowered to the cap. A quote that is not
+found voids that score. A judge that quoted the same words on every dimension of the candidate
+is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
 used in the run, a reply already recorded, a judge slot that already has a valid reply, any

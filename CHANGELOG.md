@@ -85,7 +85,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the run freezes it and the report shows it next to the grade, with `model_id` beside it; the
   environment carries the credential only. The template still reads `JUDGE_MODEL_COMMAND` or
   `JUDGE_MODEL_URL` when it gets no argument.
-
 - The mutation check runs each mutation against the tests that execute its lines, picked from
   a coverage map built in each run, and confirms every survivor on the whole suite. CI runs it
   on every pull request in four shards and merges their reports; a nightly workflow runs the

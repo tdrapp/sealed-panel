@@ -114,6 +114,8 @@ For each judge, record its reply. Prefer the judge's own transcript when your to
 sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jsonl
 ```
 
+Record a transcript only after the judge has returned: a file still being written ends with a
+cut-off line, and `record` stores that attempt as rejected, so the seat takes a replacement.
 The transcript's first user entry must contain the whole brief file: paste the brief verbatim,
 or `record` refuses it. Text you add around the brief is counted and reported, so add nothing.
 Otherwise save the reply to a file, unchanged, and use `--output reply.json`. Through the MCP
