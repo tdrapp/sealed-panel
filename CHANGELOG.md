@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The mutation check runs each mutation against the tests that execute its lines, picked from
+  a coverage map built in each run, and confirms every survivor on the whole suite. CI runs it
+  on every pull request in four shards and merges their reports; a nightly workflow runs the
+  whole suite on every mutation. A pytest exit code other than 0, 1 or 2 is now an error, not a
+  kill. In CI the check went from 55 to 81 min to about 6 min.
+
 ## [0.3.0] - 2026-11-07
 
 ### Added
