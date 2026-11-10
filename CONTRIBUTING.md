@@ -41,8 +41,7 @@ Each mutation in `tools/mutation_check.py` is an exact text and its replacement.
 test failed) is a kill, and 2 (interrupted) is a kill flagged INTERRUPT: a mutation that lets
 ctrl-c reach pytest, or breaks an import, ends the run that way. 3 (internal error), 4 (usage
 error, such as a test id the copy lacks) and 5 (no test collected) say the run itself went
-wrong: an error that fails the check. A run past its time limit is killed with its process group
-and counts as detected, after one more run on its own.
+wrong: an error that fails the check.
 
 Running the whole suite on every mutation took about an hour in CI, so the tool selects tests
 first. It runs the unmutated suite once under coverage, with one context per test, and maps
@@ -57,6 +56,14 @@ kill: the selected tests up to the one that failed (all of them after an interru
 in the same order, on unmutated code, or the run fails. A survivor is different: the selection
 could have missed a test, so a mutation the selection does not kill runs again on the whole
 suite, and is reported as a survivor only if the whole suite misses it too.
+
+A run past its time limit, max(60 s, 5 x the selected tests' time + 30 s), is killed with its
+process group. A timeout of the selected tests counts as detected only after one more run on its
+own, and only if the same tests then pass within the same limit on unmutated code; otherwise it
+is an error. A timeout of the whole-suite run of a survivor is always an error: the selected
+tests passed and the other tests never execute the changed line, so the timeout says the machine
+is slow, not that the mutation is caught. Processes a test starts in a session of their own
+outlive the kill; on a throwaway CI runner that is harmless.
 
 ```sh
 .venv/bin/python tools/mutation_check.py                    # all mutations, one at a time

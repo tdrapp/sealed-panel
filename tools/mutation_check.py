@@ -1607,7 +1607,7 @@ class Checker:
     ):
         self.tmp, self.selection, self.durations = tmp, selection, durations
         self.full_timeout = timeout_for(sum(durations.values()))
-        self._clean: dict[tuple[str, ...], int | None] = {}
+        self._clean: dict[tuple[str, ...] | None, int | None] = {}
         self._lock = threading.Lock()
 
     def _run(self, name: str | None, tests: list[str] | None, timeout: float) -> Run:
@@ -1625,10 +1625,12 @@ class Checker:
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def _passes_unmutated(self, tests: list[str]) -> bool:
-        """Whether these tests, in this order, pass on unmutated code. A subset can fail where
-        the whole suite passes (a test that leans on an earlier one): its kill would be false."""
-        key = tuple(tests)
+    def _passes_unmutated(self, tests: list[str] | None) -> bool:
+        """Whether these tests (None: the whole suite), in this order, pass on unmutated code
+        within their time limit. A subset can fail where the whole suite passes (a test that
+        leans on an earlier one), and a slow machine can time out without any mutation: in
+        both cases a kill or a timeout would be false."""
+        key = None if tests is None else tuple(tests)
         with self._lock:
             if key in self._clean:
                 return self._clean[key] == 0
@@ -1675,6 +1677,11 @@ class Checker:
             run = self._run(name, None, self.full_timeout)
             verdict = outcome(run.code)
             result["confirmed"] = True
+            if verdict == "timeout":
+                # The selected tests passed and the others never run the mutated line, so a
+                # timeout here says the machine is slow, not that the mutation is caught.
+                verdict = "error"
+                result["note"] = "the whole suite timed out on a survivor of the selection"
         if verdict == "error" and not result["note"]:
             result["note"] = f"pytest exit code {run.code}: " + " | ".join(
                 run.output.strip().splitlines()[-5:]
@@ -1682,6 +1689,20 @@ class Checker:
         result.update(outcome=verdict, failed=run.failed[0] if run.failed else None)
         result["seconds"] = round(time.monotonic() - start, 2)
         return result
+
+    def retry_timeout(self, name: str) -> dict[str, Any]:
+        """Run a mutation that timed out once more, alone. A second timeout counts as detected
+        only if the same tests finish within the same limit on unmutated code."""
+        r = self.check(name)
+        notes = [r["note"]] if r["note"] else []
+        notes.append("timed out once, run again alone")
+        if r["outcome"] == "timeout" and not self._passes_unmutated(
+            self.selection.get(name, Selection(None)).tests
+        ):
+            r["outcome"] = "error"
+            notes.append("the same tests do not pass within the limit on unmutated code")
+        r["note"] = "; ".join(notes)
+        return r
 
 
 def _line(r: Mapping[str, Any]) -> str:
@@ -1784,8 +1805,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(_line(r), flush=True)
         for name in [n for n, r in results.items() if r["outcome"] == "timeout"]:
             # A timeout under load may be the load: run it again, alone, before accepting it.
-            r = checker.check(name)
-            r["note"] = (r["note"] + "; " if r["note"] else "") + "timed out once, run again"
+            r = checker.retry_timeout(name)
             results[name] = r
             print(_line(r), flush=True)
     wall = time.monotonic() - started

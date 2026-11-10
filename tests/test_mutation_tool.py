@@ -143,6 +143,67 @@ class TestSurvivors:
         assert checker.check(name)["outcome"] == "error"
 
 
+class TestTimeouts:
+    """A timeout counts as detected only after a run alone and only when the same tests finish
+    within the same limit on unmutated code; on the whole-suite re-run of a survivor it is an
+    error."""
+
+    TESTS = ("tests/test_x.py::test_a",)
+
+    def checker(
+        self, mc: ModuleType, tmp_path: Path, codes: dict[tuple[bool, bool], list[int | None]]
+    ) -> tuple[Any, list[tuple[str | None, list[str] | None]]]:
+        """codes maps (mutated, whole suite) to the exit codes its runs return, in order."""
+        name = next(iter(mc.MUTATIONS))
+        checker = mc.Checker(tmp_path, {name: mc.Selection(list(self.TESTS))}, {})
+        calls: list[tuple[str | None, list[str] | None]] = []
+
+        def run(mutation: str | None, tests: list[str] | None, timeout: float) -> Any:
+            calls.append((mutation, tests))
+            return mc.Run(codes[(mutation is not None, tests is None)].pop(0), 0.1)
+
+        checker._run = run
+        return checker, calls
+
+    def test_a_timeout_on_the_whole_suite_rerun_is_an_error(
+        self, mc: ModuleType, tmp_path: Path
+    ) -> None:
+        checker, _ = self.checker(mc, tmp_path, {(True, False): [0], (True, True): [None]})
+        r = checker.check(next(iter(mc.MUTATIONS)))
+        assert r["outcome"] == "error" and r["confirmed"]
+
+    def test_a_timeout_is_run_again_alone_then_checked_unmutated(
+        self, mc: ModuleType, tmp_path: Path
+    ) -> None:
+        name = next(iter(mc.MUTATIONS))
+        checker, calls = self.checker(
+            mc, tmp_path, {(True, False): [None, None], (False, False): [0]}
+        )
+        assert checker.check(name)["outcome"] == "timeout"
+        r = checker.retry_timeout(name)
+        assert r["outcome"] == "timeout" and "run again alone" in r["note"]
+        assert calls == [(name, [*self.TESTS]), (name, [*self.TESTS]), (None, [*self.TESTS])]
+
+    def test_a_timeout_that_does_not_repeat_takes_the_new_verdict(
+        self, mc: ModuleType, tmp_path: Path
+    ) -> None:
+        checker, _ = self.checker(mc, tmp_path, {(True, False): [None, 1], (False, False): [0]})
+        name = next(iter(mc.MUTATIONS))
+        checker.check(name)
+        assert checker.retry_timeout(name)["outcome"] == "killed"
+
+    @pytest.mark.parametrize("clean", [None, 1])
+    def test_a_timeout_is_an_error_when_unmutated_code_does_not_fit_the_limit(
+        self, mc: ModuleType, tmp_path: Path, clean: int | None
+    ) -> None:
+        checker, _ = self.checker(
+            mc, tmp_path, {(True, False): [None, None], (False, False): [clean]}
+        )
+        name = next(iter(mc.MUTATIONS))
+        checker.check(name)
+        assert checker.retry_timeout(name)["outcome"] == "error"
+
+
 class TestMap:
     def test_a_context_is_split_on_its_last_bar(self, mc: ModuleType) -> None:
         assert mc.split_context("tests/t.py::test_a|run") == "tests/t.py::test_a"
