@@ -2307,12 +2307,6 @@ version = "0.3.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
-dev = [
-    { name = "fastmcp" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-]
 mcp = [
     { name = "fastmcp" },
 ]
@@ -2342,14 +2336,8 @@ test = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "fastmcp", marker = "extra == 'dev'", specifier = ">=4.1.6,<4.2" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=4.1.6,<4.2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
-]
-provides-extras = ["mcp", "dev"]
+requires-dist = [{ name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=4.1.6,<4.2" }]
+provides-extras = ["mcp"]
 
 [package.metadata.requires-dev]
 audit = [{ name = "pip-audit", specifier = ">=2.7" }]

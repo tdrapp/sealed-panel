@@ -22,7 +22,7 @@ uv sync --locked --python 3.12          # the package and the dev group, from uv
 .venv/bin/lint-imports
 .venv/bin/python tools/complexity_check.py
 .venv/bin/interrogate src
-.venv/bin/python tools/mutation_check.py   # long: every seeded defect must be caught
+.venv/bin/python tools/mutation_check.py --jobs 4   # every seeded defect must be caught
 ```
 
 A larger change starts from a plan in [docs/plans/](docs/plans/README.md). Release and

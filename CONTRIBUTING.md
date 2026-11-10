@@ -50,7 +50,7 @@ pull request, so a red `pip-audit` is fixed in its own pull request.
 | `lint`, `types` | ruff (lint, format, the security rules, docstrings) and mypy strict |
 | `test (3.11)` to `test (3.13)` | the test suite with the `mcp` extra, and the coverage floor |
 | `test (3.11, core)` to `test (3.13, core)` | the test suite without the extra: the MCP tests skip |
-| `mutation` | every seeded defect of `tools/mutation_check.py` is caught |
+| `mutation` | the gate over the four `mutation (N/4)` shards: every seeded defect of `tools/mutation_check.py` is caught (see below); the shards themselves are not required checks |
 | `build` | the sdist and the wheel build; the wheel installs in a fresh environment with the lock's versions, `sealed-panel --version` names the package version, and the MCP server answers `initialize` (`tools/smoke_mcp.py`) |
 | `actionlint` | the workflows, with shellcheck on each step's script |
 | `gitleaks` | secrets in the whole history, with a pinned release checked by its sha256; `.gitleaks.toml` allowlists only the sha256 digests of the test fixtures and the lock |

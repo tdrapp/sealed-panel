@@ -33,14 +33,6 @@ dependencies = []
 
 [project.optional-dependencies]
 mcp = ["fastmcp>=4.1.6,<4.2"]
-# Kept only for the CI mutation job, which installs `.[dev]` with pip; the development tools are
-# in [dependency-groups] below. Remove this extra when that job moves to `uv sync --locked`.
-dev = [
-    "pytest>=8",
-    "pytest-cov>=5",
-    "pytest-asyncio>=1.0",
-    "fastmcp>=4.1.6,<4.2",
-]
 
 [dependency-groups]
 # What the tests need, with or without the mcp extra.
