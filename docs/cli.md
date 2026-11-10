@@ -283,7 +283,9 @@ Needs the `mcp` extra; without it, the command says so, with the install line, a
 status 2. stdout carries the protocol only; logs go to stderr. Every path a tool takes must
 resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in the
 configuration, else the directory the server starts in. A path outside it, or one starting with
-`~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too.
+`~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too. The
+`init` tool holds a lock at the root (`.sealed-panel-init.lock`), so two inits never run at
+once; that name is refused as a run.
 
 `--config` is the configuration of every run the server changes, and the only place a
 `[judge] command` comes from. It is read once at startup and must live outside the root, or the

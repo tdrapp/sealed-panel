@@ -17,7 +17,15 @@ from .config import Config, resolve
 from .decide import BLOCKED, INJECTION_ACK, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
 from .spec import dims_for, load_frozen, rubric_hash, run_config
-from .store import dump_json, load_json, read_text, round_dir, under_run_lock, write_file
+from .store import (
+    dump_json,
+    load_json,
+    make_dir,
+    read_text,
+    round_dir,
+    under_run_lock,
+    write_file,
+)
 from .text import fixed_normalise, injection_flags, text_hash
 
 # Letters drawn without repetition to label the items of one brief.
@@ -300,7 +308,7 @@ def write_briefs(
                 f"the {role} text contains an <{ITEM_TAG}> tag: it would break the fence"
             )
     _refuse_a_flagged_seal(spec, roles, cfg, sealed)
-    rdir.mkdir(parents=True, exist_ok=True)
+    make_dir(rdir)
     for role, text in roles:
         write_file(rdir / f"{role}.md", text)
     framings = spec.get("framings") or cfg.framings

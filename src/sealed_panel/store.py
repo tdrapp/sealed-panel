@@ -41,6 +41,21 @@ def dump_json(path: Path, data: Any) -> None:
     write_file(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
+def make_dir(path: Path) -> None:
+    """Create a directory and every missing parent owner-only (0700), as every directory of a
+    run is.
+
+    Args:
+        path: The directory.
+    """
+    missing = []
+    while not path.exists():
+        missing.append(path)
+        path = path.parent
+    for folder in reversed(missing):
+        folder.mkdir(mode=0o700, exist_ok=True)
+
+
 def write_file(path: Path, text: str) -> None:
     """Write a file whole or not at all: a private temporary file in the target directory,
     then moved over the target. A reader in another call never sees half a file, and a link on
@@ -50,7 +65,7 @@ def write_file(path: Path, text: str) -> None:
         path: The file.
         text: Its whole content.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    make_dir(path.parent)
     fd, draft = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:

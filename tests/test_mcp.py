@@ -641,6 +641,34 @@ class TestPaths:
             assert "outside the root" in msg
             await call(c, "status", run=str(h.run))  # an absolute path inside the root is fine
 
+    @pytest.mark.slow
+    async def test_concurrent_inits_never_nest_a_run(self, h: Harness, mode: str) -> None:
+        """An outer and a nested init at once: inits under one root are serialised, so the
+        second always meets the first (a run among its ancestors, or a directory that is not a
+        run). 30 trials; without the lock both passed in every one."""
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            for k in range(30):
+                outer, nested = f"x{k}", f"x{k}/rounds/r1/seat_j1.lock"
+                res = await asyncio.gather(
+                    c.call_tool_mcp("init", {"run": outer, "spec": "spec.json"}),
+                    c.call_tool_mcp("init", {"run": nested, "spec": "spec.json"}),
+                )
+                assert sum(not r.is_error for r in res) == 1, k
+                assert not (
+                    (h.tmp / outer / "rubric.lock").exists() and (h.tmp / nested).is_dir()
+                ), k
+
+    async def test_either_order_of_nested_inits_is_refused(self, h: Harness, mode: str) -> None:
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="a", spec="spec.json")
+            assert "inside the run" in await error(c, "init", run="a/rounds/r1/x", spec="spec.json")
+            await call(c, "init", run="b/rounds/r1/x", spec="spec.json")
+            assert "not empty" in await error(c, "init", run="b", spec="spec.json")
+            msg = await error(c, "init", run=mcp_server.INIT_LOCK, spec="spec.json")
+            assert "the server's own lock file" in msg
+
     async def test_a_run_is_never_created_inside_a_run(self, h: Harness, mode: str) -> None:
         """A directory named after a round's lock or result would block that round."""
         write_spec(h)

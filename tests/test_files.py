@@ -78,7 +78,8 @@ class TestWrites:
         assert json.loads(path.read_text()) == {"a": 1}
 
     def test_every_file_a_run_holds_is_owner_only(self, h: Harness) -> None:
-        """init (env.salt included), brief, record and the locks, under an open umask."""
+        """Files and directories: init (env.salt included), brief, record and the locks, under
+        an open umask."""
         old = os.umask(0)
         try:
             h.init(judges_per_persona=2)
@@ -92,6 +93,11 @@ class TestWrites:
         assert {"env.salt", "run.lock", "seat_j1.lock", "keys.json"} <= {p.name for p in files}
         assert {p.name: oct(stat.S_IMODE(p.stat().st_mode)) for p in files} == {
             p.name: oct(0o600) for p in files
+        }
+        folders = [h.run, *(p for p in h.run.rglob("*") if p.is_dir())]
+        assert {"rounds", "r1"} <= {p.name for p in folders}
+        assert {str(p): oct(stat.S_IMODE(p.stat().st_mode)) for p in folders} == {
+            str(p): oct(0o700) for p in folders
         }
 
     def test_nothing_is_left_behind(self, tmp_path: Path) -> None:

@@ -22,7 +22,7 @@ from .config import (
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import contained, dump_json, load_json, read_text, write_file
+from .store import contained, dump_json, load_json, make_dir, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -398,7 +398,7 @@ def init_run(
     )
     if injection_flags(exposed, cfg):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
-    run.mkdir(parents=True, exist_ok=True)
+    make_dir(run)
     frozen = json.loads(json.dumps(cfg.data))
     frozen["library"] = {**cfg.library, "path": str(lib)}
     cfg = Config(frozen)

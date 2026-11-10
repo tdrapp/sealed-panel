@@ -1092,13 +1092,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init freezes no server configuration": (
         MCP,
-        "digest = init_run(path(run), path(spec), server, opt(library), base)",
-        "digest = init_run(path(run), path(spec), None, opt(library), base)",
+        "digest = init_run(where, path(spec), server, opt(library), base)",
+        "digest = init_run(where, path(spec), None, opt(library), base)",
     ),
     "init leaves facts_file unconfined": (
         MCP,
-        "digest = init_run(path(run), path(spec), server, opt(library), base)",
-        "digest = init_run(path(run), path(spec), server, opt(library))",
+        "digest = init_run(where, path(spec), server, opt(library), base)",
+        "digest = init_run(where, path(spec), server, opt(library))",
     ),
     "the install hint names the index": (
         f"{PKG}/cli.py",
@@ -1495,6 +1495,21 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         REC,
         "@under_run_lock\ndef record_measurement(",
         "def record_measurement(",
+    ),
+    "concurrent inits not serialised": (
+        MCP,
+        '            with locked(init_lock, "another init is running", wait=True):\n',
+        "            with contextlib.nullcontext():\n",
+    ),
+    "init onto the server's lock file accepted": (
+        MCP,
+        "            if where == init_lock:\n",
+        "            if False:\n",
+    ),
+    "a run directory readable by others": (
+        f"{PKG}/store.py",
+        "        folder.mkdir(mode=0o700, exist_ok=True)\n",
+        "        folder.mkdir(mode=0o777, exist_ok=True)\n",
     ),
     "a seat filled meanwhile stops the round": (
         RUN,

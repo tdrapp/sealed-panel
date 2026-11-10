@@ -23,7 +23,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   two seats, or two concurrent briefings of one round, could both pass before. `measure`
   takes the same lock, so two concurrent readings of one round are both kept.
 - `init` refuses a run path inside another run: through MCP the author could put a directory
-  where a round's lock or result goes and block the round.
+  where a round's lock or result goes and block the round. The MCP `init` tool holds a lock at
+  the root (`.sealed-panel-init.lock`, refused as a run name), so two concurrent inits cannot
+  both pass that check.
 - One containment guard, `contained()` (resolve, then require the path to stay under the
   root), confines every MCP tool path, a spec's `facts_file`, and a transcript to its
   transcript roots.
@@ -35,7 +37,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Every run file is written to a private temporary file in its directory and moved over the
   target. Every file sealed-panel creates in a run, the lock files and the judge's stderr log
-  included, is owner-only (0600): a file's earlier mode is no longer kept.
+  included, is owner-only (0600), and every directory of a run is created 0700: a file's earlier
+  mode is no longer kept.
 - `record` and `judge` calls on a round may overlap; a call on a held seat is refused (`judge`
   skips it). The refusal now reads "seat J is held by another call (a judge running or a reply
   being recorded)", in place of "judge J is being judged by another call", since a host

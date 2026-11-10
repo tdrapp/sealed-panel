@@ -40,6 +40,6 @@ directory or the transcript folder is out of scope. Within that model:
   round's lock or result goes.
 - A filesystem without `flock` is refused; `flock` is advisory and may not hold on NFS.
 - Every file sealed-panel creates in a run is now owner-only (0600), the lock files and the
-  judge's stderr log included; a file's earlier mode is not kept.
+  judge's stderr log included, and every directory 0700; a file's earlier mode is not kept.
 - A writer inside the run directory can still plant a link on a folder or delete a started
   record. That was never closable by code that cannot tell who wrote a file.

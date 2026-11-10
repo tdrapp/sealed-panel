@@ -45,7 +45,7 @@ from .report import status as run_status
 from .runner import judge_seat, open_seats
 from .spec import init_run as init_any_run
 from .spec import library_for, run_config
-from .store import contained, resolve_round
+from .store import contained, locked, resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -318,6 +318,10 @@ def init_run(
     return init_any_run(run, spec_path, cfg, library, facts_root, acknowledge=False)
 
 
+# The lock the init tool holds, at the root.
+INIT_LOCK = ".sealed-panel-init.lock"
+
+
 def build_server(
     root: Path | None = None,
     config: Path | None = None,
@@ -350,6 +354,9 @@ def build_server(
         allowed.append(r.expanduser())
     for reason in turned_off:
         logging.getLogger("sealed_panel").warning("transcripts off: %s", reason)
+
+    # Held by the init tool: a dot-file, so no run is named after it.
+    init_lock = base / INIT_LOCK
 
     def path(p: str) -> Path:
         """A path a caller gave, resolved (links followed) and confined to the root."""
@@ -423,8 +430,14 @@ def build_server(
         command line."""
 
         def call() -> InitResult:
-            digest = init_run(path(run), path(spec), server, opt(library), base)
-            return InitResult(run=str(path(run)), rubric_sha256=digest)
+            where = path(run)
+            if where == init_lock:
+                raise ToolError(f"{run!r} is the server's own lock file: name the run otherwise")
+            # One init at a time under this root: a run's checks (no run among its ancestors,
+            # an empty or new directory) then hold against a concurrent init.
+            with locked(init_lock, "another init is running", wait=True):
+                digest = init_run(where, path(spec), server, opt(library), base)
+            return InitResult(run=str(where), rubric_sha256=digest)
 
         return _calling(call)
 
