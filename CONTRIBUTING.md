@@ -25,13 +25,56 @@ checks) and on push (the test suite).
 .venv/bin/pre-commit run --all-files
 .venv/bin/pytest
 .venv/bin/mypy
-.venv/bin/python tools/mutation_check.py
+.venv/bin/python tools/mutation_check.py --jobs 4
 ```
 
 CI runs the same: lint, types, tests on Python 3.11 to 3.13, and the mutation check.
 
 When you add or change a refusal, add a test that fails without it, and add a mutation to
 `tools/mutation_check.py` that switches it off. The mutation check must kill it.
+
+## The mutation check
+
+Each mutation in `tools/mutation_check.py` is an exact text and its replacement. The tool copies
+`src`, `tests` and `examples` to a temporary directory, applies one mutation, runs pytest with
+`-x` on the copy, and deletes the copy. pytest's exit code is the verdict: 0 is a survivor, 1 (a
+test failed) is a kill, and 2 (interrupted) is a kill flagged INTERRUPT: a mutation that lets
+ctrl-c reach pytest, or breaks an import, ends the run that way. 3 (internal error), 4 (usage
+error, such as a test id the copy lacks) and 5 (no test collected) say the run itself went
+wrong: an error that fails the check. A run past its time limit is killed with its process group
+and counts as detected, after one more run on its own.
+
+Running the whole suite on every mutation took about an hour in CI, so the tool selects tests
+first. It runs the unmutated suite once under coverage, with one context per test, and maps
+each mutation's lines to the tests that execute them. A mutation runs only those tests,
+cheapest first. A mutation outside Python (`defaults.toml`), or on lines that run only at
+import, gets the whole suite. The map is built in each run, never cached, so it always matches
+the code under test.
+
+A test that does not execute a line cannot see a change to it, so a kill from the selection is a
+real kill, provided the selection itself passes without the mutation. That is checked for each
+kill: the selected tests up to the one that failed (all of them after an interrupt) must pass,
+in the same order, on unmutated code, or the run fails. A survivor is different: the selection
+could have missed a test, so a mutation the selection does not kill runs again on the whole
+suite, and is reported as a survivor only if the whole suite misses it too.
+
+```sh
+.venv/bin/python tools/mutation_check.py                    # all mutations, one at a time
+.venv/bin/python tools/mutation_check.py --jobs 4           # all mutations, four at once
+.venv/bin/python tools/mutation_check.py --only "control check off"
+.venv/bin/python tools/mutation_check.py --jobs 2 --shard 1/4 --json shard-1.json
+.venv/bin/python tools/mutation_check.py --merge shard-*.json
+.venv/bin/python tools/mutation_check.py --full-suite --jobs 4
+```
+
+A shard holds the mutations whose name hashes to it, so shards never overlap and together
+cover the list. `--merge` fails when a mutation is missing or appears twice, then applies the
+rule: every mutation detected, except the expected survivors, which must survive.
+`--full-suite` skips the selection and runs the whole suite on each mutation.
+
+CI runs every mutation on every pull request, in four shards of two workers each, and the
+`mutation` check merges their reports. A scheduled workflow runs the whole suite on every
+mutation each night, so a fault in the selection shows within a day.
 
 ## Branches and pull requests
 

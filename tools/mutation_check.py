@@ -5,18 +5,33 @@ script copies the package and the tests to a temporary directory, applies one mu
 runs pytest against the copy. A mutation the tests do not catch is a survivor, and the
 script exits 1.
 
-    python tools/mutation_check.py [--only NAME]
+One run of the unmutated suite under coverage maps each mutation to the tests that execute its
+lines; a mutation runs those tests first, cheapest first, and a survivor is run again on the
+whole suite before it is reported. CONTRIBUTING.md explains the method.
+
+    python tools/mutation_check.py [--only NAME] [--jobs N] [--shard K/N] [--json OUT]
+    python tools/mutation_check.py --merge OUT [OUT ...]
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
+import contextlib
+import hashlib
+import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = "src/sealed_panel"
@@ -1363,25 +1378,83 @@ EXPECTED_SURVIVORS: dict[str, str] = {
     ),
 }
 
+# A pytest plugin loaded into every run: it records each test's duration by full node id and
+# the tests that failed, so the map can order tests and a kill can name its failing test.
+PROBE = """\
+import json
+import os
+
+_durations = {}
+_failed = []
+
+
+def pytest_runtest_logreport(report):
+    _durations[report.nodeid] = _durations.get(report.nodeid, 0.0) + report.duration
+    if report.failed and report.nodeid not in _failed:
+        _failed.append(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    with open(os.environ["MUTATION_CHECK_PROBE"], "w", encoding="utf-8") as fh:
+        json.dump({"durations": _durations, "failed": _failed}, fh)
+"""
+PROBE_MODULE = "_mutation_probe"
+
+# The pytest exit code is the verdict: 0 the tests passed (the mutation survived), 1 a test
+# failed (killed). 2, interrupted, is a kill flagged INTERRUPT: a mutation that lets ctrl-c
+# reach pytest, or breaks an import during collection, ends the run that way. Codes 3 (an
+# internal error), 4 (a usage error, such as a node id the copy lacks) and 5 (no test
+# collected), and any other, mean the run itself went wrong: an error that fails the check.
+OUTCOMES = {0: "survived", 1: "killed", 2: "interrupt"}
+DETECTED = ("killed", "interrupt", "timeout")
+TIMEOUT_FLOOR_S, TIMEOUT_FACTOR, TIMEOUT_MARGIN_S = 60.0, 5.0, 30.0
+
+
+class Run(NamedTuple):
+    """One pytest run: its exit code (None when it timed out), its wall time, the tests that
+    failed and the duration of each test, as the probe recorded them."""
+
+    code: int | None
+    seconds: float
+    failed: Sequence[str] = ()
+    durations: Mapping[str, float] = {}
+    output: str = ""
+
+
+class Selection(NamedTuple):
+    """The tests one mutation runs, cheapest first, or None for the whole suite, and why."""
+
+    tests: list[str] | None
+    reason: str = ""
+
+
+def outcome(code: int | None) -> str:
+    return "timeout" if code is None else OUTCOMES.get(code, "error")
+
+
+def split_context(context: str) -> str:
+    """The test node id of a coverage context 'nodeid|phase'. A parametrized id can hold a
+    '|', the phase never does, so the split is on the last one."""
+    return context.rsplit("|", 1)[0]
+
+
+def in_shard(name: str, k: int, n: int) -> bool:
+    return int(hashlib.sha256(name.encode("utf-8")).hexdigest(), 16) % n == k
+
+
+def timeout_for(baseline_s: float) -> float:
+    return max(TIMEOUT_FLOOR_S, TIMEOUT_FACTOR * baseline_s + TIMEOUT_MARGIN_S)
+
 
 def _copy_tree(dest: Path) -> None:
-    shutil.copytree(ROOT / "src", dest / "src", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copytree(ROOT / "tests", dest / "tests", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copytree(
-        ROOT / "examples", dest / "examples", ignore=shutil.ignore_patterns("__pycache__")
-    )
+    ignore = shutil.ignore_patterns("__pycache__")
+    for name in ("src", "tests", "examples"):
+        shutil.copytree(ROOT / name, dest / name, ignore=ignore)
     shutil.copy(ROOT / "pyproject.toml", dest / "pyproject.toml")
 
 
 def _env(dest: Path) -> dict[str, str]:
     return {**os.environ, "PYTHONPATH": str(dest / "src")}
-
-
-def _run_tests(dest: Path) -> subprocess.CompletedProcess[str]:
-    cmd = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", "-o", "addopts="]
-    return subprocess.run(
-        cmd, cwd=dest, env=_env(dest), capture_output=True, text=True, check=False
-    )
 
 
 def _imports_copy(dest: Path) -> bool:
@@ -1397,48 +1470,336 @@ def _imports_copy(dest: Path) -> bool:
     return Path(out).is_relative_to(dest.resolve())
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Seed one defect at a time; the tests must fail.")
-    ap.add_argument("--only", help="run a single mutation by name")
-    a = ap.parse_args(argv)
-    selected = {k: v for k, v in MUTATIONS.items() if a.only in (None, k)}
-    if not selected:
-        print(f"no mutation named {a.only!r}")
-        return 2
-    with tempfile.TemporaryDirectory() as tmp:
-        base = Path(tmp) / "baseline"
-        _copy_tree(base)
-        if not _imports_copy(base):
-            print("the copy is not the package under test: check PYTHONPATH handling")
-            return 2
-        if _run_tests(base).returncode != 0:
-            print("the unmutated suite fails: fix it before checking mutations")
-            return 2
-        survivors = []
-        for i, (name, (rel, old, new)) in enumerate(selected.items()):
-            dest = Path(tmp) / f"m{i}"
-            _copy_tree(dest)
-            target = dest / rel
-            code = target.read_text(encoding="utf-8")
-            if code.count(old) != 1:
-                print(f"ANCHOR    {name}: found {code.count(old)} times in {rel}")
-                survivors.append(name)
-                continue
-            target.write_text(code.replace(old, new), encoding="utf-8")
-            killed = _run_tests(dest).returncode != 0
-            print(f"{'killed' if killed else 'SURVIVED':9} {name}")
-            if not killed:
-                survivors.append(name)
-    total = len(selected)
-    print(f"killed {total - len(survivors)}/{total}; survivors: {survivors}")
+def _pytest(
+    work: Path,
+    tests: list[str] | None,
+    timeout: float | None,
+    extra: Sequence[str] = (),
+    extra_env: Mapping[str, str] | None = None,
+) -> Run:
+    """Run pytest -x in work/tree on the given node ids in that order, or on the whole suite.
+    The ids go through an argfile, so no id is split by a shell or a length limit. The run has
+    its own TMPDIR and its own process group, and a timeout kills the whole group."""
+    tree, probe, report = work / "tree", work / "probe", work / "probe.json"
+    (work / "tmp").mkdir(exist_ok=True)
+    probe.mkdir(exist_ok=True)
+    (probe / f"{PROBE_MODULE}.py").write_text(PROBE, encoding="utf-8")
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-x",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "addopts=",
+    ]
+    cmd += ["-p", PROBE_MODULE, *extra]
+    if tests is not None:
+        argfile = work / "tests.txt"
+        argfile.write_text("".join(f"{t}\n" for t in tests), encoding="utf-8")
+        cmd.append(f"@{argfile}")
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(tree / "src"), str(probe)]),
+        "TMPDIR": str(work / "tmp"),
+        "MUTATION_CHECK_PROBE": str(report),
+        **(extra_env or {}),
+    }
+    start = time.monotonic()
+    proc = subprocess.Popen(
+        cmd,
+        cwd=tree,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    code: int | None
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+        code = proc.returncode
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        code = None
+    seconds = time.monotonic() - start
+    data = json.loads(report.read_text(encoding="utf-8")) if report.exists() else {}
+    return Run(code, seconds, data.get("failed", []), data.get("durations", {}), out)
+
+
+def _anchor_lines(src: str, old: str) -> set[int]:
+    """The lines of the anchor, plus the first line of each statement it overlaps: coverage
+    records a statement on its first line. A compound statement's first line counts only when
+    the anchor reaches into its header, not when the anchor is only in its body."""
+    lo = src.count("\n", 0, src.index(old)) + 1
+    hi = lo + old.rstrip("\n").count("\n")
+    lines = set(range(lo, hi + 1))
+    compound = (
+        ast.If,
+        ast.For,
+        ast.AsyncFor,
+        ast.While,
+        ast.With,
+        ast.AsyncWith,
+        ast.Try,
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+    )
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.stmt) or node.lineno > hi or (node.end_lineno or 0) < lo:
+            continue
+        body = getattr(node, "body", None)
+        if not isinstance(node, compound) or not body or lo < body[0].lineno:
+            lines.add(node.lineno)
+    return lines
+
+
+def build_map(work: Path, names: Iterable[str]) -> tuple[dict[str, Selection], Run]:
+    """Run the unmutated suite once under coverage, one context per test, then select for
+    each mutation the tests that execute its anchor lines, cheapest first. A mutation outside
+    Python, or on lines no test executes (run at import only), gets the whole suite."""
+    from coverage import CoverageData
+
+    data_file = work / "coverage.data"
+    cov = ["--cov=sealed_panel", "--cov-context=test", "--cov-report="]
+    run = _pytest(work, None, None, cov, {"COVERAGE_FILE": str(data_file)})
+    if run.code != 0:
+        return {}, run
+    data = CoverageData(basename=str(data_file))
+    data.read()
+    measured = {Path(f).resolve(): f for f in data.measured_files()}
+    by_line: dict[Path, dict[int, list[str]]] = {}
+    selection: dict[str, Selection] = {}
+    for name in names:
+        rel, old, _new = MUTATIONS[name]
+        path = (work / "tree" / rel).resolve()
+        src = path.read_text(encoding="utf-8")
+        if not rel.endswith(".py"):
+            selection[name] = Selection(None, "not Python")
+            continue
+        if src.count(old) != 1 or path not in measured:
+            selection[name] = Selection(None, "not measured")
+            continue
+        if path not in by_line:
+            by_line[path] = data.contexts_by_lineno(measured[path])
+        contexts = {c for line in _anchor_lines(src, old) for c in by_line[path].get(line, [])}
+        tests = {split_context(c) for c in contexts if c}
+        if not tests:
+            selection[name] = Selection(None, "no test executes it")
+            continue
+        selection[name] = Selection(sorted(tests, key=lambda t: (run.durations.get(t, 0.0), t)))
+    return selection, run
+
+
+class Checker:
+    """Runs mutations one by one, each in a fresh copy of the tree that is deleted after."""
+
+    def __init__(
+        self,
+        tmp: Path,
+        selection: Mapping[str, Selection],
+        durations: Mapping[str, float],
+    ):
+        self.tmp, self.selection, self.durations = tmp, selection, durations
+        self.full_timeout = timeout_for(sum(durations.values()))
+        self._clean: dict[tuple[str, ...], int | None] = {}
+        self._lock = threading.Lock()
+
+    def _run(self, name: str | None, tests: list[str] | None, timeout: float) -> Run:
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        try:
+            _copy_tree(work / "tree")
+            if name is not None:
+                rel, old, new = MUTATIONS[name]
+                target = work / "tree" / rel
+                target.write_text(
+                    target.read_text(encoding="utf-8").replace(old, new),
+                    encoding="utf-8",
+                )
+            return _pytest(work, tests, timeout)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def _passes_unmutated(self, tests: list[str]) -> bool:
+        """Whether these tests, in this order, pass on unmutated code. A subset can fail where
+        the whole suite passes (a test that leans on an earlier one): its kill would be false."""
+        key = tuple(tests)
+        with self._lock:
+            if key in self._clean:
+                return self._clean[key] == 0
+        code = self._run(None, tests, self._timeout(tests)).code
+        with self._lock:
+            self._clean[key] = code
+        return code == 0
+
+    def _timeout(self, tests: list[str] | None) -> float:
+        if tests is None:
+            return self.full_timeout
+        return timeout_for(sum(self.durations.get(t, 0.0) for t in tests))
+
+    def check(self, name: str) -> dict[str, Any]:
+        start = time.monotonic()
+        rel, old, _new = MUTATIONS[name]
+        found = (ROOT / rel).read_text(encoding="utf-8").count(old)
+        sel = self.selection.get(name, Selection(None, "whole suite"))
+        result: dict[str, Any] = {
+            "name": name,
+            "selected": None if sel.tests is None else len(sel.tests),
+            "reason": sel.reason,
+            "confirmed": False,
+            "failed": None,
+            "note": "",
+        }
+        if found != 1:
+            result.update(outcome="anchor", note=f"anchor found {found} times in {rel}")
+            result["seconds"] = round(time.monotonic() - start, 2)
+            return result
+        run = self._run(name, sel.tests, self._timeout(sel.tests))
+        verdict = outcome(run.code)
+        if verdict in ("killed", "interrupt") and sel.tests is not None:
+            # The same tests must pass on unmutated code, up to the one that failed, or the
+            # kill (an interrupt above all) may come from the selection, not the mutation.
+            first = run.failed[0] if run.failed else None
+            prefix = sel.tests[: sel.tests.index(first) + 1] if first in sel.tests else sel.tests
+            if not self._passes_unmutated(prefix):
+                verdict = "error"
+                result["note"] = "the selected tests fail on unmutated code"
+        if verdict == "survived" and sel.tests is not None:
+            # The selection is a shortcut; a survivor is reported only once the whole suite
+            # has missed it too.
+            run = self._run(name, None, self.full_timeout)
+            verdict = outcome(run.code)
+            result["confirmed"] = True
+        if verdict == "error" and not result["note"]:
+            result["note"] = f"pytest exit code {run.code}: " + " | ".join(
+                run.output.strip().splitlines()[-5:]
+            )
+        result.update(outcome=verdict, failed=run.failed[0] if run.failed else None)
+        result["seconds"] = round(time.monotonic() - start, 2)
+        return result
+
+
+def _line(r: Mapping[str, Any]) -> str:
+    sel = "all" if r["selected"] is None else str(r["selected"])
+    label = r["outcome"] if r["outcome"] in DETECTED else r["outcome"].upper()
+    note = f"  ({r['note']})" if r["note"] else ""
+    return f"{label:9} {r['seconds']:7.1f}s {sel:>4} {r['name']}{note}"
+
+
+def judge(outcomes: Mapping[str, str]) -> int:
+    """Apply the rule to the outcome of each mutation run: every one is detected, except the
+    expected survivors, which must survive; any error or broken anchor fails the check."""
+    survivors = [n for n, o in outcomes.items() if o == "survived"]
+    broken = [n for n, o in outcomes.items() if o not in (*DETECTED, "survived")]
+    detected = len(outcomes) - len(survivors) - len(broken)
+    print(f"detected {detected}/{len(outcomes)}; survivors: {survivors}; errors: {broken}")
+    interrupts = [n for n, o in outcomes.items() if o == "interrupt"]
+    if interrupts:
+        print(f"killed by an interrupt (pytest exit code 2): {interrupts}")
     for name in survivors:
         if name in EXPECTED_SURVIVORS:
             print(f"expected survivor {name!r}: {EXPECTED_SURVIVORS[name]}")
     unexpected = [n for n in survivors if n not in EXPECTED_SURVIVORS]
-    killed_expected = [n for n in EXPECTED_SURVIVORS if n in selected and n not in survivors]
+    killed_expected = [n for n in EXPECTED_SURVIVORS if n in outcomes and n not in survivors]
     for name in killed_expected:
-        print(f"expected survivor {name!r} was killed: remove it from EXPECTED_SURVIVORS")
-    return 1 if unexpected or killed_expected else 0
+        print(f"expected survivor {name!r} was not a survivor: check it, then update the list")
+    return 1 if unexpected or killed_expected or broken else 0
+
+
+def merge(paths: Sequence[Path]) -> int:
+    """Merge the shard reports: together they must hold every mutation exactly once."""
+    outcomes: dict[str, str] = {}
+    twice: list[str] = []
+    for path in paths:
+        for r in json.loads(path.read_text(encoding="utf-8"))["results"]:
+            if r["name"] in outcomes:
+                twice.append(r["name"])
+            outcomes[r["name"]] = r["outcome"]
+    missing = [n for n in MUTATIONS if n not in outcomes]
+    unknown = [n for n in outcomes if n not in MUTATIONS]
+    for label, names in (
+        ("not run", missing),
+        ("run twice", twice),
+        ("unknown", unknown),
+    ):
+        if names:
+            print(f"{label}: {names}")
+    return judge(outcomes) or (1 if missing or twice or unknown else 0)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Seed one defect at a time; the tests must fail.")
+    ap.add_argument("--only", help="run a single mutation by name")
+    ap.add_argument("--jobs", type=int, default=1, help="mutations run at once (default 1)")
+    ap.add_argument("--shard", help="k/n: run only the mutations whose hash is k modulo n")
+    ap.add_argument("--json", type=Path, help="write each mutation's outcome to this file")
+    ap.add_argument(
+        "--full-suite", action="store_true", help="run the whole suite on each mutation"
+    )
+    ap.add_argument("--merge", nargs="+", type=Path, help="merge shard reports and judge them")
+    a = ap.parse_args(argv)
+    if a.merge:
+        return merge(a.merge)
+    names = [n for n in MUTATIONS if a.only in (None, n)]
+    if not names:
+        print(f"no mutation named {a.only!r}")
+        return 2
+    if a.shard:
+        k, n = (int(x) for x in a.shard.split("/"))
+        if not 0 <= k < n:
+            ap.error("--shard needs k/n with 0 <= k < n")
+        names = [m for m in names if in_shard(m, k, n)]
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "baseline"
+        _copy_tree(base / "tree")
+        if not _imports_copy(base / "tree"):
+            print("the copy is not the package under test: check PYTHONPATH handling")
+            return 2
+        if a.full_suite:
+            selection: dict[str, Selection] = {}
+            baseline = _pytest(base, None, None)
+        else:
+            selection, baseline = build_map(base, names)
+        if baseline.code != 0:
+            print("the unmutated suite fails: fix it before checking mutations")
+            print(baseline.output[-3000:])
+            return 2
+        mapped = sum(1 for s in selection.values() if s.tests is not None)
+        print(
+            f"{len(names)} mutations, {mapped} with selected tests; unmutated suite "
+            f"{baseline.seconds:.1f}s; {a.jobs} at once",
+            flush=True,
+        )
+        checker = Checker(Path(tmp), selection, baseline.durations)
+        results: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=a.jobs) as pool:
+            for r in pool.map(checker.check, names):
+                results[r["name"]] = r
+                print(_line(r), flush=True)
+        for name in [n for n, r in results.items() if r["outcome"] == "timeout"]:
+            # A timeout under load may be the load: run it again, alone, before accepting it.
+            r = checker.check(name)
+            r["note"] = (r["note"] + "; " if r["note"] else "") + "timed out once, run again"
+            results[name] = r
+            print(_line(r), flush=True)
+    wall = time.monotonic() - started
+    print(f"wall {wall:.1f}s", flush=True)
+    if a.json:
+        report = {
+            "shard": a.shard,
+            "jobs": a.jobs,
+            "full_suite": a.full_suite,
+            "wall_s": wall,
+        }
+        report["results"] = [results[n] for n in names]
+        a.json.write_text(json.dumps(report, indent=1) + "\n", encoding="utf-8")
+    return judge({n: results[n]["outcome"] for n in names})
 
 
 if __name__ == "__main__":
