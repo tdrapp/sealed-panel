@@ -17,7 +17,7 @@ from .config import Config, resolve
 from .decide import STOP_DECISIONS, decide
 from .errors import EvalError
 from .spec import dims_for, load_frozen, rubric_hash, run_config
-from .store import dump_json, load_json, read_text, refuse_links, round_dir, write_file
+from .store import dump_json, load_json, read_text, round_dir, write_file
 from .text import fixed_normalise, injection_flags, text_hash
 
 # Letters drawn without repetition to label the items of one brief.
@@ -262,8 +262,6 @@ def write_briefs(
             raise EvalError(
                 f"the {role} text contains an <{ITEM_TAG}> tag: it would break the fence"
             )
-    if rdir.is_dir():
-        refuse_links(*rdir.iterdir())
     rdir.mkdir(parents=True, exist_ok=True)
     for role, text in roles:
         write_file(rdir / f"{role}.md", text)

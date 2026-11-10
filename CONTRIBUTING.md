@@ -188,9 +188,9 @@ root, whose name the host requires.
 
 ## Maintainers
 
-Releasing, branch protection and recovery (yanking a release, an interrupted run, stale
-markers) are in [docs/runbook.md](docs/runbook.md). The reasons behind the fixed choices are in
-[docs/decisions/](docs/decisions/). A large change starts from a plan in
+Releasing, branch protection and recovery (yanking a release, an interrupted run, a runner
+that died) are in [docs/runbook.md](docs/runbook.md). The reasons behind the fixed choices are
+in [docs/decisions/](docs/decisions/). A large change starts from a plan in
 [docs/plans/](docs/plans/README.md). Coding agents read [AGENTS.md](AGENTS.md).
 
 ## Reporting a security issue

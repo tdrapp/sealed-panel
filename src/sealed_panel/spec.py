@@ -21,7 +21,7 @@ from .config import (
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import dump_json, load_json, read_text, write_file
+from .store import contained, dump_json, load_json, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -298,8 +298,8 @@ def _freeze_facts(spec: dict[str, Any], base: Path, root: Path | None = None) ->
         path = Path(facts_file).expanduser()
         if not path.is_absolute():
             path = base / path  # relative to the spec file's folder
-        if root is not None and not path.resolve().is_relative_to(root):
-            raise EvalError(f"facts_file {facts_file!r} is outside the root {root}")
+        if root is not None:
+            path = contained(path, root)
         if not path.is_file():
             raise EvalError(f"facts_file does not exist: {facts_file!r}")
         spec["facts"] = read_text(path)  # frozen by content, not by path

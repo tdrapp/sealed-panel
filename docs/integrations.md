@@ -50,8 +50,9 @@ the judge would let it grade itself.
 
 To let `record` read your host's transcripts, name their folder with `--transcript-root DIR`
 (repeat for several). It is read only. One that overlaps the root is turned off, and `status`
-says why: through MCP, a transcript is accepted only under a transcript root in use, with no
-symbolic link on the way, so a file the author wrote in its workspace is no proof. An author
+says why: through MCP, a transcript is accepted only under a transcript root in use, its links
+followed and refused unless it stays there, so a file the author wrote in its workspace is no
+proof. An author
 with shell access to that folder can still forge one; only the runner proves what the judge
 received. Without the option, `record` refuses transcripts, and a pasted reply is the only way
 left in host mode, flagged in the report.

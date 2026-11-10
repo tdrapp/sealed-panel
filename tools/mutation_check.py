@@ -897,7 +897,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "judge started in the current directory": (RUN, "cwd=cwd,", "cwd=None,"),
     "seat refusals checked after the call": (
         RUN,
-        "        _runnable(judge, prior, cfg)\n",
+        "    _runnable(judge, prior, cfg)\n",
         "",
     ),
     "open seats unchecked": (RUN, "        _runnable(s, prior, cfg)\n", ""),
@@ -975,26 +975,24 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "relative paths resolved against the process directory": (
         MCP,
-        "resolved = (given if given.is_absolute() else base / given).resolve()",
-        "resolved = given.resolve()",
+        "            return contained(given if given.is_absolute() else base / given, base)\n",
+        "            return contained(given, base)\n",
     ),
-    "seat marker not exclusive": (RUN, "os.link(draft, marker)", "os.replace(draft, marker)"),
-    "live marker ignored": (
-        RUN,
-        "    if isinstance(pid, int) and _alive(pid) and fresh:",
-        "    if False:",
-    ),
-    "marker age ignored": (
-        RUN,
-        "fresh = isinstance(started, (int, float)) and time.time() - started < limit",
-        "fresh = True",
+    "seat marker not exclusive": (
+        f"{PKG}/store.py",
+        "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n",
+        "            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)\n",
     ),
     "stale marker reused without a void": (
         RUN,
         '    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
         "    pass\n",
     ),
-    "running seat aggregated": (AGG, "    if running:\n", "    if False:\n"),
+    "running seat aggregated": (
+        RUN,
+        "            held.enter_context(seat_lock(rdir, seat))\n",
+        "            pass\n",
+    ),
     "output cap ignored": (RUN, "if size > cap:", "if False:"),
     "a group refusing the signal crashes the runner": (
         RUN,
@@ -1015,8 +1013,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
-        "        if not resolved.is_relative_to(base):\n",
-        "        if False:\n",
+        "            return contained(given if given.is_absolute() else base / given, base)\n",
+        "            return (given if given.is_absolute() else base / given).resolve()\n",
     ),
     "home paths accepted": (MCP, '        if p.startswith("~"):\n', "        if False:\n"),
     "root setting ignored": (
@@ -1033,11 +1031,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/store.py",
         "        if p.is_symlink():\n",
         "        if False:\n",
-    ),
-    "links inside a round directory followed": (
-        BRIEF,
-        "        refuse_links(*rdir.iterdir())\n",
-        "        pass\n",
     ),
     "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
     "root listed with the grading settings": (
@@ -1089,13 +1082,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "links followed in a transcript root": (
         MCP,
-        "                        if current.is_symlink():\n",
-        "                        if False:\n",
+        "                return contained(Path(p), r)\n",
+        "                return Path(p).resolve()\n",
     ),
     "facts_file outside the root read": (
         SPEC,
-        "if root is not None and not path.resolve().is_relative_to(root):",
-        "if False:",
+        "        if root is not None:\n            path = contained(path, root)\n",
+        "        if False:\n            path = contained(path, root)\n",
     ),
     "init freezes no server configuration": (
         MCP,
@@ -1120,13 +1113,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # How a run touches the disk.
     "a failed write leaves its draft": (
         f"{PKG}/store.py",
-        "                os.unlink(draft, dir_fd=folder)\n",
-        "                pass\n",
-    ),
-    "a link on the directory followed": (
-        f"{PKG}/store.py",
-        "os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW",
-        "os.O_RDONLY | os.O_DIRECTORY",
+        "            os.unlink(draft)\n",
+        "            pass\n",
     ),
     "role text written through a link": (
         BRIEF,
@@ -1155,11 +1143,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        try:\n            c = json.loads(",
     ),
     "a linked candidate opened": (LIB, "    refuse_links(path)\n", ""),
-    "a linked brief read by the runner": (
-        RUN,
-        'brief = read_no_follow(rdir / f"brief_j{judge}.md")',
-        'brief = (rdir / f"brief_j{judge}.md").read_bytes()',
-    ),
     "stderr mixed into the reply": (
         RUN,
         "args=(proc.stderr.fileno(), caps[1], err.write, over_err)",
@@ -1172,13 +1155,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "stale files ignored by a judge call": (
         RUN,
-        "    settle_stale_files(run, rnd, sealed)\n    slots =",
-        "    slots =",
+        "            with seat_lock(rdir, s):\n                _settle(run, rnd, s, sealed, rdir)\n",
+        "            with seat_lock(rdir, s):\n                pass\n",
     ),
     "stale files ignored by aggregate": (
-        AGG,
-        "    settle_stale_files(run, rnd, sealed)\n",
-        "",
+        RUN,
+        "                _settle(run, rnd, seat, sealed, rdir)\n",
+        "                pass\n",
     ),
     "a huge integer breaks the reader": (
         REC,
@@ -1210,11 +1193,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "            except SeatTaken as exc:\n",
         "            except ZeroDivisionError as exc:\n",
     ),
-    "a late settle steals a live marker": (
-        RUN,
-        '    if read_no_follow(taken).decode("utf-8", errors="replace") != text:\n',
-        "    if False:\n",
-    ),
     "the handback tool counted as a tool use": (
         REC,
         "if (kind, name) != exempt})",
@@ -1225,11 +1203,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if (kind, name) != exempt})",
         "if name != exempt[1]})",
     ),
-    "a file's mode lost": (
-        f"{PKG}/store.py",
-        "                if final is not None:\n                    os.fchmod(f.fileno(), final)\n",
-        "",
-    ),
     "a linked inbox followed": (LIB, '    refuse_links(lib, lib / "inbox")\n', ""),
     "a linked history followed": (LIB, '    refuse_links(lib, lib / "history")\n', ""),
     "a linked library folder written": (
@@ -1238,15 +1211,10 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '    refuse_links(lib / "inbox")\n',
     ),
     # Round 3: shadowed settings, planted markers, moved libraries.
-    "dotted keys in a frozen configuration accepted": (
-        CFG,
-        '        if "." in key:\n',
-        "        if False:\n",
-    ),
     "unknown keys in a frozen configuration accepted": (
         CFG,
-        "        elif key not in shape:\n",
-        "        elif False:\n",
+        "        if key not in shape:\n",
+        "        if False:\n",
     ),
     "a key an older run lacks read as a difference": (
         CFG,
@@ -1260,53 +1228,28 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "stale files settled in host mode": (
         RUN,
-        '    if not cfg.judge["command"]:\n        return\n    rdir = round_dir(run, rnd, sealed)\n',
-        "    rdir = round_dir(run, rnd, sealed)\n",
-    ),
-    "a stale file for an unknown seat recorded": (
-        RUN,
-        "if found is None or int(found.group(1)) not in seats:",
-        "if found is None:",
+        '            if cfg.judge["command"]:\n                _settle(',
+        "            if True:\n                _settle(",
     ),
     "a marker's agent id taken": (
         RUN,
-        '        agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"\n        failure = "the runner',
-        '        agent = str(held.get("agent_id") or "runner-x")\n        failure = "the runner',
+        '    agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"\n    failure = "the runner',
+        '    agent = str(held.get("agent_id") or "runner-x")\n    failure = "the runner',
     ),
     "a marker's whole content kept": (
         RUN,
-        "kept = {k: held[k] for k in MARKER_KEYS if k in held}",
+        "kept = {k: held[k] for k in STARTED_KEYS if k in held}",
         "kept = dict(held)",
     ),
     "a stale void on a filled seat": (
         RUN,
-        '        if any(r["ok"] for r in results_by_judge(taken.parent).get(judge, [])):\n            return\n',
+        '    if any(r["ok"] for r in results_by_judge(rdir).get(judge, [])):\n        return\n',
         "",
-    ),
-    "a linked stale file read": (
-        RUN,
-        "            held = json.loads(read_no_follow(taken))\n",
-        "            held = json.loads(taken.read_bytes())\n",
-    ),
-    "a non-regular file read as a run file": (
-        f"{PKG}/store.py",
-        "        if not stat.S_ISREG(os.fstat(fd).st_mode):\n",
-        "        if False:\n",
     ),
     "a library replaced by a link accepted": (
         SPEC,
         "    if path.resolve() != path:\n",
         "    if False:\n",
-    ),
-    "a draft replacing a private file starts readable": (
-        f"{PKG}/store.py",
-        "        return 0o600, stat.S_IMODE(existing.st_mode)\n",
-        "        return 0o666, stat.S_IMODE(existing.st_mode)\n",
-    ),
-    "the fallback write loses the mode": (
-        f"{PKG}/store.py",
-        "            if final is not None:\n                os.chmod(temporary, final)\n",
-        "",
     ),
     "an empty transcript root argument fails": (
         f"{PKG}/cli.py",
@@ -1315,8 +1258,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a seat at its cap fails every judge call": (
         RUN,
-        "        except EvalError:\n            # At the void cap, or a round closed",
-        "        except ZeroDivisionError:\n            # At the void cap, or a round closed",
+        "    except EvalError:\n        # At the void cap, or a round closed",
+        "    except ZeroDivisionError:\n        # At the void cap, or a round closed",
     ),
     "status claims a run is served": (
         MCP,
@@ -1422,16 +1365,58 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '"env_sha256": env_hashes(cfg, env),',
         '"env_sha256": {},',
     ),
+    # 0.4.0: the seat lock (flock) and the one containment guard.
+    "host record without the seat lock": (
+        REC,
+        "    with seat_lock(rdir, judge):\n        return _record_reply(",
+        "    with contextlib.nullcontext():\n        return _record_reply(",
+    ),
+    "runner judge without the seat lock": (
+        RUN,
+        "    with seat_lock(rdir, judge):\n        return _judge_held(",
+        "    with contextlib.nullcontext():\n        return _judge_held(",
+    ),
+    "a held seat listed as open": (
+        RUN,
+        "            with seat_lock(rdir, s):\n",
+        "            with contextlib.nullcontext():\n",
+    ),
+    "seat lock released before the record": (
+        f"{PKG}/store.py",
+        "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n",
+        "            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n            fcntl.flock(fd, fcntl.LOCK_UN)\n",
+    ),
+    "a held seat lock read as unsupported": (
+        f"{PKG}/store.py",
+        "        except BlockingIOError as exc:\n",
+        "        except ZeroDivisionError as exc:\n",
+    ),
+    "a filesystem without flock records unlocked": (
+        f"{PKG}/store.py",
+        "        except OSError as exc:\n            raise EvalError(\n",
+        "        except OSError as exc:\n            yield\n            return\n            raise EvalError(\n",
+    ),
+    "a round aggregated meanwhile judged": (
+        RUN,
+        "    _refuse_closed(rdir)  # aggregated since the first check\n",
+        "",
+    ),
+    "a path leaving its root accepted": (
+        f"{PKG}/store.py",
+        "    if not real.is_relative_to(root.resolve()):\n",
+        "    if False:\n",
+    ),
+    "a run file written readable by others": (
+        f"{PKG}/store.py",
+        "        os.replace(draft, path)\n",
+        "        os.chmod(draft, 0o644)\n        os.replace(draft, path)\n",
+    ),
 }
 
 
 # Mutations no test can kill, with the guard that makes them redundant. They run and are
 # reported, but do not fail the check, and the documentation does not count them as tested.
 EXPECTED_SURVIVORS: dict[str, str] = {
-    "a stale file for an unknown seat recorded": (
-        "recording a void for a seat the round lacks fails in record, and that failure is "
-        "dropped with the file: the seat filter states the intent first"
-    ),
     "max_rounds exceeded": (
         "the stop rule refuses first: at max_rounds the ledger says CAP, and "
         "'the loop has stopped' refuses the next round"

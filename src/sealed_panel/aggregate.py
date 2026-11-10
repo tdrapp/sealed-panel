@@ -13,7 +13,7 @@ from .learn import learn_safely
 from .ledger import results_by_judge
 from .record import round_keys, transcript_agent_id
 from .report import write_feedback
-from .runner import settle_stale_files
+from .runner import every_seat
 from .spec import dims_for, load_frozen, run_config
 from .store import dump_json, load_json, round_dir
 
@@ -117,12 +117,6 @@ def _check_complete(
             raise EvalError(
                 f"measure {missing} before aggregating the sealed panel: it happens once"
             )
-    running = sorted(p.name for p in rdir.glob("running_j*.json"))
-    if running:
-        raise EvalError(
-            f"a judge is still being judged in this round ({', '.join(running)}): wait for it, "
-            "or, if its runner stopped, run `sealed-panel judge` again to record it as a void"
-        )
     silent = [
         j["judge"]
         for j in keys["judges"]
@@ -170,21 +164,27 @@ def env_changes(by_judge: dict[int, list[dict[str, Any]]]) -> list[str]:
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """Aggregate a round once, append it to the ledger and return the ledger entry. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
-    panel, write learned candidates to the user library's inbox (listed under `inbox`).
+    panel, write learned candidates to the user library's inbox (listed under `inbox`). Every
+    seat of the round is held for the whole step, so no judge starts or records meanwhile; a
+    seat another call holds refuses the step.
 
     Args:
         run: The run directory.
         rnd: The round number, from 1.
         sealed: Whether the round is the sealed panel's.
     """
+    with every_seat(run, rnd, sealed):
+        return _aggregate(run, rnd, sealed)
+
+
+def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
+    """aggregate_round, with every seat held."""
     spec = load_frozen(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
     if (rdir / "result.json").exists():
         raise EvalError("this round is already aggregated: a round is aggregated once")
     keys = round_keys(rdir, rnd)
-    by_judge = results_by_judge(rdir)
-    settle_stale_files(run, rnd, sealed)
     by_judge = results_by_judge(rdir)
     _check_complete(spec, rdir, keys, by_judge, sealed, cfg)
     valid = [next(r for r in rs if r["ok"]) for rs in by_judge.values() if any(r["ok"] for r in rs)]

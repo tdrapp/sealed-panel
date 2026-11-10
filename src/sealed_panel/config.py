@@ -620,18 +620,16 @@ def config_differences(run: Config, server: Config) -> list[str]:
 def schema_errors(
     data: Mapping[str, Any], shape: Mapping[str, Any] | None = None, path: tuple[str, ...] = ()
 ) -> list[str]:
-    """A frozen configuration holds only keys the defaults know, and no key with a dot: a dotted
-    key would read as another setting in a flattened view. Keys may be missing (an older run);
-    the open table (text.punctuation) takes any key, its bounds check the rest."""
+    """A frozen configuration holds only keys the defaults know (no default key holds a dot, so
+    a dotted key is unknown too). Keys may be missing (an older run); the open table
+    (text.punctuation) takes any key, its bounds check the rest."""
     shape = default_data() if shape is None else shape
     errors: list[str] = []
     if path in OPEN_TABLES:
         return errors
     for key, value in data.items():
         where = ".".join((*path, key))
-        if "." in key:
-            errors.append(f"configuration key {where!r} holds a dot")
-        elif key not in shape:
+        if key not in shape:
             errors.append(f"unknown configuration key {where!r}")
         elif isinstance(value, Mapping) and isinstance(shape[key], Mapping):
             errors += schema_errors(value, shape[key], (*path, key))

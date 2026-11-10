@@ -7,10 +7,12 @@ in the [transcript] section of the configuration.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
 import statistics
+from collections.abc import Iterator
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,7 @@ from .config import Config, resolve
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
 from .spec import dims_for, load_frozen, run_config
-from .store import dump_json, load_json, read_text, round_dir
+from .store import dump_json, load_json, locked, read_text, round_dir
 from .text import fixed_normalise, quote_found
 
 SCORE_MIN, SCORE_MAX = 1, 5
@@ -512,6 +514,21 @@ def _judge_meta(keys: dict[str, Any], judge: int, rdir: Path) -> dict[str, Any]:
     return meta
 
 
+@contextlib.contextmanager
+def seat_lock(rdir: Path, judge: int) -> Iterator[None]:
+    """Hold a seat of a round (an flock on `seat_j<J>.lock` beside its brief) while the block
+    runs: every call that records an attempt on the seat holds it from the seat check to the
+    stored attempt, so two calls never both pass the check. Raises SeatTaken when another call
+    holds it.
+
+    Args:
+        rdir: The round directory.
+        judge: The judge slot.
+    """
+    with locked(rdir / f"seat_j{judge}.lock", f"judge {judge} is being judged by another call"):
+        yield
+
+
 def _refuse_in_a_runner_run(cfg: Config) -> None:
     """A run with a judge command takes runner replies only, on every seat."""
     if cfg.judge["command"]:
@@ -551,9 +568,12 @@ def record_reply(
     """
     if source == RUNNER:
         raise EvalError("a runner reply is recorded by `sealed-panel judge` only, with its proof")
-    return _record_reply(
-        run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed
-    )
+    rdir = round_dir(run, rnd, sealed)
+    _judge_meta(round_keys(rdir, rnd), judge, rdir)  # a seat that exists, before its lock file
+    with seat_lock(rdir, judge):
+        return _record_reply(
+            run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed
+        )
 
 
 def _record_reply(
@@ -570,7 +590,8 @@ def _record_reply(
     runner: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """record_reply, plus the runner's path: `runner` is its proof (source "runner"), and with
-    `void` the process gave no reply. Only runner.judge_seat passes a proof."""
+    `void` the process gave no reply. Only runner.judge_seat passes a proof. The caller holds
+    the seat's lock (seat_lock)."""
     spec = load_frozen(run)
     cfg = run_config(run)
     if (runner is None) != (source != RUNNER):

@@ -86,8 +86,8 @@ Nothing is lost by stopping a command: every step writes whole files, and a run 
 the record.
 
 - `judge` interrupted (Ctrl-C, a closed terminal, a killed host): the judge that was running is
-  recorded as a void and its marker removed. Run `sealed-panel judge RUN --round N` again: it
-  judges the open seats only, each with a fresh process.
+  recorded as a void and its started record removed. Run `sealed-panel judge RUN --round N`
+  again: it judges the open seats only, each with a fresh process.
 - A host-mode round where an agent received a brief and never replied: `aggregate` refuses the
   round while that agent is unrecorded. Record it with
   `sealed-panel record RUN --round N --judge J --agent-id ID --transcript FILE --void`, then
@@ -100,12 +100,13 @@ the record.
 Never edit, move or delete a run's files by hand to get past a refusal: the refusals are the
 protocol, and a hand edit is out of the threat model, not a way around it.
 
-### Stale markers
+### A runner that died
 
-A `running_j<J>.json` file beside a brief holds that judge seat while a runner judges it. A
-marker whose runner stopped (its process is gone, or it is older than the timeout plus 60
-seconds) is recorded as a void by the next `judge` call, or by `aggregate`, never reused. A
-marker on a seat that already holds a valid reply, on a seat the round does not have, or that is
-a link or not a regular file, is dropped without a void. So the fix for a stale marker is to run
-`sealed-panel judge` again, never to delete the file: deleting it would let a second process
-start on a seat whose first process may still be running.
+A judge seat is held by a lock (`fcntl.flock` on `seat_j<J>.lock` beside the brief) while a
+runner judges it; the kernel releases it when the runner's process dies, so nothing is ever
+stale. Before its process starts, the runner writes `started_j<J>_<id>.json`; a runner killed
+before recording leaves that file, and the next `judge` call, or `aggregate`, records the
+attempt as a void, never a free seat (none on a seat that already holds a valid reply, none past
+the void cap). So the fix is to run `sealed-panel judge` again, never to delete the file:
+deleting it hides a started attempt. "does not support file locks" means the run sits on a
+filesystem without `flock` (some network mounts): move the run to a local disk.

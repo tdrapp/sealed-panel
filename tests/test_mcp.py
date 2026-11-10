@@ -488,15 +488,15 @@ class TestTranscriptRoots:
             t = self.judge_transcript(h, beside, "esc")
             (host / "link.jsonl").symlink_to(t)
             (host / "dir").symlink_to(beside)
-            (host / "same.jsonl").symlink_to(host / "sub")
             args = {"run": "run", "round": 1, "judge": 1, "agent_id": "esc"}
-            msg = await error(
-                c, "record", **args, transcript=f"{host}/sub/../../{beside.name}/esc.jsonl"
+            escapes = (
+                f"{host}/sub/../../{beside.name}/esc.jsonl",
+                str(host / "link.jsonl"),
+                str(host / "dir" / "esc.jsonl"),
             )
-            assert "outside every transcript root" in msg
-            for given in (host / "link.jsonl", host / "dir" / "esc.jsonl", host / "same.jsonl"):
-                msg = await error(c, "record", **args, transcript=str(given))
-                assert "symbolic link" in msg, given
+            for given in escapes:
+                msg = await error(c, "record", **args, transcript=given)
+                assert "outside every transcript root" in msg, given
 
     @pytest.mark.parametrize("inside", [True, False], ids=["root inside", "transcripts inside"])
     async def test_an_overlap_turns_transcripts_off_and_says_why(
@@ -573,7 +573,7 @@ class TestConcurrentJudges:
         release = h.tmp.parent / f"{h.tmp.name}.release"
         cfg = runner_config(h, "--wait-for", str(release))
         write_spec(h)
-        marker = h.run / "rounds" / "r1" / "running_j1.json"
+        rdir = h.run / "rounds" / "r1"
         try:
             async with Client(build_server(h.tmp, cfg), mode=mode) as c:
                 await call(c, "init", run="run", spec="spec.json")
@@ -582,14 +582,14 @@ class TestConcurrentJudges:
                 with contextlib.suppress(Exception):
                     await c.call_tool_mcp("judge", args, timeout=datetime.timedelta(seconds=0.5))
                 for _ in range(600):
-                    if marker.exists():
+                    if list(rdir.glob("started_j1_*.json")):
                         break
                     await asyncio.sleep(0.1)
                 retry = await c.call_tool_mcp("judge", args)
                 assert retry.is_error and "being judged by another call" in retry.content[0].text  # type: ignore[union-attr]
                 release.touch()
                 for _ in range(600):
-                    if not marker.exists():
+                    if not list(rdir.glob("started_j1_*.json")):
                         break
                     await asyncio.sleep(0.1)
         finally:
@@ -729,6 +729,7 @@ class TestRunnerRefusalsThroughTools:
 
 class TestRoundThreeProbes:
     async def test_a_shadowing_key_never_reaches_a_tool(self, h: Harness, mode: str) -> None:
+        """A key with a dot is an unknown key: no default key holds one."""
         write_spec(h)
         async with Client(build_server(h.tmp, None, [transcripts_of(h)]), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
@@ -742,7 +743,8 @@ class TestRoundThreeProbes:
                 ("report", {}),
                 ("seal", {"artefact": "cand.md", "control": "ctrl.md"}),
             ):
-                assert "holds a dot" in await error(c, tool, run="run", **args)
+                msg = await error(c, tool, run="run", **args)
+                assert "unknown configuration key 'transcript.tool_block_type'" in msg
 
     async def test_a_run_from_an_older_version_is_served(self, h: Harness, mode: str) -> None:
         write_spec(h)
@@ -778,13 +780,15 @@ class TestRoundThreeProbes:
         assert list(outside.iterdir()) == []
 
     @pytest.mark.slow
-    async def test_planted_stale_files_never_fail_a_judge_call(self, h: Harness, mode: str) -> None:
+    async def test_a_started_record_of_a_dead_runner_never_fails_a_judge_call(
+        self, h: Harness, mode: str
+    ) -> None:
         cfg = runner_config(h)
         write_spec(h)
         async with Client(build_server(h.tmp, cfg), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
             await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
             rdir = h.run / "sealed" / "r1"
-            (rdir / "running_j999.json.x.stale").write_text("{}")
+            (rdir / "started_j1_runner-gone.json").write_text('{"argv": ["x"]}')
             seats = (await call(c, "judge", run="run", sealed=True, judges=[2]))["seats"]
         assert [s["status"] for s in seats] == ["VALID"]

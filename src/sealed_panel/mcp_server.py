@@ -17,9 +17,9 @@ person decided. The tools that touch candidates return the command a person runs
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
-import os
 import shlex
 import sys
 from collections.abc import Callable
@@ -37,14 +37,14 @@ from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import config_differences, library_dir, load_config
-from .errors import ConfigError, EvalError, user_message
+from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .learn import user_disagreement
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
-from .runner import SeatTaken, judge_seat, open_seats
+from .runner import judge_seat, open_seats
 from .spec import init_run, library_for, run_config
-from .store import resolve_round
+from .store import contained, resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -335,10 +335,10 @@ def build_server(
         if p.startswith("~"):
             raise ToolError(f"{p!r}: paths are relative to the root {base}, never under ~")
         given = Path(p)
-        resolved = (given if given.is_absolute() else base / given).resolve()
-        if not resolved.is_relative_to(base):
-            raise ToolError(f"{p!r} is outside the root {base}: every path stays under it")
-        return resolved
+        try:
+            return contained(given if given.is_absolute() else base / given, base)
+        except EvalError as exc:
+            raise ToolError(str(exc)) from exc
 
     def opt(p: str | None) -> Path | None:
         return path(p) if p else None
@@ -377,17 +377,9 @@ def build_server(
                     "the folder where your host writes them"
                 )
             )
-        given = Path(os.path.abspath(p))  # `..` goes here, before any comparison
         for r in allowed:
-            real = r.resolve()
-            for form in (r.absolute(), real):
-                if given.is_relative_to(form):
-                    current = real
-                    for part in given.relative_to(form).parts:
-                        current = current / part
-                        if current.is_symlink():
-                            raise ToolError(f"{p!r} goes through a symbolic link: refused")
-                    return current
+            with contextlib.suppress(EvalError):
+                return contained(Path(p), r)
         raise ToolError(f"{p!r} is outside every transcript root: a transcript is proof only there")
 
     mcp = FastMCP(

@@ -7,6 +7,40 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- One judge per seat now rests on a lock: every call that records an attempt (`judge`,
+  host-mode `record`, and `aggregate` for every seat of its round) holds `fcntl.flock` on
+  `seat_j<J>.lock` from the seat check to the stored attempt. Host-mode `record` had no guard:
+  two concurrent calls on one seat could both pass the check. The kernel releases a lock when
+  its holder dies, and a runner's started record (`started_j<J>_<id>.json`) left by a runner
+  that died becomes a void for the next call, under the void cap. A filesystem without `flock`
+  is refused; `flock` may not hold on NFS.
+- One containment guard, `contained()` (resolve, then require the path to stay under the
+  root), confines every MCP tool path, a spec's `facts_file`, and a transcript to its
+  transcript roots.
+- `SECURITY.md` rewritten: the threat model stops at the run directory, states what is defended
+  and what is not, and maps each guard to the threat it answers. Decision record
+  `docs/decisions/2026-11-10-threat-model-stops-at-the-run-directory.md`.
+
+### Changed
+
+- Every run file is written to a private temporary file in its directory and moved over the
+  target, owner-only (0600): a file's earlier mode is no longer kept.
+- `record` and `judge` calls on a round may overlap; a call on a held seat is refused (`judge`
+  skips it).
+- A transcript under a transcript root may go through a link that stays under that root; one
+  that leaves every root is refused.
+- A dotted key in a frozen configuration is refused as an unknown key.
+
+### Removed
+
+- The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
+  rename-to-stale step and its re-read, replaced by the seat lock.
+- The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
+  writes and their fallback, the link check on every entry of a round directory, and the
+  dotted-key check: each answered a writer inside the run directory, now out of scope.
+
 ## [0.3.1] - 2026-11-09
 
 ### Fixed

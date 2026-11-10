@@ -24,8 +24,8 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 339 mutations, 336
-are killed; the three that survive are redundant guards, kept as defence in depth, listed in the
+bound or boundary at a time and requires the suite to fail on each. Of its 335 mutations, 333
+are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
 
@@ -424,7 +424,7 @@ sealed-panel/
     cli.md               every command and flag
     protocol.md          why each rule exists
     integrations.md      MCP server, plugin, host configuration, API pipelines
-    runbook.md           run, release, recovery (yank, interrupted run, stale markers)
+    runbook.md           run, release, recovery (yank, interrupted run, dead runner)
     decisions/           dated records of the choices that hold the design
     plans/               a large change starts from a plan here
   .github/
@@ -482,19 +482,21 @@ also shift the panel.
 Whether the planted control lifts the candidate by contrast is unmeasured; runs with and
 without it would measure it.
 
-The refusals hold for the CLI used as documented. They do not hold against someone who starts a
-new run directory, edits the spec and its lock together, or deletes a transcript before
-aggregating. Pasted replies (`--output`) carry no proof that the judge received the brief
-verbatim, or that no other judge was asked and discarded; the report flags such rounds. The
-judge runner proves what sealed-panel wrote and read, not what the judge command did between the
-two: a command that asks a model several times and prints the best answer is a re-roll it cannot
-see, so the command is frozen into the run and listed next to the grade. What the command reads
-from the environment is not frozen: the run keeps a hash of each allowed value and the report
-flags a round whose attempts ran under different values, but cannot say which model each used,
-so the shipped example puts the model in the command and keeps the environment for credentials.
-`record` calls for one round must be made one after the other, not in parallel, because each
-call reads the files the previous one wrote; `judge` calls may overlap, since a marker holds
-each seat.
+The refusals hold for the commands and MCP tools used as documented. The threat model stops at
+the run directory: they do not hold against someone with shell access to it or to the transcript
+folder, who starts a new run directory, edits the spec and its lock together, edits or deletes
+run files, plants a link in a run, or deletes a transcript before aggregating. Pasted replies
+(`--output`) carry no proof that the judge received the brief verbatim, or that no other judge
+was asked and discarded; the report flags such rounds. The judge runner proves what sealed-panel
+wrote and read, not what the judge command did between the two: a command that asks a model
+several times and prints the best answer is a re-roll it cannot see, so the command is frozen
+into the run and listed next to the grade. What the command reads from the environment is not
+frozen: the run keeps a hash of each allowed value and the report flags a round whose attempts
+ran under different values, but cannot say which model each used, so the shipped example puts
+the model in the command and keeps the environment for credentials. `record` and `judge` calls
+may overlap: each holds its seat's lock (`flock`, advisory, and not reliable on a network
+filesystem), but the run-wide checks are not serialised across seats, so record one agent at a
+time. Every run file is written owner-only (0600).
 
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and

@@ -1,16 +1,18 @@
-"""File helpers shared by every step: JSON in and out, text in, round directories."""
+"""File helpers shared by every step: JSON in and out, text in, round directories, the one
+containment guard for paths a caller gives, and the per-seat lock."""
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import json
 import os
-import secrets
-import stat
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from .errors import EvalError
+from .errors import EvalError, SeatTaken
 
 
 def load_json(path: Path) -> Any:
@@ -35,94 +37,24 @@ def dump_json(path: Path, data: Any) -> None:
     write_file(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
-def _open_dir(parent: Path) -> int:
-    """The directory a file goes in, opened without following a link in its last step."""
-    try:
-        return os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError as exc:
-        if parent.is_symlink():
-            raise EvalError(
-                f"{parent} is a symbolic link: a run writes only inside its own directory"
-            ) from exc
-        raise
-
-
-def _modes(existing: os.stat_result | None) -> tuple[int, int | None]:
-    """(mode to create the draft with, mode to set on it). Replacing a file: the draft starts
-    private and takes the file's mode, so a 0600 file is never exposed by its draft. A new
-    file: created as open() would, the umask applied."""
-    if existing is not None and stat.S_ISREG(existing.st_mode):
-        return 0o600, stat.S_IMODE(existing.st_mode)
-    return 0o666, None
-
-
 def write_file(path: Path, text: str) -> None:
-    """Write a file whole or not at all, and never through a link: a temporary file in the
-    target directory, moved over the target, both named from an open directory. A reader in
-    another call never sees half a file; a link planted on the target is replaced, not followed,
-    and a link planted on the directory stops the write. An existing file keeps its mode."""
+    """Write a file whole or not at all: a private temporary file in the target directory,
+    then moved over the target. A reader in another call never sees half a file, and a link on
+    the target is replaced, never written through. Every file is written owner-only (0600).
+
+    Args:
+        path: The file.
+        text: Its whole content.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    draft = f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
-    if os.open not in os.supports_dir_fd:  # no directory descriptors on this platform
-        refuse_links(path.parent)
-        temporary = path.parent / draft
-        try:
-            existing = path.lstat() if path.exists() or path.is_symlink() else None
-        except FileNotFoundError:
-            existing = None
-        try:
-            create, final = _modes(existing)
-            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, create)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(text)
-            if final is not None:
-                os.chmod(temporary, final)
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
-        return
-    folder = _open_dir(path.parent)
+    fd, draft = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
-        try:
-            before: os.stat_result | None = os.stat(path.name, dir_fd=folder, follow_symlinks=False)
-        except FileNotFoundError:
-            before = None
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-        create, final = _modes(before)
-        fd = os.open(draft, flags, create, dir_fd=folder)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(text)
-                if final is not None:
-                    os.fchmod(f.fileno(), final)
-            os.replace(draft, path.name, src_dir_fd=folder, dst_dir_fd=folder)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(draft, dir_fd=folder)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(draft, path)
     finally:
-        os.close(folder)
-
-
-def read_no_follow(path: Path) -> bytes:
-    """A regular file's bytes, refused when the path is a symbolic link or anything but a
-    regular file (a FIFO would block the open). On platforms without these flags, plain."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        if path.is_symlink():
-            raise EvalError(f"{path} is a symbolic link: refused") from exc
-        raise
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise EvalError(f"{path} is not a regular file: refused")
-        if hasattr(os, "set_blocking"):
-            os.set_blocking(fd, True)
-    except BaseException:
-        os.close(fd)
-        raise
-    with os.fdopen(fd, "rb") as f:
-        return f.read()
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(draft)
 
 
 def read_text(path: Path) -> str:
@@ -132,6 +64,48 @@ def read_text(path: Path) -> str:
         path: The file.
     """
     return path.read_text(encoding="utf-8")
+
+
+def contained(path: Path, root: Path) -> Path:
+    """The path with every link followed, refused unless it stays under the root: the one guard
+    on a path a caller gives (an MCP tool argument, a spec's facts_file), so a `..` or a link
+    that leaves the root never turns into a read or a write outside it.
+
+    Args:
+        path: The path given, absolute or relative to the current directory.
+        root: The folder it must stay under.
+    """
+    real = path.resolve()
+    if not real.is_relative_to(root.resolve()):
+        raise EvalError(f"{str(path)!r} is outside the root {root}: every path stays under it")
+    return real
+
+
+@contextlib.contextmanager
+def locked(path: Path, busy: str) -> Iterator[None]:
+    """Hold an exclusive lock on `path` (fcntl.flock) while the block runs, or refuse at once
+    with SeatTaken(busy) when another call holds it. The kernel releases the lock when its
+    holder's process dies, so a dead holder never blocks the next call. A filesystem without
+    flock is refused: nothing is recorded unlocked.
+
+    Args:
+        path: The lock file, created when absent.
+        busy: The refusal when another call holds the lock.
+    """
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise SeatTaken(busy) from exc
+        except OSError as exc:
+            raise EvalError(
+                f"cannot lock {path} ({exc.strerror}): this filesystem does not support file "
+                "locks (flock), and a seat is never recorded unlocked; keep the run on a local disk"
+            ) from exc
+        yield
+    finally:
+        os.close(fd)
 
 
 def refuse_links(*paths: Path) -> None:
