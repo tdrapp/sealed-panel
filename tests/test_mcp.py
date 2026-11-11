@@ -669,6 +669,45 @@ class TestPaths:
             msg = await error(c, "init", run=mcp_server.INIT_LOCK, spec="spec.json")
             assert "the server's own lock file" in msg
 
+    async def test_the_lock_file_is_the_servers_from_startup(self, h: Harness, mode: str) -> None:
+        """No tool can occupy the lock's name before the first init (a feedback library made a
+        directory there, and every later init failed)."""
+        write_spec(h)
+        lock = h.tmp / mcp_server.INIT_LOCK
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            assert lock.is_file()
+            await call(c, "init", run="r0", spec="spec.json")
+            lk = mcp_server.INIT_LOCK
+            rec = {"run": "r0", "round": 1, "judge": 1, "agent_id": "a"}
+            cases = [
+                ("init", {"run": lk, "spec": "spec.json"}),
+                ("init", {"run": f"{lk}/x", "spec": "spec.json"}),
+                ("init", {"run": "r1", "spec": lk}),
+                ("init", {"run": "r1", "spec": "spec.json", "library": lk}),
+                ("brief", {"run": lk, "round": 1, "artefact": "cand.md", "control": "ctrl.md"}),
+                ("brief", {"run": "r0", "round": 1, "artefact": lk, "control": "ctrl.md"}),
+                ("record", {**rec, "reply_file": lk}),
+                ("measure", {"run": lk, "id": "x", "value": "1", "round": 1}),
+                ("aggregate", {"run": lk, "round": 1}),
+                ("status", {"run": lk}),
+                ("report", {"run": lk}),
+                ("rubrics_list", {"library": f"{lk}/x"}),
+                ("rubrics_suggest", {"kind": "email", "text": lk}),
+                ("rubrics_show", {"id": "message", "run": lk}),
+                ("feedback", {"run": "r0", "note": "too low", "library": lk}),
+                ("feedback", {"run": "r0", "note": "too low", "library": f"{lk}/x"}),
+            ]
+            for tool, args in cases:
+                msg = await error(c, tool, **args)
+                assert "the server's own lock file" in msg, (tool, args)
+            assert lock.is_file()
+            await call(c, "init", run="r1", spec="spec.json")
+
+    def test_a_server_whose_lock_path_is_taken_does_not_start(self, h: Harness) -> None:
+        (h.tmp / mcp_server.INIT_LOCK).mkdir()
+        with pytest.raises(ConfigError, match="the server's own lock file"):
+            build_server(h.tmp)
+
     async def test_a_run_is_never_created_inside_a_run(self, h: Harness, mode: str) -> None:
         """A directory named after a round's lock or result would block that round."""
         write_spec(h)

@@ -285,7 +285,8 @@ resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in
 configuration, else the directory the server starts in. A path outside it, or one starting with
 `~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too. The
 `init` tool holds a lock at the root (`.sealed-panel-init.lock`), so two inits never run at
-once; that name is refused as a run.
+once; the server creates that file at startup, refuses to start when anything but a file holds
+its name, and every tool refuses it and any path under it.
 
 `--config` is the configuration of every run the server changes, and the only place a
 `[judge] command` comes from. It is read once at startup and must live outside the root, or the

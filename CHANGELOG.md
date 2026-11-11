@@ -24,8 +24,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   takes the same lock, so two concurrent readings of one round are both kept.
 - `init` refuses a run path inside another run: through MCP the author could put a directory
   where a round's lock or result goes and block the round. The MCP `init` tool holds a lock at
-  the root (`.sealed-panel-init.lock`, refused as a run name), so two concurrent inits cannot
-  both pass that check.
+  the root (`.sealed-panel-init.lock`), so two concurrent inits cannot both pass that check.
+  The server creates that file at startup, refuses to start when anything but a file holds its
+  name, and every tool refuses it as a path argument, so no caller can occupy it.
 - One containment guard, `contained()` (resolve, then require the path to stay under the
   root), confines every MCP tool path, a spec's `facts_file`, and a transcript to its
   transcript roots.

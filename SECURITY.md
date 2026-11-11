@@ -33,7 +33,9 @@ The adversaries:
   A transcript is read only under a `--transcript-root`, by the same rule, and a transcript root
   that overlaps the root is turned off. A run is never created inside another run: the `init`
   tool holds a lock at the root (`.sealed-panel-init.lock`), so two concurrent inits cannot both
-  pass that check. The command line has no root, and its user is outside the threat model, so it
+  pass that check. The server creates that file at startup and refuses to start when something
+  else holds its name, and every tool refuses it and any path under it, so no caller can occupy
+  it. The command line has no root, and its user is outside the threat model, so it
   takes no such lock. The tools
   that learn write to a rubric library: the user's default one, or one the caller names under
   the root.
@@ -135,7 +137,8 @@ Each guard 0.4.0 removed, reduced or kept, the threat it answered, and what pins
 | (none) | a started record whose attempt is stored, or an unreadable one, adding a void or blocking the seat | in | added: a stored attempt's record is just removed; an unreadable one gives a void with nothing taken from it | `test_a_started_record_of_a_stored_attempt_gives_no_second_void`, `test_an_unreadable_started_record_still_gives_a_void`; mutations `a started record of a stored attempt voided again`, `an unreadable started record blocks the seat` |
 | (none) | a seat filled after `judge` listed the open seats stopping the round | in | the under-lock refusal is `SeatTaken`, so the round skips the seat | `test_a_seat_filled_after_the_listing_is_skipped`; mutation `a seat filled meanwhile stops the round` |
 | `measured.json` read, extended and rewritten with no lock | two concurrent `measure` calls, one reading lost | in | added: `measure` holds the run lock | `test_two_readings_at_once_are_both_kept`; mutation `concurrent readings lose one` |
-| (none) | two concurrent MCP `init` calls, an outer run and one inside it, both passing the nested-run check | in | added: the `init` tool holds a waited lock at the root (a dot-file, refused as a run name) around the checks and writes | `test_concurrent_inits_never_nest_a_run` (30 trials), `test_either_order_of_nested_inits_is_refused`; mutations `concurrent inits not serialised`, `init onto the server's lock file accepted` |
+| (none) | two concurrent MCP `init` calls, an outer run and one inside it, both passing the nested-run check | in | added: the `init` tool holds a waited lock at the root (a dot-file) around the checks and writes | `test_concurrent_inits_never_nest_a_run` (30 trials), `test_either_order_of_nested_inits_is_refused`; mutation `concurrent inits not serialised` |
+| (none) | a tool argument (a feedback library, say) creating a directory at the lock's name before the first init, so every later init fails | in | added: the server creates the lock at startup (refusing to start when its name holds anything but a file), and `path()`, which every tool path goes through, refuses the lock and anything under it | `test_the_lock_file_is_the_servers_from_startup` (every tool with a path argument), `test_a_server_whose_lock_path_is_taken_does_not_start`; mutations `init onto the server's lock file accepted`, `the lock file not reserved at startup` |
 | (none) | run directories readable by others under an open umask | in | added: every directory of a run is created 0700 | `test_every_file_a_run_holds_is_owner_only`; mutation `a run directory readable by others` |
 | Setting bounds and the overrides printed next to the grade | a setting that switches off a guard unseen | in | kept, unchanged | `test_every_changed_key_is_printed`; mutations `overrides hidden`, `run bounds off`, `judge timeout unbounded` |
 | No promote or reject tool on the MCP server | a rubric candidate promoted or rejected by the author | in | kept, unchanged | `test_tools_names_order_and_annotations`, `tests/test_mcp_schema.py` (no mutation: the guard is an absent tool) |

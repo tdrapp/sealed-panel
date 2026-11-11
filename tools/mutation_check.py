@@ -975,8 +975,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "relative paths resolved against the process directory": (
         MCP,
-        "            return contained(given if given.is_absolute() else base / given, base, repr(p))\n",
-        "            return contained(given, base, repr(p))\n",
+        "            where = contained(given if given.is_absolute() else base / given, base, repr(p))\n",
+        "            where = contained(given, base, repr(p))\n",
     ),
     "seat marker not exclusive": (
         f"{PKG}/store.py",
@@ -1013,8 +1013,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
-        "            return contained(given if given.is_absolute() else base / given, base, repr(p))\n",
-        "            return (given if given.is_absolute() else base / given).resolve()\n",
+        "            where = contained(given if given.is_absolute() else base / given, base, repr(p))\n",
+        "            where = (given if given.is_absolute() else base / given).resolve()\n",
     ),
     "home paths accepted": (MCP, '        if p.startswith("~"):\n', "        if False:\n"),
     "root setting ignored": (
@@ -1503,8 +1503,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init onto the server's lock file accepted": (
         MCP,
-        "            if where == init_lock:\n",
-        "            if False:\n",
+        "        if where.is_relative_to(init_lock):\n",
+        "        if False:\n",
+    ),
+    "the lock file not reserved at startup": (
+        MCP,
+        "        os.close(os.open(lock, os.O_RDWR | os.O_CREAT, 0o600))\n",
+        "        pass\n",
     ),
     "a run directory readable by others": (
         f"{PKG}/store.py",

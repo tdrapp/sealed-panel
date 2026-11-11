@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
+import os
 import shlex
 import sys
 from collections.abc import Callable
@@ -318,8 +319,24 @@ def init_run(
     return init_any_run(run, spec_path, cfg, library, facts_root, acknowledge=False)
 
 
-# The lock the init tool holds, at the root.
+# The lock the init tool holds, at the root: the one file the server owns there.
 INIT_LOCK = ".sealed-panel-init.lock"
+
+
+def _reserve(base: Path) -> Path:
+    """Create the root's init lock at startup, before any tool runs, so no caller can put
+    anything else at its name; refuse to start when something other than a file holds it."""
+    lock = base / INIT_LOCK
+    if lock.is_symlink() or (lock.exists() and not lock.is_file()):
+        raise ConfigError(
+            f"{lock} is not a regular file: it is the server's own lock file; remove what is "
+            "there, then start the server again"
+        )
+    try:
+        os.close(os.open(lock, os.O_RDWR | os.O_CREAT, 0o600))
+    except OSError as exc:
+        raise ConfigError(f"cannot create the server's lock file {lock}: {exc.strerror}") from exc
+    return lock
 
 
 def build_server(
@@ -356,7 +373,7 @@ def build_server(
         logging.getLogger("sealed_panel").warning("transcripts off: %s", reason)
 
     # Held by the init tool: a dot-file, so no run is named after it.
-    init_lock = base / INIT_LOCK
+    init_lock = _reserve(base)
 
     def path(p: str) -> Path:
         """A path a caller gave, resolved (links followed) and confined to the root."""
@@ -364,9 +381,12 @@ def build_server(
             raise ToolError(f"{p!r}: paths are relative to the root {base}, never under ~")
         given = Path(p)
         try:
-            return contained(given if given.is_absolute() else base / given, base, repr(p))
+            where = contained(given if given.is_absolute() else base / given, base, repr(p))
         except EvalError as exc:
             raise ToolError(str(exc)) from exc
+        if where.is_relative_to(init_lock):
+            raise ToolError(f"{p!r} is the server's own lock file: name another path")
+        return where
 
     def opt(p: str | None) -> Path | None:
         return path(p) if p else None
@@ -431,8 +451,6 @@ def build_server(
 
         def call() -> InitResult:
             where = path(run)
-            if where == init_lock:
-                raise ToolError(f"{run!r} is the server's own lock file: name the run otherwise")
             # One init at a time under this root: a run's checks (no run among its ancestors,
             # an empty or new directory) then hold against a concurrent init.
             with locked(init_lock, "another init is running", wait=True):
