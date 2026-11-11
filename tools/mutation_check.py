@@ -11,6 +11,7 @@ whole suite before it is reported. CONTRIBUTING.md explains the method.
 
     python tools/mutation_check.py [--only NAME] [--jobs N] [--shard K/N] [--json OUT]
     python tools/mutation_check.py --merge OUT [OUT ...]
+    python tools/mutation_check.py --anchors-only
 """
 
 from __future__ import annotations
@@ -1912,6 +1913,37 @@ def merge(paths: Sequence[Path]) -> int:
     return judge(outcomes) or (1 if missing or twice or unknown else 0)
 
 
+def anchor_problems(names: Iterable[str]) -> list[str]:
+    """Each mutation whose anchor is not found exactly once in its file, with the count. No
+    test runs: a code change that moves an anchor shows here in a second, not after an hour."""
+    problems = []
+    for name in names:
+        rel, old, _new = MUTATIONS[name]
+        found = (ROOT / rel).read_text(encoding="utf-8").count(old)
+        if found != 1:
+            problems.append(f"{name}: anchor found {found} times in {rel}")
+    return problems
+
+
+def check_anchors(names: Sequence[str]) -> int:
+    """Print every anchor problem and a count; 1 when there is one."""
+    problems = anchor_problems(names)
+    for line in problems:
+        print(line)
+    print(f"{len(names) - len(problems)} of {len(names)} anchors found exactly once")
+    return 1 if problems else 0
+
+
+def _sharded(ap: argparse.ArgumentParser, names: list[str], shard: str | None) -> list[str]:
+    """The mutations of shard k/n, or all of them without a shard."""
+    if not shard:
+        return names
+    k, n = (int(x) for x in shard.split("/"))
+    if not 0 <= k < n:
+        ap.error("--shard needs k/n with 0 <= k < n")
+    return [m for m in names if in_shard(m, k, n)]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Seed one defect at a time; the tests must fail.")
     ap.add_argument("--only", help="run a single mutation by name")
@@ -1922,6 +1954,11 @@ def main(argv: list[str] | None = None) -> int:
         "--full-suite", action="store_true", help="run the whole suite on each mutation"
     )
     ap.add_argument("--merge", nargs="+", type=Path, help="merge shard reports and judge them")
+    ap.add_argument(
+        "--anchors-only",
+        action="store_true",
+        help="check that every anchor is found exactly once, and run no test",
+    )
     a = ap.parse_args(argv)
     if a.merge:
         return merge(a.merge)
@@ -1929,11 +1966,9 @@ def main(argv: list[str] | None = None) -> int:
     if not names:
         print(f"no mutation named {a.only!r}")
         return 2
-    if a.shard:
-        k, n = (int(x) for x in a.shard.split("/"))
-        if not 0 <= k < n:
-            ap.error("--shard needs k/n with 0 <= k < n")
-        names = [m for m in names if in_shard(m, k, n)]
+    if a.anchors_only:
+        return check_anchors(names)
+    names = _sharded(ap, names, a.shard)
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp) / "baseline"

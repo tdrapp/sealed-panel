@@ -124,12 +124,15 @@ runner that is harmless.
 .venv/bin/python tools/mutation_check.py --jobs 2 --shard 1/4 --json shard-1.json
 .venv/bin/python tools/mutation_check.py --merge shard-*.json
 .venv/bin/python tools/mutation_check.py --full-suite --jobs 4
+.venv/bin/python tools/mutation_check.py --anchors-only
 ```
 
 A shard holds the mutations whose name hashes to it, so shards never overlap and together
 cover the list. `--merge` fails when a mutation is missing or appears twice, then applies the
 rule: every mutation detected, except the expected survivors, which must survive.
-`--full-suite` skips the selection and runs the whole suite on each mutation.
+`--full-suite` skips the selection and runs the whole suite on each mutation. `--anchors-only`
+checks that every mutation's exact text is found once in its file and runs no test: the
+commit hook runs it whenever `src/` or the tool changes, so a moved anchor shows at once.
 
 CI runs every mutation on every pull request, in four shards of two workers each, and the
 `mutation` check merges their reports. A scheduled workflow runs the whole suite on every

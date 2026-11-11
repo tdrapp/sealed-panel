@@ -49,6 +49,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A transcript under a transcript root may go through a link that stays under that root; one
   that leaves every root is refused.
 - A dotted key in a frozen configuration is refused as an unknown key.
+- `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
+  exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
 
 ### Removed
 

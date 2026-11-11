@@ -38,6 +38,6 @@
   "tools/mutation_check.py:Checker.check": 14,
   "tools/mutation_check.py:build_map": 13,
   "tools/mutation_check.py:judge": 19,
-  "tools/mutation_check.py:main": 22,
+  "tools/mutation_check.py:main": 18,
   "tools/mutation_check.py:merge": 14
 }
