@@ -32,10 +32,10 @@ sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
 content, and refuses a spec whose own text addresses the judges. Writes `spec.json`,
-`rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and an empty `ledger.json`.
-Refuses if `RUN` is already initialised (a new rubric is a new run), if it lies inside another
-run, or if it holds other files: `init` takes a new or empty directory, so it never writes over
-another program's files.
+`rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and `env.salt` (the salt of
+the judge environment hashes). Refuses if `RUN` is already initialised (a new rubric is a new
+run), if it lies inside another run, or if it holds other files: `init` takes a new or empty
+directory, so it never writes over another program's files.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,
@@ -197,10 +197,12 @@ judge's score, the severities, the standard deviation, the paired gain against t
 version, and in a sealed panel the median on the round-1 baseline. Computes the round's noise
 (mean standard deviation, floored at `noise_floor_min`), the composite (weighted mean of the
 medians, for information only), the best paired gain, the suspect jumps, the findings, the
-prompt extras and the judges who reused one quote. Writes `result.json` and appends the round
-to `ledger.json`. After a loop round, also writes `RUN/feedback/after_rN.md`, the findings the
-author revises from. Nothing is written outside the run: before 0.4.0 a sealed panel also wrote
-learned candidates to the user library's inbox; that is now `learning learn`.
+prompt extras and the judges who reused one quote. Writes the round's `result.json`, the only
+record of the round: `status`, `report` and the next round read the rounds from these files
+(`ledger.json`, a copy of them, is no longer written; a run frozen before 0.4.0 keeps its own).
+After a loop round, also writes `RUN/feedback/after_rN.md`, the findings the author revises
+from. Nothing is written outside the run: before 0.4.0 a sealed panel also wrote learned
+candidates to the user library's inbox; that is now `learning learn`.
 
 `aggregate` holds every seat of the round, then the run's lock, for the whole step. In a run
 with a judge command, it first records the attempt of a runner that died as a void (see

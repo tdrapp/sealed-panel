@@ -60,6 +60,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended its round,
+  a second copy of each `result.json`. After: neither writes it; `ledger.view(run)` derives the
+  rounds from the round files (loop rounds first, by number) and the rubric hash from
+  `rubric.lock`. A run frozen before keeps its `ledger.json`, which agrees with its round files
+  and is no longer read.
 - The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
   the judge's process group): the package declares POSIX only and never ran there. No change on
   macOS or Linux.

@@ -242,7 +242,8 @@ class TestErrors:
             assert "No such file" in await error(c, "init", run="r", spec="absent.json")
             write_spec(h)
             await call(c, "init", run="run", spec="spec.json")
-            (h.run / "ledger.json").write_text("[]")
+            (h.run / "rounds" / "r1").mkdir(parents=True)
+            (h.run / "rounds" / "r1" / "result.json").write_text("{}")
             assert "unusable input" in await error(c, "status", run="run")
 
     async def test_an_internal_error_is_masked(

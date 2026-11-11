@@ -1,5 +1,5 @@
 {
-  "src/sealed_panel/aggregate.py:_aggregate": 48,
+  "src/sealed_panel/aggregate.py:_aggregate": 45,
   "src/sealed_panel/aggregate.py:_check_complete": 14,
   "src/sealed_panel/aggregate.py:_dimension_entry": 18,
   "src/sealed_panel/aggregate.py:unrecorded_agents": 17,

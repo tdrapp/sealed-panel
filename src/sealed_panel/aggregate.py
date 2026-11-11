@@ -186,7 +186,7 @@ def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]
 
 
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
-    """Aggregate a round once, append it to the ledger and return the ledger entry. After a
+    """Aggregate a round once, write it to the round's result.json and return it. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md. Nothing is
     written outside the run: learning is a command of its own. Every
     seat of the round, then the run's lock, is held for the whole step, so no judge starts or
@@ -286,13 +286,6 @@ def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     if (rdir / "measured.json").exists():
         entry["measured"] = load_json(rdir / "measured.json")
     dump_json(rdir / "result.json", entry)
-    ledger = load_json(run / "ledger.json")
-    ledger["rounds"] = [
-        r for r in ledger["rounds"] if not (r["round"] == rnd and r.get("sealed") == sealed)
-    ]
-    ledger["rounds"].append(entry)
-    ledger["rounds"].sort(key=lambda r: (r.get("sealed", False), r["round"]))
-    dump_json(run / "ledger.json", ledger)
     if not sealed:
         write_feedback(run, entry)
     return entry

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
-from .store import load_json
+from .store import load_json, read_text
 
 REPLY_GLOB = "*/r*/out_j*.json"
+# A round's directory: rounds/rN for the loop, sealed/rN for the sealed panel.
+ROUND_DIR = re.compile(r"r[1-9][0-9]*")
 
 
 def _recorded_field(run: Path, field: str) -> set[str]:
@@ -45,6 +48,34 @@ def results_by_judge(rdir: Path) -> dict[int, list[dict[str, Any]]]:
         r = load_json(f)["result"]
         by_judge.setdefault(r["judge"], []).append(r)
     return by_judge
+
+
+def rounds(run: Path) -> list[dict[str, Any]]:
+    """Every aggregated round of the run, read from its `result.json`, loop rounds first, each
+    group by round number. The round files are the only record of a round: no list is kept
+    beside them.
+
+    Args:
+        run: The run directory.
+    """
+    found = [
+        load_json(d / "result.json")
+        for group in ("rounds", "sealed")
+        for d in (run / group).glob("r*")
+        if ROUND_DIR.fullmatch(d.name) and (d / "result.json").is_file()
+    ]
+    return sorted(found, key=lambda r: (bool(r.get("sealed", False)), int(r["round"])))
+
+
+def view(run: Path) -> dict[str, Any]:
+    """The run's ledger, derived: the rubric hash from `rubric.lock` and the aggregated rounds.
+    It replaces `ledger.json`, which 0.4.0 no longer writes (a run frozen before still has one,
+    and it agrees with its round files).
+
+    Args:
+        run: The run directory.
+    """
+    return {"rubric_sha256": read_text(run / "rubric.lock").strip(), "rounds": rounds(run)}
 
 
 def other_runs(run: Path) -> list[str]:

@@ -406,7 +406,6 @@ def init_run(
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
     write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
-    dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
 
 

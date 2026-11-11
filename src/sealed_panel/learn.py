@@ -27,8 +27,9 @@ from .config import Config, library_dir
 from .decide import BLOCKED, decide
 from .errors import EvalError
 from .ledger import results_by_judge
+from .ledger import view as ledger_view
 from .spec import TODO_MARKER, load_frozen, run_config
-from .store import load_json, round_dir
+from .store import round_dir
 
 # A spread of scores across a dimension's valid sealed judges that shows they disagree.
 DISAGREE_SPREAD = 2
@@ -201,7 +202,7 @@ def _control_too_close(
 def proposals_after_seal(run: Path) -> list[dict[str, Any]]:
     """Every candidate the sealed run supports, before de-duplication. Writes nothing."""
     spec = load_frozen(run)
-    ledger = load_json(run / "ledger.json")
+    ledger = ledger_view(run)
     sealed = [r for r in ledger["rounds"] if r.get("sealed")]
     if not sealed:
         raise EvalError("learning reads a sealed panel: seal the run first")
@@ -232,7 +233,7 @@ def user_disagreement(
     if not note.strip():
         raise EvalError("--note is required: say where your read differs from the grade")
     spec = load_frozen(run)
-    ledger = load_json(run / "ledger.json")
+    ledger = ledger_view(run)
     d = decide(spec, ledger)
     if d["decision"] == BLOCKED:
         raise EvalError(

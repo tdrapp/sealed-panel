@@ -16,10 +16,10 @@ from typing import Any
 from .config import Config, resolve
 from .decide import BLOCKED, INJECTION_ACK, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
+from .ledger import view as ledger_view
 from .spec import dims_for, load_frozen, rubric_hash, run_config
 from .store import (
     dump_json,
-    load_json,
     make_dir,
     read_text,
     round_dir,
@@ -277,7 +277,7 @@ def write_briefs(
     """
     spec = load_frozen(run)
     cfg = run_config(run)
-    ledger = load_json(run / "ledger.json")
+    ledger = ledger_view(run)
     cand, ctrl = read_text(artefact), read_text(control)
     if rnd < 1:
         raise EvalError("rounds start at 1")
