@@ -606,7 +606,7 @@ def _record_reply(
     keys = round_keys(rdir, rnd)
     meta = _judge_meta(keys, judge, rdir)
     if not agent_id.strip():
-        raise EvalError("--agent-id is required: it proves each judge is a fresh context")
+        raise EvalError("the agent id is required: it proves each judge is a fresh context")
     if agent_id in used_agent_ids(run):
         raise EvalError(
             f"agent {agent_id} already judged in this run: every brief needs a fresh judge"
@@ -616,7 +616,7 @@ def _record_reply(
     extra_chars = 0
     if void and runner is None:
         if transcript is None:
-            raise EvalError("--void needs the agent's --transcript, to show it never replied")
+            raise EvalError("a void needs the agent's transcript, to show it never replied")
         if not meta.get("nonce"):
             raise EvalError("this run's briefs carry no brief id: a void cannot be checked")
         if meta["nonce"] not in read_text(transcript):
@@ -727,7 +727,7 @@ def record_from(
     refuse_older_run(run)
     _refuse_in_a_runner_run(run_config(run))
     if void and transcript is None:
-        raise EvalError("--void needs --transcript")
+        raise EvalError("a void needs the agent's transcript")
     if (transcript is None) == (output is None):
         raise EvalError("give the judge's transcript or its pasted reply, not both")
     if transcript is None:
@@ -735,7 +735,7 @@ def record_from(
     frozen = run_config(run)
     found = transcript_agent_id(transcript, frozen)
     if found and found != agent_id:
-        raise EvalError(f"--agent-id {agent_id} does not match the transcript's agent {found}")
+        raise EvalError(f"the agent id {agent_id} does not match the transcript's agent {found}")
     raw, source, malformed = "", ("void" if void else "transcript"), ""
     if not void:
         try:
@@ -780,7 +780,7 @@ def record_measurement(
             raise EvalError(f"{mid} needs a number, got {value!r}") from exc
         passed = ("max" not in m or num <= m["max"]) and ("min" not in m or num >= m["min"])
     elif passed is None:
-        raise EvalError(f"{mid} has no numeric threshold: say --pass or --fail")
+        raise EvalError(f"{mid} has no numeric threshold: say whether it passed")
     rdir = round_dir(run, rnd, sealed)
     if not (rdir / "keys.json").exists():
         raise EvalError("brief the round before measuring it")

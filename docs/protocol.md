@@ -116,11 +116,11 @@ Statistics over a dataset do not apply to one text. Its only repetitions are its
   sealed panel is refused, and a blocked sealed grade is shown but does not stand. Since the
   sealed panel scores the round-1 text as its baseline, a run whose first round was flagged
   cannot take a sealed grade: CONVERGED, PLATEAU and CAP become BLOCKED BY FLAG on `baseline`,
-  whose next step is a new run, never "seal". A sealed brief that would carry a flagged item is
-  refused before a file is written, so the run's one sealed panel is never spent on a grade that
-  could not stand. A text that addresses a judge on purpose (a notice about prompt injection,
-  say) needs `injection_acknowledged` in the spec: a reason given by a person at the command
-  line, frozen and hashed with the rubric, and shown in the report.
+  whose next step is a new run, never the sealed panel. A sealed brief that would carry a
+  flagged item is refused before a file is written, so the run's one sealed panel is never spent
+  on a grade that could not stand. A text that addresses a judge on purpose (a notice about
+  prompt injection, say) needs `injection_acknowledged` in the spec: a reason given by a person
+  at the command line, frozen and hashed with the rubric, and shown in the report.
 - **Suspect jump.** A paired gain of 2 or more on one dimension is reported for a human read:
   an implausible jump is suspect until checked.
 

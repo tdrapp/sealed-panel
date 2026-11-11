@@ -196,7 +196,9 @@ def resolve_round(rnd: int | None, sealed: bool) -> int:
         return int(rnd)
     if sealed:
         return 1
-    raise EvalError("--round is required for a loop round (it defaults to 1 only with --sealed)")
+    raise EvalError(
+        "the round number is required for a loop round (it defaults to 1 only for the sealed panel)"
+    )
 
 
 def round_dir(run: Path, rnd: int, sealed: bool = False) -> Path:

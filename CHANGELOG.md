@@ -45,6 +45,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Refusals that the MCP tools also raise no longer name command-line flags: "a void needs the
+  agent's transcript", "the round number is required for a loop round", "the agent id ...",
+  "say whether it passed". A stop decision's `next` is "brief the sealed panel" instead of
+  "seal", which no longer names a tool.
 - The plugin's marketplace entry installs the plugin from the release tag (`"source":
   {"source": "github", "repo": ..., "ref": "v<version>"}`) instead of the repository's default
   branch, the tag `.mcp.json` already pins the server to: between releases, `main`'s skill

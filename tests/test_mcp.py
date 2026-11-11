@@ -139,7 +139,7 @@ class TestEndToEnd:
             s = await call(c, "status", run="run")
             assert s["decision"] in {"CONVERGED", "CAP"}
             assert any(o.startswith("judge.command") for o in s["overrides"])
-            assert s["details"]["next"] == "seal"
+            assert s["details"]["next"] == "brief the sealed panel"
             await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
             sealed = await call(c, "judge", run="run", sealed=True)
             assert all(x["status"] == "VALID" for x in sealed["seats"])
@@ -229,7 +229,7 @@ class TestErrors:
             assert "not initialised" in msg
             assert "rounds start at 1" not in msg
             msg = await error(c, "aggregate", run="run")
-            assert "--round is required" in msg
+            assert "the round number is required" in msg
             write_spec(h)
             await call(c, "init", run="run", spec="spec.json")
             assert "already frozen" in await error(c, "init", run="run", spec="spec.json")

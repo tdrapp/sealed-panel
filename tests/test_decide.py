@@ -11,7 +11,7 @@ from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel import brief as brief_module
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.decide import BLOCKED, flagged_roles
+from sealed_panel.decide import BLOCKED, SEAL_NEXT, flagged_roles
 from sealed_panel.errors import EvalError
 from sealed_panel.learn import user_disagreement
 from sealed_panel.record import record_measurement, record_reply
@@ -131,7 +131,7 @@ class TestInjectionGate:
         h.full(3, "v3", FIVE, FIVE)
         d = h.decision()
         assert (d["decision"], d["blocked"], d["roles"]) == (BLOCKED, "CONVERGED", ["baseline"])
-        assert d["next"] != "seal" and "new run" in d["next"]
+        assert d["next"] != SEAL_NEXT and "new run" in d["next"]
         assert status(h.run)["next"] == d["next"]
         with pytest.raises(EvalError, match="new run"):
             h.brief(1, "v3", sealed=True)

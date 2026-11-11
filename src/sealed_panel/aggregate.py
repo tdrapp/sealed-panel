@@ -132,7 +132,7 @@ def _check_complete(
         raise EvalError(
             "agents received a brief of this round but were never recorded: "
             + ", ".join(f"j{j} {aid}" for j, aid in unrecorded)
-            + "; record every agent you briefed, rejected or not (--void for one that never "
+            + "; record every agent you briefed, rejected or not (a void for one that never "
             "replied)"
         )
 
