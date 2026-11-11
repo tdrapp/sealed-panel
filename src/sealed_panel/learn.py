@@ -3,16 +3,16 @@
 Learning proposes and a person decides. Nothing here writes a template: candidates go to the
 inbox, and only `sealed-panel rubrics promote`, run by a person, applies one. Each proposed
 change holds TODO markers where a person must write the new text, and promotion refuses until
-the fields its action uses are filled. Learning never fails a seal: an error is reported as
-"learning skipped" and `sealed-panel learn RUN` tries again.
+the fields its action uses are filled. Learning runs only when asked, by `sealed-panel learning
+learn RUN` on a sealed run: no aggregate calls it, and it only reads the run.
 
 Kinds (rubric-level signals):
 - judges_disagree: in the sealed panel, a dimension whose valid judges' scores spread by 2 or
   more, or a judge whose severity contradicts its score before capping (blocking with a 4 or
   5, material with a 5, none with a 1);
 - control_too_close: in the sealed panel, a dimension where the candidate's mean raw score
-  is at least `library.control_min_candidate` (4) and the control's mean raw score is within
-  `library.control_gap` (1) of it, both before severity caps;
+  is at least CONTROL_MIN_CANDIDATE (4) and the control's mean raw score is within
+  CONTROL_GAP (1) of it, both before severity caps;
 - user_disagreement: the user's own read disagrees with the sealed grade (`feedback`).
 """
 
@@ -23,15 +23,20 @@ from pathlib import Path
 from typing import Any
 
 from . import library
-from .config import Config
+from .config import Config, library_dir
 from .decide import BLOCKED, decide
 from .errors import EvalError
 from .ledger import results_by_judge
-from .spec import TODO_MARKER, load_frozen, run_config, run_library
+from .spec import TODO_MARKER, load_frozen, run_config
 from .store import load_json, round_dir
 
 # A spread of scores across a dimension's valid sealed judges that shows they disagree.
 DISAGREE_SPREAD = 2
+# control_too_close fires only when the sealed candidate's mean raw score on a dimension is at
+# least this (a strong text) and the control's is within CONTROL_GAP of it: a low control next
+# to a low candidate says nothing about the dimension. The 0.3.1 defaults of the settings.
+CONTROL_MIN_CANDIDATE = 4.0
+CONTROL_GAP = 1.0
 
 
 def _todo(text: str) -> str:
@@ -145,26 +150,22 @@ def _raw_mean(results: list[dict[str, Any]], role: str, did: str) -> float | Non
 
 
 def _control_too_close(
-    run: Path,
-    spec: dict[str, Any],
-    sealed: dict[str, Any],
-    info: dict[str, Any],
-    cfg: Config,
+    run: Path, spec: dict[str, Any], sealed: dict[str, Any], info: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """A dimension that does not discriminate: the sealed panel scores a strong candidate and
     the bad control close together. A weak candidate never triggers it: a low candidate next to
     a low control says nothing about the dimension. Calibration bounds each judge's control
     mean over the persona's dimensions (control_max), not its score on one dimension, so a
     control can score 3 on one dimension and stay calibrated; docs/rubrics.md derives when."""
-    floor = float(cfg.library["control_min_candidate"])
-    gap = float(cfg.library["control_gap"])
     results = _valid(run, sealed["round"], sealed=True)  # the sealed panel only
     proposals = []
     for pid, p in sealed["personas"].items():
         mine = [r for r in results if r["persona"] == pid]
         for did in p["dimensions"]:
             cand, ctrl = _raw_mean(mine, "candidate", did), _raw_mean(mine, "control", did)
-            if cand is None or ctrl is None or cand < floor or cand - ctrl > gap:
+            if cand is None or ctrl is None or cand < CONTROL_MIN_CANDIDATE:
+                continue
+            if cand - ctrl > CONTROL_GAP:
                 continue
             proposals.append(
                 {
@@ -208,27 +209,20 @@ def proposals_after_seal(run: Path) -> list[dict[str, Any]]:
     cfg = run_config(run)
     return [
         *_judges_disagree(run, spec, sealed[-1], info, cfg),
-        *_control_too_close(run, spec, sealed[-1], info, cfg),
+        *_control_too_close(run, spec, sealed[-1], info),
     ]
 
 
-def learn_after_seal(run: Path) -> list[Path]:
-    """Write the candidates of a sealed run to the inbox. The learning switch is read by
-    learn_safely, which is how aggregate and `sealed-panel learn` call this."""
-    lib = run_library(run)
+def learn_after_seal(run: Path, lib: Path) -> list[Path]:
+    """Write the candidates of a sealed run to the library's inbox; the run is only read.
+    `sealed-panel learning learn RUN` calls this, and nothing else does.
+
+    Args:
+        run: The run directory, sealed.
+        lib: The user library, resolved by library_dir.
+    """
     paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]
     return sorted({p for p in paths if p is not None})
-
-
-def learn_safely(run: Path) -> tuple[list[Path], str]:
-    """Learning after a seal: never raises. Returns the candidates and a status line."""
-    try:
-        if not run_config(run).library["learn"]:
-            return [], "learning off"
-        paths = learn_after_seal(run)
-    except Exception as exc:  # learning must never fail a seal
-        return [], f"learning skipped: {exc}; run `sealed-panel learn {run}` to try again"
-    return paths, f"{len(paths)} rubric candidate(s) in {run_library(run) / 'inbox'}"
 
 
 def user_disagreement(
@@ -294,7 +288,7 @@ def user_disagreement(
         "evidence": [evidence],
         "proposed_change": change,
     }
-    target = lib or run_library(run)
+    target = lib or library_dir()
     path = library.add_candidate(target, proposal)
     if path is None:
         if library.closed_status(target, proposal) == "promoted":

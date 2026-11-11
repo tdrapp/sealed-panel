@@ -148,9 +148,11 @@ class TestRunFrozenByVersion010:
             assert record_reply(r, 1, meta["judge"], f"new{meta['judge']}", raw, True)["ok"]
         assert run(capsys, "measure", r, "--sealed", "--id", "length", "--value", "130")[0] == 0
         rc, out = run(capsys, "aggregate", r, "--sealed")
+        assert rc == 0 and "inbox" not in out
+        rc, out = run(capsys, "learning", "learn", r)
         assert rc == 0 and f"in {private_library / 'inbox'}" in out
         assert run(capsys, "report", r)[0] == 0
         assert run(capsys, "feedback", r, "--note", "too kind", "--dimension", "evidence")[0] == 0
-        rc, out = run(capsys, "rubrics", "list", "--run", r)
+        rc, out = run(capsys, "rubrics", "list")
         assert rc == 0 and f"library: {private_library}" in out
         assert "control_too_close" in out and "user_disagreement" in out

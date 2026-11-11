@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 325 mutations, 323
+bound or boundary at a time and requires the suite to fail on each. Of its 317 mutations, 315
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -305,13 +305,13 @@ email` shows the templates for a kind of text, with when to use each and its dim
 `rubrics use message --out spec.json` writes a spec skeleton whose TODO markers `init` refuses
 until they are filled.
 
-After each sealed panel, sealed-panel writes rubric-level candidates to a user-level library
-inbox: a dimension the sealed judges disagree on, a dimension where the sealed panel scores the
-bad control close to a strong text, or your own disagreement recorded with
-`sealed-panel feedback`. A person reads each candidate, sees the change side by side, and runs
-`rubrics promote` or `rubrics reject`; nothing changes a template on its own, and a frozen run
-never changes. Candidates quote the judged texts, so the user library is private by nature. See
-[docs/rubrics.md](docs/rubrics.md).
+After a sealed panel, `sealed-panel learning learn RUN` (the skill runs it; `aggregate` never
+does) writes rubric-level candidates to a user-level library inbox: a dimension the sealed
+judges disagree on, a dimension where the sealed panel scores the bad control close to a strong
+text, or your own disagreement recorded with `sealed-panel feedback`. A person reads each
+candidate, sees the change side by side, and runs `rubrics promote` or `rubrics reject`; nothing
+changes a template on its own, and a frozen run never changes. Candidates quote the judged
+texts, so the user library is private by nature. See [docs/rubrics.md](docs/rubrics.md).
 
 ## Using the agent skill
 

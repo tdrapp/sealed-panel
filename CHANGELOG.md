@@ -60,6 +60,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- Learning on every seal, and `[library]` (`path`, `learn`, `control_min_candidate`,
+  `control_gap`). Before: every sealed `aggregate` wrote candidates to the inbox of a library
+  frozen into the run at `init` (`library.path`), unless `library.learn` was false, and printed
+  `learning` and `inbox`; `sealed-panel learn RUN` retried. After: `aggregate` writes nothing
+  outside the run and no longer prints or returns `learning`/`inbox` (CLI, MCP `aggregate`,
+  `aggregate_round`); learning is `sealed-panel learning learn RUN [--library DIR]`, which the
+  skill runs after a sealed panel; `init` freezes no library; the library is `--library`, else
+  `$SEALED_PANEL_RUBRICS`, else the user default; the thresholds are constants (4.0, 1.0); and
+  `--run` on `rubrics` commands and `run` on the MCP rubrics tools are gone. A file that sets a
+  `[library]` key is refused, naming it; a run frozen before reads as for `[text]`.
 - `[injection]` (`patterns`, `samples`). Before: a configuration could add patterns (every
   default had to stay, each matching its sample line). After: the five 0.3.1 patterns are the
   constant `text.INJECTION_PATTERNS`, and `injection_flags(text)` takes no configuration. A

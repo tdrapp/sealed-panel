@@ -13,21 +13,18 @@ from .brief import write_briefs
 from .config import LIBRARY_ENV, library_dir, load_config
 from .decide import sealed_done
 from .errors import EvalError, SeatTaken, user_message
-from .learn import learn_safely, user_disagreement
+from .learn import learn_after_seal, user_disagreement
 from .record import outcome_line, record_from, record_measurement
 from .report import feedback_path, render_report, status
 from .runner import judge_seat, open_seats
-from .spec import TODO_MARKER, init_run, library_for
+from .spec import TODO_MARKER, init_run
 from .store import load_json, resolve_round
 
 # The usual exit status of a command stopped by Ctrl-C.
 INTERRUPTED = 130
 DESCRIPTION = "Grade a text with blind panels of LLM judges and a sealed final panel."
 ROUND_HELP = "round number; optional with --sealed, where it defaults to 1"
-LIBRARY_HELP = (
-    f"user library directory (default: ${LIBRARY_ENV}, else the library.path setting, "
-    "else the user-level default)"
-)
+LIBRARY_HELP = f"user library directory (default: ${LIBRARY_ENV}, else the user-level default)"
 
 
 def _round_args(p: argparse.ArgumentParser) -> None:
@@ -102,8 +99,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--dimension")
     p.add_argument("--library", type=Path, help=LIBRARY_HELP)
 
-    p = sub.add_parser("learn", help="write a sealed run's rubric candidates to the inbox again")
-    p.add_argument("run", type=Path)
+    p = sub.add_parser("learning", help="learning from sealed runs (a person decides)")
+    lsub = p.add_subparsers(dest="lcmd", required=True)
+    r = lsub.add_parser("learn", help="write a sealed run's rubric candidates to the inbox")
+    r.add_argument("run", type=Path)
+    r.add_argument("--library", type=Path, help=LIBRARY_HELP)
 
     p = sub.add_parser("mcp", help="serve the commands as MCP tools over stdio (the mcp extra)")
     p.add_argument(
@@ -133,7 +133,6 @@ def _parser() -> argparse.ArgumentParser:
 
     def lib_args(r: argparse.ArgumentParser) -> None:
         r.add_argument("--library", type=Path, help=LIBRARY_HELP)
-        r.add_argument("--run", type=Path, help="use the library frozen into this run")
 
     r = rsub.add_parser("list", help="templates (built-in and user) and open candidates")
     lib_args(r)
@@ -184,7 +183,7 @@ def _confirm(a: argparse.Namespace, plan: dict[str, object]) -> None:
 
 
 def _rubrics(a: argparse.Namespace) -> None:
-    lib = library_for(a.library, a.run)
+    lib = library_dir(a.library)
     if a.rcmd == "list":
         print(f"library: {lib}")
         served, warnings = library.all_templates(lib)
@@ -286,8 +285,6 @@ def _run(a: argparse.Namespace) -> None:
         )
         if not e["sealed"]:
             line += f"; findings in {feedback_path(a.run, e['round'])}"
-        else:
-            line += f"; {e['learning']}"
         print(line + "; run `status`")
     elif a.cmd == "status":
         print(json.dumps(status(a.run), ensure_ascii=False, indent=2))
@@ -297,13 +294,12 @@ def _run(a: argparse.Namespace) -> None:
         lib = library_dir(a.library) if a.library else None
         path = user_disagreement(a.run, a.note, a.dimension, lib)
         print(f"recorded your read as candidate {path.stem} in {path.parent}")
-    elif a.cmd == "learn":
+    elif a.cmd == "learning":
         if not sealed_done(status(a.run)):
-            raise EvalError("learn reads a sealed panel: seal the run first")
-        _, learning = learn_safely(a.run)
-        print(learning)
-        if learning.startswith("learning skipped"):
-            raise EvalError(learning)
+            raise EvalError("learning reads a sealed panel: seal the run first")
+        lib = library_dir(a.library)
+        paths = learn_after_seal(a.run, lib)
+        print(f"{len(paths)} rubric candidate(s) in {lib / 'inbox'}")
     elif a.cmd == "rubrics":
         _rubrics(a)
     elif a.cmd == "mcp":

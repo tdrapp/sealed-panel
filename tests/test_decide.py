@@ -225,7 +225,7 @@ class TestInjectionGate:
     ) -> None:
         h.init()
         self.seal_flagged_as_0_3_0_did(h, monkeypatch)
-        assert main(["learn", str(h.run)]) == 0  # learning reads the rubric, not the grade
+        assert main(["learning", "learn", str(h.run)]) == 0  # it reads the rubric, not the grade
         with pytest.raises(EvalError, match="does not stand"):
             user_disagreement(h.run, "my read differs")
 

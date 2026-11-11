@@ -350,11 +350,7 @@ class TestJudgeAuthority:
                 assert "differ from the configuration the server was started with" in msg, tool
             # Reading changes nothing: the read-only tools read it, and status says it is
             # not served.
-            for tool, args in (
-                ("rubrics_suggest", {"kind": "email"}),
-                ("report", {}),
-            ):
-                await call(c, tool, run="run", **args)
+            await call(c, "report", run="run")
             assert (await call(c, "status", run="run"))["served"] is False
         assert not (h.tmp / "pwned.txt").exists()
 
@@ -704,7 +700,6 @@ class TestPaths:
                 ("report", {"run": lk}),
                 ("rubrics_suggest", {"kind": "email", "library": f"{lk}/x"}),
                 ("rubrics_suggest", {"kind": "email", "text": lk}),
-                ("rubrics_suggest", {"kind": "email", "run": lk}),
                 ("rubrics_use", {"id": "message", "out": lk}),
                 ("rubrics_use", {"id": "message", "out": f"{lk}/x"}),
                 ("rubrics_use", {"id": "message", "out": "s.json", "library": lk}),

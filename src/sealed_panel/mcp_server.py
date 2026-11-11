@@ -35,13 +35,13 @@ from . import __version__
 from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import Config, config_differences, load_config
+from .config import Config, config_differences, library_dir, load_config
 from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .runner import judge_seat, open_seats
-from .spec import TODO_MARKER, library_for, run_config
+from .spec import TODO_MARKER, run_config
 from .spec import init_run as init_any_run
 from .store import contained, locked, resolve_round
 
@@ -77,7 +77,7 @@ RoundNo = Annotated[
 Sealed = Annotated[bool, Field(description="the sealed panel instead of a loop round")]
 LibraryPath = Annotated[
     str | None,
-    Field(description="user rubric library; default: the run's, else the user library"),
+    Field(description="user rubric library; default: $SEALED_PANEL_RUBRICS, else the user's"),
 ]
 
 
@@ -142,8 +142,6 @@ class AggregateResult(BaseModel):
     sealed: bool
     rejected_or_void: int
     feedback: str | None = Field(None, description="the author's findings file (loop round)")
-    learning: str | None = Field(None, description="what learning wrote (sealed panel)")
-    inbox: list[str] = Field(default_factory=list)
 
 
 class StatusResult(BaseModel):
@@ -516,8 +514,7 @@ def build_server(
 
     @mcp.tool(annotations=ADDS)
     def aggregate(run: RunPath, round: RoundNo = None, sealed: Sealed = False) -> AggregateResult:
-        """Aggregate a round once. A loop round writes the author's findings file; a sealed panel
-        writes learned rubric candidates to the library inbox."""
+        """Aggregate a round once. A loop round writes the author's findings file."""
 
         def call() -> AggregateResult:
             rnd = resolve_round(round, sealed)
@@ -527,8 +524,6 @@ def build_server(
                 sealed=e["sealed"],
                 rejected_or_void=len(e["rejected_judges"]) + len(e["voided"]),
                 feedback=None if sealed else str(feedback_path(path(run), e["round"])),
-                learning=e.get("learning"),
-                inbox=list(e.get("inbox") or []),
             )
 
         return _calling(call)
@@ -562,12 +557,11 @@ def build_server(
         ] = None,
         top: Annotated[int, Field(ge=1, description="how many templates")] = 3,
         library: LibraryPath = None,
-        run: str | None = None,
     ) -> SuggestResult:
         """The rubric templates for a kind of text, with when to use each and its dimensions."""
 
         def call() -> SuggestResult:
-            lib = library_for(opt(library), readable(run) if run else None)
+            lib = library_dir(opt(library))
             body = path(text).read_text("utf-8") if text else ""
             rows = rubrics_lib.suggest(lib, kind, body, top)
             every = (
@@ -603,13 +597,12 @@ def build_server(
             str | None, Field(description="a JSON list of personas (id, description)")
         ] = None,
         library: LibraryPath = None,
-        run: str | None = None,
     ) -> UseResult:
         """Write a spec skeleton from a template, under the root. A person fills every TODO
         marker it leaves (the facts, the personas, the choices), then init freezes it."""
 
         def call() -> UseResult:
-            lib = library_for(opt(library), readable(run) if run else None)
+            lib = library_dir(opt(library))
             written = rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))
             return UseResult(path=str(written), template=id, todo_marker=TODO_MARKER)
 

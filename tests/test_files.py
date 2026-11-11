@@ -38,7 +38,7 @@ from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import extract_json, record_from, record_reply, seat_lock
 from sealed_panel.report import render_report
 from sealed_panel.runner import judge_round, judge_seat, open_seats
-from sealed_panel.spec import init_run, run_config, run_library
+from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
@@ -907,20 +907,6 @@ class TestStartedRecords:
 
 
 class TestLibraryMoved:
-    def test_a_library_replaced_by_a_link_is_refused(self, h: Harness) -> None:
-        lib = h.tmp / "lib"
-        lib.mkdir()
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, None, lib)
-        outside = h.tmp / "outside"
-        outside.mkdir()
-        lib.rename(h.tmp / "lib.real")
-        lib.symlink_to(outside)
-        with pytest.raises(EvalError, match="a link was put in its place"):
-            run_library(h.run)
-        assert list(outside.iterdir()) == []
-
     def test_a_linked_library_folder_writes_nothing(self, tmp_path: Path) -> None:
         outside = tmp_path / "outside"
         outside.mkdir()

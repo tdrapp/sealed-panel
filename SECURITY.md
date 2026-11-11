@@ -36,9 +36,9 @@ The adversaries:
   pass that check. The server creates that file at startup and refuses to start when something
   else holds its name, and every tool refuses it and any path under it, so no caller can occupy
   it. The command line has no root, and its user is outside the threat model, so it
-  takes no such lock. The tools
-  that learn write to a rubric library: the user's default one, or one the caller names under
-  the root.
+  takes no such lock. No tool
+  learns: learning is a command a person runs. `rubrics_use` writes a spec skeleton under the
+  root.
 - **The author cannot get two valid replies on a seat.** Every call that records an attempt on a
   judge seat, the runner's `judge` and host-mode `record` alike, holds that seat's lock
   (`fcntl.flock`) from the seat check to the stored attempt, and `aggregate` holds every seat of
@@ -130,7 +130,7 @@ Each guard 0.4.0 removed, reduced or kept, the threat it answered, and what pins
 | Transcript path: every component checked for a link | a transcript read through a link | a link leaving the transcript root: in; a link inside it: out (shell access to that folder) | reduced: `contained()` under each transcript root, so a path that leaves every root is refused | `test_escapes_are_refused`, `test_a_forged_transcript_under_the_root_is_no_proof`; mutations `links followed in a transcript root`, `a transcript under the root taken as proof` |
 | `facts_file` under the root | a spec reading a file outside the root into a run | in | kept, through `contained()` | `test_facts_file_stays_under_the_root`; mutations `facts_file outside the root read`, `init leaves facts_file unconfined` |
 | Server configuration outside the root; judge settings checked against the server's | the author rewriting its judge through a tool | in | kept, unchanged | `test_a_configuration_under_the_root_stops_the_server`, `test_a_run_frozen_with_another_judge_is_refused`; mutations `configuration under the root accepted`, `judge settings not checked against the server` |
-| Library links: linked inbox or history refused, linked templates and candidates skipped, a frozen library that now resolves elsewhere refused | a link planted in a rubric library | out (shell access to the library) | kept for now: the library code moves later in 0.4.0, and that change decides them | `TestLibraryLinks`, `TestLibraryMoved`; their mutations unchanged |
+| Library links: linked inbox or history refused, linked templates and candidates skipped (a frozen library that resolved elsewhere was refused until 0.4.0, which froze no library) | a link planted in a rubric library | out (shell access to the library) | kept for now: the library code moves later in 0.4.0, and that change decides them | `TestLibraryLinks`, `TestLibraryMoved`; their mutations unchanged |
 | (none) | a run created inside a round folder through MCP `init`, putting a directory where the round's lock or result goes | in | added: `init` refuses a run path with a run among its ancestors; a lock file that cannot be opened is a clear refusal; the result checks read a file, not any path | `test_a_run_inside_a_run_is_refused`, `test_a_run_is_never_created_inside_a_run`, `test_a_lock_path_taken_by_a_directory_is_a_clear_refusal`; mutations `a run created inside a run`, `a lock file that cannot be opened crashes` |
 | (none) | one agent id or one reply recorded on two seats at once (the run-wide checks raced) | in | added: the run lock around the run-wide checks and the store, taken after the seat lock | `test_one_agent_on_two_seats_at_once_is_recorded_once`; mutation `run-wide checks without the run lock` |
 | "a round is briefed once", checked then written | two concurrent briefings of one round both accepted | in | added: `brief` holds the run lock from its checks to its last write | `test_two_briefings_of_one_round_give_one`; mutation `a round briefed twice at once` |

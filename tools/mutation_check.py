@@ -366,16 +366,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "paths = [library.promote(lib, library.add_candidate(lib, p).stem) for p in "
         "proposals_after_seal(run)]",
     ),
-    "learning switch ignored": (
-        LEARN,
-        'if not run_config(run).library["learn"]:\n            return [], "learning off"',
-        'if False:\n            return [], "learning off"',
-    ),
-    "learning can fail a seal": (
-        LEARN,
-        "    except Exception as exc:  # learning must never fail a seal",
-        "    except ZeroDivisionError as exc:  # learning must never fail a seal",
-    ),
     "spread threshold off by one": (
         LEARN,
         "if spread >= DISAGREE_SPREAD:",
@@ -398,8 +388,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "control gap off by one": (
         LEARN,
-        "cand - ctrl > gap",
-        "cand - ctrl >= gap",
+        "if cand - ctrl > CONTROL_GAP:",
+        "if cand - ctrl >= CONTROL_GAP:",
     ),
     "control compared on capped scores": (
         LEARN,
@@ -566,11 +556,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if k not in OPTIONAL_HASH_KEYS or k in spec",
         "if k not in OPTIONAL_HASH_KEYS",
     ),
-    "library not frozen at init": (
-        SPEC,
-        '    frozen["library"] = {**cfg.library, "path": str(lib)}\n',
-        "",
-    ),
     "keys missing from an old run reported": (
         CFG,
         "        if key not in current:\n            continue",
@@ -626,8 +611,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "relative library path accepted": (
         CFG,
-        "            if not path.is_absolute():\n                raise ConfigError(",
-        "            if False:\n                raise ConfigError(",
+        "        if not path.is_absolute():\n            raise ConfigError(",
+        "        if False:\n            raise ConfigError(",
     ),
     "unknown template accepted": (
         SPEC,
@@ -650,36 +635,21 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "real = path.expanduser().resolve(strict=False)",
         "real = path.expanduser().absolute()",
     ),
-    "weak candidate triggers the control signal": (LEARN, "cand < floor or ", ""),
-    "control gap hard-coded": (
+    "weak candidate triggers the control signal": (
         LEARN,
-        'gap = float(cfg.library["control_gap"])',
-        "gap = 1.0",
-    ),
-    "control_min_candidate unbounded": (
-        CFG,
-        'if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:',
-        "if False:",
-    ),
-    "control_gap unbounded": (
-        CFG,
-        'if "control_gap" in library and not 0 <= library["control_gap"] <= 4:',
-        "if False:",
+        "ctrl is None or cand < CONTROL_MIN_CANDIDATE:",
+        "ctrl is None:",
     ),
     "run created before the library is resolved": (
         SPEC,
-        "    lib = library_dir(library, cfg)  # resolved",
-        "    run.mkdir(parents=True, exist_ok=True)\n    lib = library_dir(library, cfg)  # resolved",
+        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
+        "    run.mkdir(parents=True, exist_ok=True)\n"
+        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
     ),
     "closed id refused only after the prompt": (
         LIB,
         '    _history_file(lib, c["id"])  # a closed id',
         "    pass  # a closed id",
-    ),
-    "control threshold hard-coded": (
-        LEARN,
-        'floor = float(cfg.library["control_min_candidate"])',
-        "floor = 4.0",
     ),
     "contradiction ignores the run caps": (
         LEARN,
@@ -698,13 +668,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init ignores --library": (
         SPEC,
-        "    lib = library_dir(library, cfg)  # resolved",
-        "    lib = library_dir(None, cfg)  # resolved",
-    ),
-    "init freezes the default library": (
-        SPEC,
-        'frozen["library"] = {**cfg.library, "path": str(lib)}',
-        'frozen["library"] = {**cfg.library, "path": str(library_dir(None, cfg))}',
+        "_check_template_ref(spec, cfg, library_dir(library))",
+        "_check_template_ref(spec, cfg, library_dir(None))",
     ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -729,6 +694,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         CFG,
         "        if not path and key in REMOVED_SECTIONS:\n",
         "        if False:\n",
+    ),
+    "learning called by aggregate": (
+        AGG,
+        "        write_feedback(run, entry)\n    return entry",
+        "        write_feedback(run, entry)\n"
+        "    else:\n"
+        '        __import__("sealed_panel.learn", fromlist=["x"]).learn_after_seal(\n'
+        '            run, __import__("sealed_panel.config", fromlist=["x"]).library_dir()\n'
+        "        )\n"
+        "    return entry",
     ),
     "judges per persona unbounded (config)": (
         CFG,
@@ -893,8 +868,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
     "root listed with the grading settings": (
         CFG,
-        'NOT_GRADING = frozenset({"library.path", "mcp.root"})',
-        'NOT_GRADING = frozenset({"library.path"})',
+        'NOT_GRADING = frozenset({"mcp.root"})',
+        "NOT_GRADING = frozenset()",
     ),
     "voids left out of the aggregate line": (
         f"{PKG}/cli.py",
@@ -1098,11 +1073,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         RUN,
         '    if any(r["ok"] for r in results_by_judge(rdir).get(judge, [])):\n        return\n',
         "",
-    ),
-    "a library replaced by a link accepted": (
-        SPEC,
-        "    if path.resolve() != path:\n",
-        "    if False:\n",
     ),
     "an empty transcript root argument fails": (
         f"{PKG}/cli.py",

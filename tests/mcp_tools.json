@@ -18,7 +18,7 @@
             }
           ],
           "default": null,
-          "description": "user rubric library; default: the run's, else the user library"
+          "description": "user rubric library; default: $SEALED_PANEL_RUBRICS, else the user's"
         },
         "run": {
           "description": "the run directory",
@@ -537,24 +537,6 @@
           "default": null,
           "description": "the author's findings file (loop round)"
         },
-        "inbox": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "learning": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "what learning wrote (sealed panel)"
-        },
         "rejected_or_void": {
           "type": "integer"
         },
@@ -682,18 +664,7 @@
             }
           ],
           "default": null,
-          "description": "user rubric library; default: the run's, else the user library"
-        },
-        "run": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "description": "user rubric library; default: $SEALED_PANEL_RUBRICS, else the user's"
         },
         "text": {
           "anyOf": [
@@ -808,7 +779,7 @@
             }
           ],
           "default": null,
-          "description": "user rubric library; default: the run's, else the user library"
+          "description": "user rubric library; default: $SEALED_PANEL_RUBRICS, else the user's"
         },
         "out": {
           "description": "where to write the spec; refused if it exists",
@@ -825,17 +796,6 @@
           ],
           "default": null,
           "description": "a JSON list of personas (id, description)"
-        },
-        "run": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [

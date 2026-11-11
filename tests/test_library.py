@@ -15,7 +15,7 @@ from conftest import FLAT, Harness, make_spec
 from sealed_panel import library
 from sealed_panel.brief import write_briefs
 from sealed_panel.cli import main
-from sealed_panel.config import default_library_dir, library_dir, load_config
+from sealed_panel.config import default_library_dir, library_dir
 from sealed_panel.errors import EvalError
 from sealed_panel.report import render_report
 from sealed_panel.spec import (
@@ -176,11 +176,11 @@ class TestLibraryPath:
         assert str(default_library_dir()).startswith(str(Path.home()))
         assert not str(default_library_dir()).startswith(os.getcwd() + os.sep + "rubrics")
 
-    def test_init_freezes_the_library(self, h: Harness, private_library: Path) -> None:
+    def test_init_freezes_no_library(self, h: Harness, private_library: Path) -> None:
+        """The library is where learning writes, never part of a run: init freezes none."""
         h.init()
-        frozen = json.loads((h.run / "config.json").read_text())["library"]["path"]
-        assert frozen == str(private_library)
-        assert not any("library" in x for x in render_report(h.run).splitlines()[2:3])
+        assert "library" not in json.loads((h.run / "config.json").read_text())
+        assert not private_library.exists()
 
 
 class TestSuggest:
@@ -569,8 +569,9 @@ class TestTemplateReference:
 
 class TestLibraryGuardrails:
     def test_a_refused_library_leaves_no_run(self, tmp_path: Path) -> None:
+        """A spec naming a template reads the library before anything is written."""
         sp = tmp_path / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
+        sp.write_text(json.dumps(make_spec(template={"id": "message", "version": 1})))
         inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
         with pytest.raises(EvalError, match="inside the package"):
             init_run(tmp_path / "run", sp, library=inside)
@@ -606,15 +607,6 @@ class TestLibraryGuardrails:
         monkeypatch.setenv("SEALED_PANEL_RUBRICS", value)
         with pytest.raises(EvalError, match="must be an absolute path"):
             library_dir()
-
-    def test_a_relative_setting_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("SEALED_PANEL_RUBRICS")
-        cfg_file = tmp_path / "c.toml"
-        cfg_file.write_text('[library]\npath = "rubrics"\n')
-        with pytest.raises(EvalError, match=r"library\.path must be an absolute path"):
-            library_dir(cfg=load_config(cfg_file))
 
     def test_a_relative_flag_is_made_absolute(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -718,5 +710,4 @@ class TestInitLibraryFlag:
         err = capsys.readouterr().err
         assert "names no known template" in err and "library" in err
         assert main(["init", str(h.run), "--spec", str(out), "--library", str(other)]) == 0
-        frozen = json.loads((h.run / "config.json").read_text())["library"]["path"]
-        assert frozen == str(other.resolve())
+        assert "library" not in json.loads((h.run / "config.json").read_text())

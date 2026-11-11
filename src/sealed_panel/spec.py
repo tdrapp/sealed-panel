@@ -15,7 +15,6 @@ from .config import (
     RUN_BOUNDS,
     Config,
     fingerprint,
-    guard_library,
     library_dir,
     resolve,
     run_value_error,
@@ -368,7 +367,8 @@ def init_run(
         run: A new or empty directory for the run.
         spec_path: The spec file.
         cfg: The configuration; the packaged defaults when None.
-        library: The user rubric library; the default one when None.
+        library: The user rubric library, read for a template the spec names; the default
+            one when None.
         facts_root: A folder a `facts_file` must resolve under, or None.
         acknowledge: Whether this caller may freeze a spec that acknowledges injection flags:
             a person at the command line may, the MCP server's caller (the author) may not.
@@ -390,9 +390,8 @@ def init_run(
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent, facts_root)
-    lib = library_dir(library, cfg)  # resolved before anything is written: a refusal leaves no run
     if isinstance(spec.get("template"), dict):
-        _check_template_ref(spec, cfg, lib)
+        _check_template_ref(spec, cfg, library_dir(library))
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
@@ -401,9 +400,6 @@ def init_run(
     if injection_flags(exposed):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     make_dir(run)
-    frozen = json.loads(json.dumps(cfg.data))
-    frozen["library"] = {**cfg.library, "path": str(lib)}
-    cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
     write_file(run / "config.lock", cfg.fingerprint + "\n")
     dump_json(run / "spec.json", spec)
@@ -453,27 +449,6 @@ def load_frozen(run: Path) -> dict[str, Any]:
             "Start a new run directory with the new spec."
         )
     return spec
-
-
-def run_library(run: Path) -> Path:
-    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now. A frozen
-    path that resolves elsewhere now (it, or a folder above it, became a link) is refused."""
-    frozen = run_config(run).data.get("library") or {}
-    if not frozen.get("path"):
-        return library_dir()
-    path = Path(frozen["path"])
-    if path.resolve() != path:
-        raise EvalError(
-            f"the library {path} frozen into this run now resolves to {path.resolve()}: a "
-            "link was put in its place; restore the folder"
-        )
-    return guard_library(path)
-
-
-def library_for(flag: Path | None, run: Path | None) -> Path:
-    """The library a rubrics command reads: the flag, else the one frozen into the run, else
-    the user library (environment, setting, or user-level default)."""
-    return library_dir(flag) if flag or not run else run_library(run)
 
 
 def run_config(run: Path) -> Config:

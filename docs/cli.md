@@ -46,9 +46,9 @@ or `facts_file` (a path to a file that must exist, read and frozen by content; n
 it), and the keys of the `[run]` configuration table, within their bounds. `template`
 (`{id, version, sha256}`, written by `rubrics use`) records the template the spec started from
 and is part of the rubric hash; `init` checks it against the library (`--library DIR`, else
-`$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default), refuses an
-unknown id or version naming the library it read, recomputes `sha256`, and adds `modified`. The
-same library is frozen into the run. Unknown keys are refused at every level, and so is any
+`$SEALED_PANEL_RUBRICS`, or the user-level default), refuses an unknown id or version naming
+the library it read, recomputes `sha256`, and adds `modified`. No library is frozen into the
+run. Unknown keys are refused at every level, and so is any
 string that still holds a `TODO(sealed-panel)` marker. Every `measured` field is type-checked
 (`id` and `description` strings, `min` and `max` finite numbers with `min` not above `max`,
 unique ids), weights must be finite numbers above 0, and `judges_per_persona` is between 2 and
@@ -199,8 +199,8 @@ version, and in a sealed panel the median on the round-1 baseline. Computes the 
 medians, for information only), the best paired gain, the suspect jumps, the findings, the
 prompt extras and the judges who reused one quote. Writes `result.json` and appends the round
 to `ledger.json`. After a loop round, also writes `RUN/feedback/after_rN.md`, the findings the
-author revises from. After a sealed panel, writes learned candidates to the user library's
-inbox (unless `[library] learn` is false) and prints how many.
+author revises from. Nothing is written outside the run: before 0.4.0 a sealed panel also wrote
+learned candidates to the user library's inbox; that is now `learning learn`.
 
 `aggregate` holds every seat of the round, then the run's lock, for the whole step. In a run
 with a judge command, it first records the attempt of a runner that died as a void (see
@@ -256,21 +256,24 @@ sealed-panel feedback RUN --note TEXT [--dimension ID] [--library DIR]
 ```
 
 Records the user's own read disagreeing with the sealed grade as a `user_disagreement`
-candidate in the library frozen into the run. With `--dimension`, the candidate proposes to
+candidate in the user library (`--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the
+user-level default). With `--dimension`, the candidate proposes to
 rewrite that dimension's anchors and carries the sealed judges' quotes on it; without, to add
 a dimension. Refused before the run is sealed, for an unknown dimension, with an empty note,
 when the same disagreement was rejected before for this template version, or when it was
 already promoted into a newer version of the template (the message says which).
 
-## learn
+## learning learn
 
 ```
-sealed-panel learn RUN
+sealed-panel learning learn RUN [--library DIR]
 ```
 
-Writes the candidates of a sealed run to its library's inbox, as `aggregate --sealed` does.
-Use it when aggregate printed "learning skipped". Evidence already recorded is not added again.
-Refused before the run is sealed, or when learning fails again.
+Reads a sealed run and writes its rubric-level candidates (see [rubrics.md](rubrics.md)) to
+the user library's inbox, then prints how many and where. It is the only way candidates are
+learned: `aggregate` never calls it, and the skill runs it after a sealed panel. The run is only
+read. Evidence already recorded is not added again. Refused before the run is sealed. Before
+0.4.0 this was `sealed-panel learn RUN`, and every sealed `aggregate` ran it.
 
 ## mcp
 
@@ -327,17 +330,17 @@ See [integrations.md](integrations.md) for host configuration.
 ## rubrics
 
 ```
-sealed-panel rubrics list    [--library DIR | --run RUN]
-sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR | --run RUN]
-sealed-panel rubrics show    ID [--library DIR | --run RUN]
-sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR | --run RUN]
-sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--yes] [--library DIR | --run RUN]
-sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR | --run RUN]
+sealed-panel rubrics list    [--library DIR]
+sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR]
+sealed-panel rubrics show    ID [--library DIR]
+sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR]
+sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--yes] [--library DIR]
+sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR]
 ```
 
-The library is `--library DIR`; else, with `--run`, the library frozen into that run; else
-`$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default. Unreadable
-or invalid user templates and inbox files are skipped with a warning on stderr. See
+The library is `--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the user-level default
+(`--run RUN`, which read the library frozen into a run, is gone with that frozen library).
+Unreadable or invalid user templates and inbox files are skipped with a warning on stderr. See
 [rubrics.md](rubrics.md) for the formats.
 
 | Command | Does |

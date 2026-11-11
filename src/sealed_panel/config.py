@@ -26,8 +26,12 @@ from .errors import ConfigError
 # Sections a version before 0.4.0 froze into every run, and 0.4.0 fixed in code: a file that
 # sets one is refused, naming the key; a run frozen with one is read without it.
 REMOVED_SECTIONS = {
-    "text": "the quote check's normalisation is fixed in code since 0.4.0",
-    "injection": "the injection patterns are fixed in code since 0.4.0",
+    "text": "the normalisation of texts",
+    "injection": "the injection patterns",
+    "library": (
+        "learning runs only through `sealed-panel learning learn`, and the library comes from "
+        "--library or $SEALED_PANEL_RUBRICS"
+    ),
 }
 SEVERITY_NAMES = ("blocking", "material", "cosmetic", "none")
 
@@ -100,8 +104,8 @@ def removed_message(section: str, value: Any) -> str:
     """
     keys = [f"{section}.{k}" for k in value] if isinstance(value, dict) and value else [section]
     return (
-        f"{', '.join(keys)}: no longer a setting, {REMOVED_SECTIONS[section]}; remove "
-        f"[{section}] from the configuration file"
+        f"{', '.join(keys)}: no longer a setting, fixed in code since 0.4.0 "
+        f"({REMOVED_SECTIONS[section]}); remove [{section}] from the configuration file"
     )
 
 
@@ -177,11 +181,6 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
         errors.append("quotes.max_bad_share must be a fraction such as 1/3")
     elif not 0 <= share <= MAX_BAD_SHARE_CEILING:
         errors.append(f"quotes.max_bad_share must be between 0 and {MAX_BAD_SHARE_CEILING}")
-    library = data.get("library") or {}
-    if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:
-        errors.append("library.control_min_candidate must be between 1 and 5")
-    if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
-        errors.append("library.control_gap must be between 0 and 4")
     errors += _judge_errors(data.get("judge") or default_data()["judge"])
     root = str((data.get("mcp") or {}).get("root", ""))
     if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
@@ -344,12 +343,6 @@ class Config:
         value: dict[str, Any] = self.data.get("judge") or default_data()["judge"]
         return value
 
-    @property
-    def library(self) -> dict[str, Any]:
-        """The [library] section; a run frozen by 0.1.0 has none, and gets the defaults."""
-        value: dict[str, Any] = self.data.get("library") or default_data()["library"]
-        return value
-
 
 @cache
 def default_config() -> Config:
@@ -428,24 +421,24 @@ def guard_library(path: Path) -> Path:
     return real
 
 
-def library_dir(flag: str | Path | None = None, cfg: Config | None = None) -> Path:
-    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the library.path setting,
-    else the user-level default. `~` is expanded; a flag may be relative to the current
-    directory, the environment variable and the setting may not. The result is absolute and
-    checked by guard_library."""
+def library_dir(flag: str | Path | None = None) -> Path:
+    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the user-level default.
+    `~` is expanded; a flag may be relative to the current directory, the environment variable
+    may not. The result is absolute and checked by guard_library.
+
+    Args:
+        flag: The --library value, or None.
+    """
     if flag is not None and str(flag).strip():
         return guard_library(Path(flag).expanduser().absolute())
-    for source, value in (
-        (f"${LIBRARY_ENV}", os.environ.get(LIBRARY_ENV, "")),
-        ("library.path", str(resolve(cfg).library["path"])),
-    ):
-        if value.strip():
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                raise ConfigError(
-                    f"{source} must be an absolute path or start with ~, got {value!r}"
-                )
-            return guard_library(path)
+    value = os.environ.get(LIBRARY_ENV, "")
+    if value.strip():
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            raise ConfigError(
+                f"${LIBRARY_ENV} must be an absolute path or start with ~, got {value!r}"
+            )
+        return guard_library(path)
     return guard_library(default_library_dir())
 
 
@@ -462,7 +455,7 @@ def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
 
 SHOW_LIMIT = 80
 # Settings that place files and do not change a grade: never listed as overrides.
-NOT_GRADING = frozenset({"library.path", "mcp.root"})
+NOT_GRADING = frozenset({"mcp.root"})
 
 
 # Settings always shown in full: what runs as the judge is never reduced to a hash.
