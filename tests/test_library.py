@@ -5,19 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from conftest import FLAT, Harness, make_spec
-from sealed_panel import config, library
+from sealed_panel import library
 from sealed_panel.brief import write_briefs
 from sealed_panel.cli import main
-from sealed_panel.config import default_library_dir, library_dir, load_config
+from sealed_panel.config import default_library_dir, library_dir
 from sealed_panel.errors import EvalError
 from sealed_panel.report import render_report
 from sealed_panel.spec import (
@@ -178,11 +176,11 @@ class TestLibraryPath:
         assert str(default_library_dir()).startswith(str(Path.home()))
         assert not str(default_library_dir()).startswith(os.getcwd() + os.sep + "rubrics")
 
-    def test_init_freezes_the_library(self, h: Harness, private_library: Path) -> None:
+    def test_init_freezes_no_library(self, h: Harness, private_library: Path) -> None:
+        """The library is where learning writes, never part of a run: init freezes none."""
         h.init()
-        frozen = json.loads((h.run / "config.json").read_text())["library"]["path"]
-        assert frozen == str(private_library)
-        assert not any("library" in x for x in render_report(h.run).splitlines()[2:3])
+        assert "library" not in json.loads((h.run / "config.json").read_text())
+        assert not private_library.exists()
 
 
 class TestSuggest:
@@ -571,8 +569,9 @@ class TestTemplateReference:
 
 class TestLibraryGuardrails:
     def test_a_refused_library_leaves_no_run(self, tmp_path: Path) -> None:
+        """A spec naming a template reads the library before anything is written."""
         sp = tmp_path / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
+        sp.write_text(json.dumps(make_spec(template={"id": "message", "version": 1})))
         inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
         with pytest.raises(EvalError, match="inside the package"):
             init_run(tmp_path / "run", sp, library=inside)
@@ -584,16 +583,54 @@ class TestLibraryGuardrails:
         with pytest.raises(EvalError, match="inside the package"):
             library_dir()
 
-    def test_inside_a_git_tree_needs_an_ignore(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("marker", ["dir", "file"], ids=["a repository", "a worktree"])
+    def test_a_write_inside_a_git_tree_is_refused_even_when_ignored(
+        self, h: Harness, marker: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        repo = tmp_path / "repo"
-        (repo / ".git").mkdir(parents=True)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        with pytest.raises(EvalError, match="not ignored"):
-            library_dir(repo / "lib")
+        """No git runs: a `.git` above the folder refuses every write there, ignored or not (a
+        worktree's `.git` is a file), and the message says what to do."""
+        repo = h.tmp / "repo"
+        repo.mkdir()
+        if marker == "dir":
+            (repo / ".git").mkdir()
+        else:
+            (repo / ".git").write_text("gitdir: /elsewhere\n")
         (repo / ".gitignore").write_text("/lib/\n")
-        assert library_dir(repo / "lib") == repo / "lib"
+        lib = str(repo / "lib")
+        h.init()
+        h.full(1, "cand", FLAT, sealed=True)
+        for args in (
+            ["learning", "learn", str(h.run), "--library", lib],
+            ["feedback", str(h.run), "--note", "too kind", "--library", lib],
+            ["rubrics", "reject", "c-0123456789ab", "--reason", "x", "--library", lib],
+            ["rubrics", "promote", "c-0123456789ab", "--yes", "--library", lib],
+        ):
+            assert main(args) == 2, args
+            err = capsys.readouterr().err
+            assert f"inside the git working tree {repo}" in err, args
+            assert "SEALED_PANEL_RUBRICS at a folder outside any repository" in err, args
+        assert not (repo / "lib").exists()
+        with pytest.raises(EvalError, match="never written there"):
+            library.add_candidate(repo / "lib", {"kind": "user_disagreement"})
+
+    def test_reads_inside_a_git_tree_never_refuse(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Templates are read from a library in a repository, and from the default library of
+        a user whose home is a git tree."""
+        home = h.tmp / "home"
+        (home / ".git").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("SEALED_PANEL_RUBRICS")
+        assert library_dir().is_relative_to(home)
+        assert main(["rubrics", "list"]) == 0
+        assert main(["rubrics", "suggest", "--kind", "email"]) == 0
+        out = h.tmp / "spec.json"
+        assert main(["rubrics", "use", "message", "--out", str(out)]) == 0
+        capsys.readouterr()
+        sp = h.tmp / "t.json"
+        sp.write_text(json.dumps(make_spec(template={"id": "message", "version": 1})))
+        init_run(h.run, sp)  # reads the template from the library in the git tree
 
     @pytest.mark.parametrize("value", ["rubrics", "./lib", "../lib"])
     def test_a_relative_environment_path_is_refused(
@@ -602,15 +639,6 @@ class TestLibraryGuardrails:
         monkeypatch.setenv("SEALED_PANEL_RUBRICS", value)
         with pytest.raises(EvalError, match="must be an absolute path"):
             library_dir()
-
-    def test_a_relative_setting_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("SEALED_PANEL_RUBRICS")
-        cfg_file = tmp_path / "c.toml"
-        cfg_file.write_text('[library]\npath = "rubrics"\n')
-        with pytest.raises(EvalError, match=r"library\.path must be an absolute path"):
-            library_dir(cfg=load_config(cfg_file))
 
     def test_a_relative_flag_is_made_absolute(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -637,116 +665,16 @@ class TestResolvedLibrary:
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         return repo
 
-    def test_a_symlink_into_a_repository_is_refused(self, tmp_path: Path) -> None:
+    def test_a_symlink_into_a_repository_is_refused_for_a_write(self, tmp_path: Path) -> None:
         repo = self.repo(tmp_path)
         (repo / "rubrics").mkdir()
         link = tmp_path / "outside" / "lib"
         link.parent.mkdir()
         link.symlink_to(repo / "rubrics")
-        with pytest.raises(EvalError, match=f"{repo.resolve() / 'rubrics'}"):
-            library_dir(link)
-
-    def test_an_inherited_git_dir_does_not_answer_for_the_repository(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        repo = self.repo(tmp_path)
-        other = tmp_path / "other"
-        other.mkdir()
-        subprocess.run(["git", "init", "-q", str(other)], check=True)
-        (other / ".git" / "info").mkdir(exist_ok=True)
-        (other / ".git" / "info" / "exclude").write_text("*\n")  # the other repo ignores all
-        monkeypatch.setenv("GIT_DIR", str(other / ".git"))  # as inside a git hook
+        lib = library_dir(link)
+        assert lib == (repo / "rubrics").resolve()
         with pytest.raises(EvalError, match="inside the git working tree"):
-            library_dir(repo / "rubrics")
-
-    @staticmethod
-    def user_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_ignores: bool) -> Path:
-        """A throwaway user: HOME and XDG_CONFIG_HOME in tmp_path, never the real ones. When
-        `home_ignores`, ~/.gitconfig names an excludes file that ignores `rubrics/`."""
-        home = tmp_path / "home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
-        excludes = tmp_path / "excludes"
-        excludes.write_text("rubrics/\n")
-        if home_ignores:
-            (home / ".gitconfig").write_text(f"[core]\n\texcludesFile = {excludes}\n")
-        return excludes
-
-    def test_the_users_git_config_global_is_obeyed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        excludes = self.user_git(tmp_path, monkeypatch, home_ignores=False)
-        repo = self.repo(tmp_path)
-        effective = tmp_path / "global.gitconfig"
-        effective.write_text(f"[core]\n\texcludesFile = {excludes}\n")
-        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(effective))
-        assert library_dir(repo / "rubrics") == (repo / "rubrics").resolve()
-
-    def test_a_home_config_overridden_by_git_config_global_does_not_count(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self.user_git(tmp_path, monkeypatch, home_ignores=True)
-        repo = self.repo(tmp_path)
-        effective = tmp_path / "global.gitconfig"
-        effective.write_text("[user]\n\tname = nobody\n")  # no excludes file
-        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(effective))
-        with pytest.raises(EvalError, match="inside the git working tree"):
-            library_dir(repo / "rubrics")
-
-    def test_the_users_default_ignore_file_never_decides_a_test(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        user_ignore = Path(os.environ["XDG_CONFIG_HOME"]) / "git" / "ignore"
-        user_ignore.parent.mkdir(parents=True)
-        user_ignore.write_text("*\n")  # where git looks by default: it ignores everything
-        repo = self.repo(tmp_path)
-        with pytest.raises(EvalError, match="not ignored"):
-            library_dir(repo / "rubrics")
-
-    @staticmethod
-    def ignoring_repo(tmp_path: Path) -> Path:
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        (repo / ".gitignore").write_text("rubrics/\n")  # git would say: ignored
-        return repo
-
-    @pytest.fixture
-    def fresh_git_vars(self) -> Iterator[None]:
-        config._git_local_env_vars.cache_clear()
-        yield
-        config._git_local_env_vars.cache_clear()
-
-    @pytest.mark.usefixtures("fresh_git_vars")
-    def test_no_git_on_the_path_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        repo = self.ignoring_repo(tmp_path)
-        empty = tmp_path / "no-git"
-        empty.mkdir()
-        monkeypatch.setenv("PATH", str(empty))
-        with pytest.raises(EvalError, match="not ignored"):
-            library_dir(repo / "rubrics")
-
-    @pytest.mark.skipif(os.name == "nt", reason="the stub git is a shell script")
-    @pytest.mark.usefixtures("fresh_git_vars")
-    def test_a_failing_local_env_vars_query_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        repo = self.ignoring_repo(tmp_path)
-        real = shutil.which("git")
-        assert real
-        stub = tmp_path / "stub" / "git"
-        stub.parent.mkdir()
-        stub.write_text(f'#!/bin/sh\n[ "$1" = rev-parse ] && exit 1\nexec "{real}" "$@"\n')
-        stub.chmod(0o755)
-        monkeypatch.setenv("PATH", str(stub.parent))
-        with pytest.raises(EvalError, match="not ignored"):
-            library_dir(repo / "rubrics")
-        config._git_local_env_vars.cache_clear()
-        monkeypatch.setenv("PATH", str(Path(real).parent))
-        assert library_dir(repo / "rubrics") == (repo / "rubrics").resolve()  # git: ignored
+            library.reject(lib, "c-0123456789ab", "a reason")
 
     def test_dot_dot_out_of_a_repository_is_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -816,5 +744,4 @@ class TestInitLibraryFlag:
         err = capsys.readouterr().err
         assert "names no known template" in err and "library" in err
         assert main(["init", str(h.run), "--spec", str(out), "--library", str(other)]) == 0
-        frozen = json.loads((h.run / "config.json").read_text())["library"]["path"]
-        assert frozen == str(other.resolve())
+        assert "library" not in json.loads((h.run / "config.json").read_text())

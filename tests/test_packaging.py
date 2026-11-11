@@ -68,7 +68,14 @@ def test_the_plugin_files_install_one_version() -> None:
     server = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert plugin["name"] == "sealed-panel"
     [entry] = market["plugins"]
-    assert entry["name"] == plugin["name"] and entry["source"] == "./"
+    assert entry["name"] == plugin["name"]
+    # The plugin (skill, judge agent, server pin) installs from the release tag the server is
+    # pinned to, never from main: main's skill may call tools the pinned server lacks.
+    assert entry["source"] == {
+        "source": "github",
+        "repo": "tdrapp/sealed-panel",
+        "ref": f"v{__version__}",
+    }
     assert entry["version"] == plugin["version"] == __version__
     launch = server["sealed-panel"]
     assert launch["command"] == "uvx"

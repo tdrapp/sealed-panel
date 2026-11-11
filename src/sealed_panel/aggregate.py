@@ -9,12 +9,11 @@ from typing import Any
 from .config import Config
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
-from .learn import learn_safely
 from .ledger import results_by_judge
 from .record import round_keys, transcript_agent_id
 from .report import write_feedback
 from .runner import every_seat
-from .spec import dims_for, load_frozen, run_config
+from .spec import dims_for, load_writable, refuse_older_run, run_config
 from .store import dump_json, load_json, round_dir, run_lock
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
@@ -133,7 +132,7 @@ def _check_complete(
         raise EvalError(
             "agents received a brief of this round but were never recorded: "
             + ", ".join(f"j{j} {aid}" for j, aid in unrecorded)
-            + "; record every agent you briefed, rejected or not (--void for one that never "
+            + "; record every agent you briefed, rejected or not (a void for one that never "
             "replied)"
         )
 
@@ -187,9 +186,9 @@ def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]
 
 
 def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
-    """Aggregate a round once, append it to the ledger and return the ledger entry. After a
-    loop round, also write the author's findings to RUN/feedback/after_rN.md; after a sealed
-    panel, write learned candidates to the user library's inbox (listed under `inbox`). Every
+    """Aggregate a round once, write it to the round's result.json and return it. After a
+    loop round, also write the author's findings to RUN/feedback/after_rN.md. Nothing is
+    written outside the run: learning is a command of its own. Every
     seat of the round, then the run's lock, is held for the whole step, so no judge starts or
     records meanwhile; a seat another call holds refuses the step.
 
@@ -198,13 +197,14 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         rnd: The round number, from 1.
         sealed: Whether the round is the sealed panel's.
     """
+    refuse_older_run(run)  # before a seat is settled: that writes too
     with every_seat(run, rnd, sealed), run_lock(run):  # seats first, then the run
         return _aggregate(run, rnd, sealed)
 
 
 def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """aggregate_round, with every seat held."""
-    spec = load_frozen(run)
+    spec = load_writable(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
     if (rdir / "result.json").is_file():
@@ -287,17 +287,6 @@ def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     if (rdir / "measured.json").exists():
         entry["measured"] = load_json(rdir / "measured.json")
     dump_json(rdir / "result.json", entry)
-    ledger = load_json(run / "ledger.json")
-    ledger["rounds"] = [
-        r for r in ledger["rounds"] if not (r["round"] == rnd and r.get("sealed") == sealed)
-    ]
-    ledger["rounds"].append(entry)
-    ledger["rounds"].sort(key=lambda r: (r.get("sealed", False), r["round"]))
-    dump_json(run / "ledger.json", ledger)
     if not sealed:
         write_feedback(run, entry)
-        return entry
-    # Learning writes candidates to the user library's inbox; it never changes a template,
-    # and it never fails the seal: an error is reported in `learning`.
-    paths, learning = learn_safely(run)
-    return {**entry, "inbox": [str(p) for p in paths], "learning": learning}
+    return entry

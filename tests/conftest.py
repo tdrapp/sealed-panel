@@ -14,6 +14,7 @@ import pytest
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.brief import write_briefs
 from sealed_panel.decide import decide
+from sealed_panel.ledger import view as ledger_view
 from sealed_panel.record import record_reply
 from sealed_panel.spec import init_run
 from sealed_panel.store import round_dir
@@ -191,7 +192,7 @@ class Harness:
     def decision(self) -> dict[str, Any]:
         return decide(
             json.loads((self.run / "spec.json").read_text()),
-            json.loads((self.run / "ledger.json").read_text()),
+            ledger_view(self.run),
         )
 
 

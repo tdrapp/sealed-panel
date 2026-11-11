@@ -38,7 +38,7 @@ from .config import Config
 from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
 from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys, seat_lock
-from .spec import load_frozen, run_config, run_salt
+from .spec import load_writable, run_config, run_salt
 from .store import dump_json, load_json, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
@@ -124,7 +124,7 @@ def check_judge(cfg: Config, expected: Mapping[str, Any] | None) -> None:
 def _open_round(
     run: Path, rnd: int, sealed: bool, expected: Mapping[str, Any] | None = None
 ) -> tuple[Config, Path, dict[str, Any]]:
-    load_frozen(run)
+    load_writable(run)
     cfg = run_config(run)
     judge_command(cfg)
     check_judge(cfg, expected)
@@ -258,15 +258,14 @@ def open_seats(
 
 
 def _stop(proc: subprocess.Popen[bytes]) -> None:
-    """Stop the process and everything it started (its own session on POSIX). macOS refuses
-    to signal a group whose members are all exited (EPERM): the process itself is then killed,
-    and a process that left the session is out of reach."""
-    if os.name == "posix":
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-            return
-        except OSError:
-            pass
+    """Stop the process and everything it started (its own session). macOS refuses to signal a
+    group whose members are all exited (EPERM): the process itself is then killed, and a process
+    that left the session is out of reach."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+        return
+    except OSError:
+        pass
     with contextlib.suppress(OSError):
         proc.kill()
 
@@ -310,7 +309,7 @@ def _launch(
                 stderr=subprocess.PIPE,
                 cwd=cwd,
                 env=env,
-                start_new_session=os.name == "posix",
+                start_new_session=True,
             )
         except OSError as exc:
             raise EvalError(f"cannot start the judge command {argv[0]!r}: {exc}") from exc
@@ -461,6 +460,7 @@ def judge_round(
     sealed: bool,
     only: list[int] | None = None,
     expected: Mapping[str, Any] | None = None,
+    on_seat: Callable[[int, dict[str, Any] | None, str], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run the judge command once for every open seat of a round, one after the other, and
     return each recorded result. A seat another call takes meanwhile is skipped; any other
@@ -473,11 +473,18 @@ def judge_round(
         only: The judge slots to run, or None for every open one.
         expected: The judge section the caller must match (the MCP server's own), or None to take
             the run's.
+        on_seat: Called after each seat with the seat, its result (None when skipped) and why
+            it was skipped, so a caller can report as it goes.
     """
     results = []
     for seat in open_seats(run, rnd, sealed, only, expected):
         try:
-            results.append(judge_seat(run, rnd, seat, sealed, expected))
-        except SeatTaken:
+            r = judge_seat(run, rnd, seat, sealed, expected)
+        except SeatTaken as exc:
+            if on_seat:
+                on_seat(seat, None, str(exc))
             continue
+        results.append(r)
+        if on_seat:
+            on_seat(seat, r, "")
     return results

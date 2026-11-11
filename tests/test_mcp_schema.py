@@ -62,5 +62,6 @@ async def test_the_tools_match_the_snapshot(tmp_path: Path, mode: str) -> None:
 
 def test_the_snapshot_holds_every_tool() -> None:
     names = [t["name"] for t in json.loads(SNAPSHOT.read_text(encoding="utf-8"))]
-    assert len(names) == 14 and len(set(names)) == 14
-    assert "judge" in names and "promote" not in names
+    assert len(names) == 10 and len(set(names)) == 10
+    assert "judge" in names and "rubrics_use" in names
+    assert not {"promote", "feedback", "seal", "void"} & set(names)

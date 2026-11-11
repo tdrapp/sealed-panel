@@ -11,7 +11,7 @@ from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel import brief as brief_module
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.decide import BLOCKED, flagged_roles
+from sealed_panel.decide import BLOCKED, SEAL_NEXT, flagged_roles
 from sealed_panel.errors import EvalError
 from sealed_panel.learn import user_disagreement
 from sealed_panel.record import record_measurement, record_reply
@@ -131,7 +131,7 @@ class TestInjectionGate:
         h.full(3, "v3", FIVE, FIVE)
         d = h.decision()
         assert (d["decision"], d["blocked"], d["roles"]) == (BLOCKED, "CONVERGED", ["baseline"])
-        assert d["next"] != "seal" and "new run" in d["next"]
+        assert d["next"] != SEAL_NEXT and "new run" in d["next"]
         assert status(h.run)["next"] == d["next"]
         with pytest.raises(EvalError, match="new run"):
             h.brief(1, "v3", sealed=True)
@@ -170,7 +170,7 @@ class TestInjectionGate:
         h.full(1, "cand", FIVE, sealed=True, good=True)
         assert h.decision()["decision"] == "SEALED"
 
-    def test_the_mcp_seal_refuses_a_flagged_round_1_too(self, h: Harness) -> None:
+    def test_the_mcp_sealed_brief_refuses_a_flagged_round_1_too(self, h: Harness) -> None:
         pytest.importorskip("fastmcp")
         from fastmcp import Client
 
@@ -182,8 +182,8 @@ class TestInjectionGate:
 
         async def seal() -> str:
             async with Client(build_server(h.tmp)) as c:
-                args = {"run": "run", "artefact": "v3.md", "control": "ctrl.md"}
-                r = await c.call_tool_mcp("seal", args)
+                args = {"run": "run", "artefact": "v3.md", "control": "ctrl.md", "sealed": True}
+                r = await c.call_tool_mcp("brief", args)
                 assert r.is_error
                 return str(r.content[0].text)  # type: ignore[union-attr]
 
@@ -225,7 +225,7 @@ class TestInjectionGate:
     ) -> None:
         h.init()
         self.seal_flagged_as_0_3_0_did(h, monkeypatch)
-        assert main(["learn", str(h.run)]) == 0  # learning reads the rubric, not the grade
+        assert main(["learning", "learn", str(h.run)]) == 0  # it reads the rubric, not the grade
         with pytest.raises(EvalError, match="does not stand"):
             user_disagreement(h.run, "my read differs")
 

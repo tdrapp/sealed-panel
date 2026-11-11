@@ -127,7 +127,7 @@ class TestVoid:
     def test_void_needs_a_transcript(self, h: Harness) -> None:
         h.init()
         h.brief(1, "cand")
-        with pytest.raises(EvalError, match="--void needs"):
+        with pytest.raises(EvalError, match="a void needs"):
             record_reply(h.run, 1, 1, "ghost", "", False, "void", None, void=True)
 
     def test_void_attempts_count_toward_the_replacement_cap(self, h: Harness) -> None:

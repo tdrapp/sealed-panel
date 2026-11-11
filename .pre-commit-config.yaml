@@ -41,6 +41,13 @@ repos:
         entry: python tools/check_commit_msg.py
         language: python
         stages: [commit-msg]
+      # Every mutation anchor still found exactly once in its file; no test runs.
+      - id: mutation-anchors
+        name: mutation anchors
+        entry: python tools/mutation_check.py --anchors-only
+        language: python
+        pass_filenames: false
+        files: ^(src/|tools/mutation_check\.py$)
       - id: pytest
         name: pytest
         entry: pytest

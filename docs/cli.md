@@ -8,6 +8,11 @@ sealed-panel [--version] <command> RUN [options]
 `init` accepts `--config PATH` (see [configuration.md](configuration.md)); every later command
 reads the configuration frozen into the run.
 
+A run frozen by a version before 0.4.0 is read only: `status` and `report` read it, and every
+command that writes to a run (`brief`, `record`, `judge`, `measure`, `aggregate`, `learning
+learn`, `feedback`) refuses it, naming the version that froze it, so finish it with that
+version.
+
 `--round N` is required for a loop round. With `--sealed` it is optional and defaults to 1,
 since a run has one sealed panel.
 
@@ -32,10 +37,10 @@ sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
 content, and refuses a spec whose own text addresses the judges. Writes `spec.json`,
-`rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and an empty `ledger.json`.
-Refuses if `RUN` is already initialised (a new rubric is a new run), if it lies inside another
-run, or if it holds other files: `init` takes a new or empty directory, so it never writes over
-another program's files.
+`rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and `env.salt` (the salt of
+the judge environment hashes). Refuses if `RUN` is already initialised (a new rubric is a new
+run), if it lies inside another run, or if it holds other files: `init` takes a new or empty
+directory, so it never writes over another program's files.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,
@@ -46,9 +51,9 @@ or `facts_file` (a path to a file that must exist, read and frozen by content; n
 it), and the keys of the `[run]` configuration table, within their bounds. `template`
 (`{id, version, sha256}`, written by `rubrics use`) records the template the spec started from
 and is part of the rubric hash; `init` checks it against the library (`--library DIR`, else
-`$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default), refuses an
-unknown id or version naming the library it read, recomputes `sha256`, and adds `modified`. The
-same library is frozen into the run. Unknown keys are refused at every level, and so is any
+`$SEALED_PANEL_RUBRICS`, or the user-level default), refuses an unknown id or version naming
+the library it read, recomputes `sha256`, and adds `modified`. No library is frozen into the
+run. Unknown keys are refused at every level, and so is any
 string that still holds a `TODO(sealed-panel)` marker. Every `measured` field is type-checked
 (`id` and `description` strings, `min` and `max` finite numbers with `min` not above `max`,
 unique ids), weights must be finite numbers above 0, and `judges_per_persona` is between 2 and
@@ -197,10 +202,13 @@ judge's score, the severities, the standard deviation, the paired gain against t
 version, and in a sealed panel the median on the round-1 baseline. Computes the round's noise
 (mean standard deviation, floored at `noise_floor_min`), the composite (weighted mean of the
 medians, for information only), the best paired gain, the suspect jumps, the findings, the
-prompt extras and the judges who reused one quote. Writes `result.json` and appends the round
-to `ledger.json`. After a loop round, also writes `RUN/feedback/after_rN.md`, the findings the
-author revises from. After a sealed panel, writes learned candidates to the user library's
-inbox (unless `[library] learn` is false) and prints how many.
+prompt extras and the judges who reused one quote. Writes the round's `result.json`, the only
+record of the round: `status`, `report` and the next round read the rounds from these files
+(`ledger.json`, a copy of them, is no longer written; a run frozen before 0.4.0 keeps its own,
+which agrees with its rounds since 0.4.0 never writes to it). After a loop round, also writes
+`RUN/feedback/after_rN.md`, the findings the author revises from. Nothing is written outside the
+run: before 0.4.0 a sealed panel also wrote learned candidates to the user library's inbox; that
+is now `learning learn`.
 
 `aggregate` holds every seat of the round, then the run's lock, for the whole step. In a run
 with a judge command, it first records the attempt of a runner that died as a void (see
@@ -221,14 +229,14 @@ sealed-panel status RUN
 ```
 
 Read-only. Prints the decision as JSON: `CONTINUE` (with `next_round` and, after a round, the
-path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "seal"`),
-`SEALED`, or `BLOCKED BY FLAG`: an item of the brief of a round that would converge, or of the
-sealed panel (the candidate, the control, the previous version, the baseline or the known-good),
-contains text addressed to a judge, and the spec has no `injection_acknowledged`. A blocked
-decision names what it replaced (`blocked`), the items (`roles`), the patterns that matched
-(`flags`) and the next step: the next round with the text removed, or a new run. Every decision
-carries `overrides`: the settings that differ from the defaults, and `injection_acknowledged`
-when the spec has one.
+path of the findings file), `CONVERGED`, `PLATEAU`, `CAP` (each with `"next": "brief the sealed
+panel"`), `SEALED`, or `BLOCKED BY FLAG`: an item of the brief of a round that would converge,
+or of the sealed panel (the candidate, the control, the previous version, the baseline or the
+known-good), contains text addressed to a judge, and the spec has no `injection_acknowledged`. A
+blocked decision names what it replaced (`blocked`), the items (`roles`), the patterns that
+matched (`flags`) and the next step: the next round with the text removed, or a new run. Every
+decision carries `overrides`: the settings that differ from the defaults, and
+`injection_acknowledged` when the spec has one.
 
 ## report
 
@@ -256,21 +264,24 @@ sealed-panel feedback RUN --note TEXT [--dimension ID] [--library DIR]
 ```
 
 Records the user's own read disagreeing with the sealed grade as a `user_disagreement`
-candidate in the library frozen into the run. With `--dimension`, the candidate proposes to
+candidate in the user library (`--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the
+user-level default). With `--dimension`, the candidate proposes to
 rewrite that dimension's anchors and carries the sealed judges' quotes on it; without, to add
 a dimension. Refused before the run is sealed, for an unknown dimension, with an empty note,
 when the same disagreement was rejected before for this template version, or when it was
 already promoted into a newer version of the template (the message says which).
 
-## learn
+## learning learn
 
 ```
-sealed-panel learn RUN
+sealed-panel learning learn RUN [--library DIR]
 ```
 
-Writes the candidates of a sealed run to its library's inbox, as `aggregate --sealed` does.
-Use it when aggregate printed "learning skipped". Evidence already recorded is not added again.
-Refused before the run is sealed, or when learning fails again.
+Reads a sealed run and writes its rubric-level candidates (see [rubrics.md](rubrics.md)) to
+the user library's inbox, then prints how many and where. It is the only way candidates are
+learned: `aggregate` never calls it, and the skill runs it after a sealed panel. The run is only
+read. Evidence already recorded is not added again. Refused before the run is sealed. Before
+0.4.0 this was `sealed-panel learn RUN`, and every sealed `aggregate` ran it.
 
 ## mcp
 
@@ -285,56 +296,62 @@ resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in
 configuration, else the directory the server starts in. A path outside it, or one starting with
 `~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too. The
 `init` tool holds a lock at the root (`.sealed-panel-init.lock`), so two inits never run at
-once; the server creates that file at startup, refuses to start when anything but a file holds
-its name, and every tool refuses it and any path under it.
+once. It is the one file the server keeps at the root: the server creates it at startup, and
+refuses to start when anything but a file holds its name, or when it cannot create it (a root it
+cannot write). Every tool refuses that file and any path under it, under any name that reaches
+it: compared by inode, another case of the name on a case-insensitive filesystem, or a hard
+link, is refused as the lock.
 
 `--config` is the configuration of every run the server changes, and the only place a
 `[judge] command` comes from. It is read once at startup and must live outside the root, or the
 server does not start. The `init` tool freezes it and takes no configuration from the caller.
-The read-only tools (`status`, `report` and the `rubrics_*` tools) read any run whose lock and
+The read-only tools (`status`, `report` and `rubrics_suggest`) read any run whose lock and
 shape hold; every tool that changes a run refuses one whose settings differ from the server's
-(the path of its library aside, and a setting the run lacks counting as its default), and
+(a setting the run lacks counting as its default), and
 `status` says whether the run is `served`. A run from another configuration, or one whose
 setting changed default since it was frozen, is changed through the command line or a server
 started with that configuration.
 
 `--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. A
 leading `~`, `$HOME` or `${HOME}` is the user's home. It is read only, for the transcript of
-`record` and `void`. Through MCP a transcript is accepted only there, resolved with its links
-followed and refused unless it stays under a transcript root: a file the caller can write is no
-proof. A transcript root that overlaps the root (a
-host started from the home folder, whose transcripts sit under it) is turned off rather than
-stopping the server: `status` and every transcript refusal say why. Start the host from a
-project directory to read transcripts again.
+`record` (a void included). Through MCP a transcript is accepted only there, resolved with its
+links followed and refused unless it stays under a transcript root: a file the caller can write
+is no proof. A transcript root that overlaps the root (a host started from the home folder,
+whose transcripts sit under it) is turned off rather than stopping the server: `status` and
+every transcript refusal say why. Start the host from a project directory to read transcripts
+again.
 
-The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
-(`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,
-`rubrics_suggest`, `rubrics_show`, `feedback`. Each calls the same function as the command, so
-every refusal is the same; a refusal, a missing file or a file of the wrong shape comes back as
-a tool error with its reason, and any other error is masked. Each returns a structured result
-(and the same object as text). `record` takes exactly one of `transcript`, `reply_file` or
-`reply` (the reply text, flagged as pasted). `judge` reports progress after each judge and
-stops after an hour; a judge already started then still finishes and is recorded.
+The ten tools, in this order: `init`, `brief` (`sealed=true` for `brief --sealed`), `record`
+(`void=true` for `record --void`), `judge`, `measure`, `aggregate`, `status`, `report`,
+`rubrics_suggest`, `rubrics_use`. Each calls the same function as the command, so every refusal
+is the same; a refusal, a missing file or a file of the wrong shape comes back as a tool error
+with its reason, and any other error is masked. Each returns a structured result (and the same
+object as text). `record` takes exactly one of `transcript`, `reply_file` or `reply` (the reply
+text, flagged as pasted); a void takes the `transcript`. `judge` reports progress after each
+judge and stops after an hour; a judge already started then still finishes and is recorded.
+`rubrics_use` writes the spec skeleton under the root, and refuses a path that exists.
 
-`rubrics promote` and `rubrics reject` are not tools: a host can answer a confirmation by
-itself, so a tool call proves no person decided. `rubrics_show`, `rubrics_list` and `feedback`
-return the command a person runs instead. `rubrics use` and `learn` stay on the command line.
+Before 0.4.0 the server had fourteen tools: `seal` is now `brief` with `sealed=true`, `void` is
+`record` with `void=true`, `rubrics_list` and `rubrics_show` gave way to `rubrics_suggest` and
+`rubrics_use`, and `feedback` is a command only. Learning (`feedback`, `rubrics promote`,
+`rubrics reject`) has no tool: a host can answer a confirmation by itself, so a tool call
+proves no person decided.
 See [integrations.md](integrations.md) for host configuration.
 
 ## rubrics
 
 ```
-sealed-panel rubrics list    [--library DIR | --run RUN]
-sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR | --run RUN]
-sealed-panel rubrics show    ID [--library DIR | --run RUN]
-sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR | --run RUN]
-sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--yes] [--library DIR | --run RUN]
-sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR | --run RUN]
+sealed-panel rubrics list    [--library DIR]
+sealed-panel rubrics suggest --kind K [--text FILE] [--top 3] [--library DIR]
+sealed-panel rubrics show    ID [--library DIR]
+sealed-panel rubrics use     ID --out SPEC.json [--persona-file FILE] [--library DIR]
+sealed-panel rubrics promote CANDIDATE_ID [--into TEMPLATE_ID] [--yes] [--library DIR]
+sealed-panel rubrics reject  CANDIDATE_ID --reason TEXT [--library DIR]
 ```
 
-The library is `--library DIR`; else, with `--run`, the library frozen into that run; else
-`$SEALED_PANEL_RUBRICS`, the `[library] path` setting, or the user-level default. Unreadable
-or invalid user templates and inbox files are skipped with a warning on stderr. See
+The library is `--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the user-level default
+(`--run RUN`, which read the library frozen into a run, is gone with that frozen library).
+Unreadable or invalid user templates and inbox files are skipped with a warning on stderr. See
 [rubrics.md](rubrics.md) for the formats.
 
 | Command | Does |

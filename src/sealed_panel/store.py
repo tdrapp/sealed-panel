@@ -102,6 +102,26 @@ def contained(path: Path, root: Path, given: str | None = None) -> Path:
     return real
 
 
+def outside_runs(path: Path, what: str) -> Path:
+    """The path with every link followed, refused when it is a run or lies inside one (a folder
+    holding `rubric.lock` at or above it): the one guard on a path that names something to
+    create outside a run (a new run, a spec skeleton, a rubric library). A file or folder put
+    in a run where a round's lock or result goes would block or fake that round.
+
+    Args:
+        path: The path to create, or to create things under.
+        what: How the refusal names it, such as "the run" or "the spec".
+    """
+    real = path.resolve()
+    for folder in (real, *real.parents):
+        if (folder / "rubric.lock").exists():
+            raise EvalError(
+                f"{what} {path} is inside the run {folder}: a run holds only the files "
+                "sealed-panel writes there"
+            )
+    return real
+
+
 @contextlib.contextmanager
 def locked(path: Path, busy: str, wait: bool = False) -> Iterator[None]:
     """Hold an exclusive lock on `path` (fcntl.flock) while the block runs. Without `wait`,
@@ -176,7 +196,9 @@ def resolve_round(rnd: int | None, sealed: bool) -> int:
         return int(rnd)
     if sealed:
         return 1
-    raise EvalError("--round is required for a loop round (it defaults to 1 only with --sealed)")
+    raise EvalError(
+        "the round number is required for a loop round (it defaults to 1 only for the sealed panel)"
+    )
 
 
 def round_dir(run: Path, rnd: int, sealed: bool = False) -> Path:

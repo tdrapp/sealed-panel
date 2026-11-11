@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 356 mutations, 354
+bound or boundary at a time and requires the suite to fail on each. Of its 329 mutations, 327
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -109,8 +109,8 @@ per run.
 ## Install
 
 sealed-panel needs Python 3.11 or later and has no runtime dependencies. The MCP server is an
-optional extra. It runs on macOS and Linux; Windows is not supported yet (the judge runner
-relies on POSIX process groups and directory descriptors, untested there).
+optional extra. It runs on macOS and Linux; Windows is not supported (the judge runner and the
+seat lock rely on POSIX process groups and `fcntl.flock`), and the code holds no Windows path.
 
 From GitHub, at a release tag:
 
@@ -305,13 +305,13 @@ email` shows the templates for a kind of text, with when to use each and its dim
 `rubrics use message --out spec.json` writes a spec skeleton whose TODO markers `init` refuses
 until they are filled.
 
-After each sealed panel, sealed-panel writes rubric-level candidates to a user-level library
-inbox: a dimension the sealed judges disagree on, a dimension where the sealed panel scores the
-bad control close to a strong text, or your own disagreement recorded with
-`sealed-panel feedback`. A person reads each candidate, sees the change side by side, and runs
-`rubrics promote` or `rubrics reject`; nothing changes a template on its own, and a frozen run
-never changes. Candidates quote the judged texts, so the user library is private by nature. See
-[docs/rubrics.md](docs/rubrics.md).
+After a sealed panel, `sealed-panel learning learn RUN` (the skill runs it; `aggregate` never
+does) writes rubric-level candidates to a user-level library inbox: a dimension the sealed
+judges disagree on, a dimension where the sealed panel scores the bad control close to a strong
+text, or your own disagreement recorded with `sealed-panel feedback`. A person reads each
+candidate, sees the change side by side, and runs `rubrics promote` or `rubrics reject`; nothing
+changes a template on its own, and a frozen run never changes. Candidates quote the judged
+texts, so the user library is private by nature. See [docs/rubrics.md](docs/rubrics.md).
 
 ## Using the agent skill
 
@@ -326,12 +326,12 @@ whole prompt.
 
 [docs/integrations.md](docs/integrations.md) covers each in full.
 
-**Agent hosts, through MCP.** `sealed-panel mcp` serves the commands as tools over stdio:
-`init`, `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
-`rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`. Every tool calls the same
-function as the command, so every refusal holds. Promoting or rejecting a rubric candidate is
-not a tool: a host can answer a confirmation by itself, so the tools return the command a
-person runs.
+**Agent hosts, through MCP.** `sealed-panel mcp` serves the commands as ten tools over stdio:
+`init`, `brief`, `record`, `judge`, `measure`, `aggregate`, `status`, `report`,
+`rubrics_suggest` and `rubrics_use`. Every tool calls the same function as the command, so
+every refusal holds. Learning (rubric candidates, your own read of the grade) is not a tool: a
+host can answer a confirmation by itself, so it stays on the command line, where a person
+decides.
 
 **As a plugin.** The repository is a plugin and its own marketplace for agent hosts that
 install plugins from git. It starts the MCP server with `uvx`, and brings the skill and a judge
@@ -357,12 +357,12 @@ only `PATH`, `HOME`, `LANG` and the allowed names from the environment.
 ## Configuration
 
 The settings live in [`src/sealed_panel/defaults.toml`](src/sealed_panel/defaults.toml): run
-defaults, limits, severity caps, quote rules, text normalisation, injection patterns and
-transcript field names. A spec may override the per-run keys; `init --config PATH` overrides
-the rest, within hard bounds, and the effective configuration is frozen into the run. The
-brief texts stay in code, because they are the instrument. Every key and bound is documented
-in [docs/configuration.md](docs/configuration.md). The CLI is described in
-[docs/cli.md](docs/cli.md) and the reasoning behind each rule in
+defaults, limits, severity caps, quote rules and transcript field names (the text normalisation
+and the injection patterns are fixed in code). A spec may override the per-run keys; `init
+--config PATH` overrides the rest, within hard bounds, and the effective configuration is
+frozen into the run. The brief texts stay in code, because they are the instrument. Every key
+and bound is documented in [docs/configuration.md](docs/configuration.md). The CLI is
+described in [docs/cli.md](docs/cli.md) and the reasoning behind each rule in
 [docs/protocol.md](docs/protocol.md).
 
 ## Repository structure
@@ -456,15 +456,16 @@ skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
-A run frozen by an older version keeps the settings it was frozen with. A setting added later
-counts as its default for such a run, now and in later versions, so a new setting never locks
-an old run out. A setting whose default changed does not: a 0.2.x run keeps
-`transcript.handback_tool = ""`. The MCP server's read-only tools (`status`, `report`,
-`rubrics_*`) read any locked run; the tools that change one need the server's configuration to
-match the run's, so change such a run with the command line, or through a server started with
-`--config` setting that value. In a host's auto mode, where the judge answers through its
-`SubagentHandback` tool, a run frozen with an empty `handback_tool` rejects every judge it
-records: start a new run, or freeze one with `[transcript] handback_tool = "SubagentHandback"`.
+A run frozen by a version before 0.4.0 is read, never written: `status` and `report` (and the
+MCP tools of the same name) read it, and list its own frozen settings that 0.4.0 no longer has
+(`[text]`, `[injection]`, `[library]`) where they differ from their 0.3.1 default, labelled as
+frozen by that version. Every command and tool that writes to a run (`brief`, `record`,
+`judge`, `measure`, `aggregate`, `learning learn`, `feedback`) refuses it, naming the version
+that froze it: finish such a run with that version, or start a new one. Within 0.4.x, a setting
+added later counts as its default for a run frozen without it, so a new setting never locks a
+run out; a setting whose default changed keeps the run's own value. The MCP tools that change
+a run need the server's configuration to match the run's, so change such a run with the
+command line, or through a server started with `--config` setting that value.
 
 ## Limits
 
@@ -505,13 +506,9 @@ owner-only (0600 and 0700).
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and
 known-good limits, the noise floor, the severity caps (tighter only), the quote lengths and
-bad-quote share (stricter only: the floors are the defaults), the punctuation normalisation for
-quote matching (one punctuation character to another, never deleting a character or reaching a
-letter, digit or whitespace; a run of mapped and literal dots that normalises to an ellipsis
-reads as one, which a judge could write as `...` anyway; the stripped characters are held at the
-default set; every other check uses the built-in normalisation), added injection patterns (the
-defaults always stay), and the transcript field names. Every such value is frozen into the run
-at `init`.
+bad-quote share (stricter only: the floors are the defaults), and the transcript field names.
+The normalisation of texts before they are compared, and the injection patterns, are fixed in
+code. Every such value is frozen into the run at `init`.
 
 ## License
 

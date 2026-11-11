@@ -11,6 +11,7 @@ whole suite before it is reported. CONTRIBUTING.md explains the method.
 
     python tools/mutation_check.py [--only NAME] [--jobs N] [--shard K/N] [--json OUT]
     python tools/mutation_check.py --merge OUT [OUT ...]
+    python tools/mutation_check.py --anchors-only
 """
 
 from __future__ import annotations
@@ -39,9 +40,9 @@ REC, AGG, SPEC, CFG, BRIEF = (
     f"{PKG}/{m}.py" for m in ("record", "aggregate", "spec", "config", "brief")
 )
 DEFAULTS = f"{PKG}/defaults.toml"
-CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
 LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
 RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
+TEXT = f"{PKG}/text.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -72,7 +73,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "fragment order ignored": (f"{PKG}/text.py", "pos = i + len(p)", "pos = 0"),
-    "smart quotes not normalised": (DEFAULTS, '"\\u201c" = "\\""\n', ""),
+    "smart quotes not normalised": (TEXT, """    "\\u201c": '"',\n""", ""),
     "boolean score accepted": (
         REC,
         "if isinstance(s, bool) or not isinstance(s, int) or",
@@ -239,28 +240,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if text_hash(cand) in {r.get("candidate_hash") for r in loop}:',
         "if False:",
     ),
-    "re-roll hash with run config": (
-        BRIEF,
-        'if text_hash(cand) in {r.get("candidate_hash") for r in loop}:',
-        f'if __import__("hashlib").sha256({CFG_NORM}(cand, cfg).encode("utf-8")).hexdigest()'
-        '[:16] in {r.get("candidate_hash") for r in loop}:',
-    ),
-    "baseline inclusion with run config": (
-        BRIEF,
-        "if first.exists() and fixed_normalise(read_text(first)) != fixed_normalise(cand):",
-        f"if first.exists() and {CFG_NORM}(read_text(first), cfg) != {CFG_NORM}(cand, cfg):",
-    ),
-    "previous inclusion with run config": (
-        BRIEF,
-        "if prev_path.exists() and fixed_normalise(read_text(prev_path)) != fixed_normalise(cand):",
-        f"if prev_path.exists() and {CFG_NORM}(read_text(prev_path), cfg)"
-        f" != {CFG_NORM}(cand, cfg):",
-    ),
     # The spec and its freeze.
     "rubric lock off": (SPEC, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
         SPEC,
-        "if frozen.fingerprint != read_text(lock).strip():",
+        "if fingerprint(raw) != read_text(lock).strip():",
         "if False:",
     ),
     "declared choice unchecked": (
@@ -268,7 +252,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if not isinstance(c, dict) or not c.get("choice") or not c.get("user_said"):',
         "if False:",
     ),
-    "spec injection allowed": (SPEC, "if injection_flags(exposed, cfg):", "if False:"),
+    "spec injection allowed": (SPEC, "if injection_flags(exposed):", "if False:"),
     "unknown spec key accepted": (
         SPEC,
         'errors = _unknown(spec, SPEC_KEYS, "spec")',
@@ -353,7 +337,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if len(stripped.split()) == 1 and "/" in stripped:',
         "if False:",
     ),
-    "an injection pattern dropped": (DEFAULTS, "    '\\bsystem prompt\\b',\n", ""),
+    "an injection pattern dropped": (TEXT, '    r"\\bsystem prompt\\b",\n', ""),
     "agent id and transcript mismatch accepted": (
         REC,
         "if found and found != agent_id:",
@@ -366,23 +350,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "control equal to candidate": (
         BRIEF,
-        "if fixed_normalise(cand) == fixed_normalise(ctrl):",
+        "if normalise(cand) == normalise(ctrl):",
         "if False:",
     ),
     "init twice": (SPEC, 'if (run / "rubric.lock").exists():', "if False:"),
     "measure twice": (REC, 'if any(r["id"] == mid for r in rows):', "if False:"),
     "baseline dropped": (BRIEF, 'roles.append(("baseline", read_text(first)))', "pass"),
-    "open table type unchecked": (
-        CFG,
-        "if path in OPEN_TABLES and sample is not None and _type_ok(sample, value):",
-        "if path in OPEN_TABLES:",
-    ),
-    "invalid regex accepted": (
-        CFG,
-        '            errors.append(f"injection.patterns: {p!r} is not a valid expression '
-        '({exc})")\n            continue',
-        "            continue",
-    ),
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
     "max_rounds exceeded": (BRIEF, 'if rnd > spec["max_rounds"]:', "if False:"),
     "sealed round directory exists": (BRIEF, "if round_dir(run, rnd, True).exists():", "if False:"),
@@ -392,16 +365,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]",
         "paths = [library.promote(lib, library.add_candidate(lib, p).stem) for p in "
         "proposals_after_seal(run)]",
-    ),
-    "learning switch ignored": (
-        LEARN,
-        'if not run_config(run).library["learn"]:\n            return [], "learning off"',
-        'if False:\n            return [], "learning off"',
-    ),
-    "learning can fail a seal": (
-        LEARN,
-        "    except Exception as exc:  # learning must never fail a seal",
-        "    except ZeroDivisionError as exc:  # learning must never fail a seal",
     ),
     "spread threshold off by one": (
         LEARN,
@@ -425,8 +388,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "control gap off by one": (
         LEARN,
-        "cand - ctrl > gap",
-        "cand - ctrl >= gap",
+        "if cand - ctrl > CONTROL_GAP:",
+        "if cand - ctrl >= CONTROL_GAP:",
     ),
     "control compared on capped scores": (
         LEARN,
@@ -593,11 +556,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if k not in OPTIONAL_HASH_KEYS or k in spec",
         "if k not in OPTIONAL_HASH_KEYS",
     ),
-    "library not frozen at init": (
-        SPEC,
-        '    frozen["library"] = {**cfg.library, "path": str(lib)}\n',
-        "",
-    ),
     "keys missing from an old run reported": (
         CFG,
         "        if key not in current:\n            continue",
@@ -636,21 +594,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "promote without a terminal": (f"{PKG}/cli.py", "if not sys.stdin.isatty():", "if False:"),
     "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
-    "inherited GIT_DIR obeyed": (
-        CFG,
-        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
-        "",
-    ),
-    "no usable git trusted": (
-        CFG,
-        "        return False  # no usable git: the library cannot be shown to be ignored\n",
-        "        return True\n",
-    ),
-    "all GIT_ variables stripped": (
-        CFG,
-        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
-        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
-    ),
     "feedback library unresolved": (
         f"{PKG}/cli.py",
         "lib = library_dir(a.library) if a.library else None",
@@ -663,18 +606,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "library inside a git tree": (
         CFG,
-        "if top is not None and not _git_ignored(top, real):",
-        "if False:",
-    ),
-    "library checked as a file": (
-        CFG,
-        'str(path) + "/"],',
-        "str(path)],",
+        "    if top is not None:\n        raise ConfigError(",
+        "    if False:\n        raise ConfigError(",
     ),
     "relative library path accepted": (
         CFG,
-        "            if not path.is_absolute():\n                raise ConfigError(",
-        "            if False:\n                raise ConfigError(",
+        "        if not path.is_absolute():\n            raise ConfigError(",
+        "        if False:\n            raise ConfigError(",
     ),
     "unknown template accepted": (
         SPEC,
@@ -697,36 +635,21 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "real = path.expanduser().resolve(strict=False)",
         "real = path.expanduser().absolute()",
     ),
-    "weak candidate triggers the control signal": (LEARN, "cand < floor or ", ""),
-    "control gap hard-coded": (
+    "weak candidate triggers the control signal": (
         LEARN,
-        'gap = float(cfg.library["control_gap"])',
-        "gap = 1.0",
-    ),
-    "control_min_candidate unbounded": (
-        CFG,
-        'if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:',
-        "if False:",
-    ),
-    "control_gap unbounded": (
-        CFG,
-        'if "control_gap" in library and not 0 <= library["control_gap"] <= 4:',
-        "if False:",
+        "ctrl is None or cand < CONTROL_MIN_CANDIDATE:",
+        "ctrl is None:",
     ),
     "run created before the library is resolved": (
         SPEC,
-        "    lib = library_dir(library, cfg)  # resolved",
-        "    run.mkdir(parents=True, exist_ok=True)\n    lib = library_dir(library, cfg)  # resolved",
+        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
+        "    run.mkdir(parents=True, exist_ok=True)\n"
+        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
     ),
     "closed id refused only after the prompt": (
         LIB,
         '    _history_file(lib, c["id"])  # a closed id',
         "    pass  # a closed id",
-    ),
-    "control threshold hard-coded": (
-        LEARN,
-        'floor = float(cfg.library["control_min_candidate"])',
-        "floor = 4.0",
     ),
     "contradiction ignores the run caps": (
         LEARN,
@@ -745,13 +668,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init ignores --library": (
         SPEC,
-        "    lib = library_dir(library, cfg)  # resolved",
-        "    lib = library_dir(None, cfg)  # resolved",
-    ),
-    "init freezes the default library": (
-        SPEC,
-        'frozen["library"] = {**cfg.library, "path": str(lib)}',
-        'frozen["library"] = {**cfg.library, "path": str(library_dir(None, cfg))}',
+        "_check_template_ref(spec, cfg, library_dir(library))",
+        "_check_template_ref(spec, cfg, library_dir(None))",
     ),
     "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -770,107 +688,76 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "severity order off": (CFG, "if values != sorted(values):", "if False:"),
     "run bounds off": (CFG, "if not low <= value <= high:", "if False:"),
     "quote floor off": (CFG, 'if quotes["min_chars"] < MIN_QUOTE_CHARS_FLOOR:', "if False:"),
-    "a default injection pattern dropped": (
-        CFG,
-        "    if missing:\n        errors.append(",
-        "    if False:\n        errors.append(",
-    ),
-    "punctuation key length unchecked": (
-        CFG,
-        "if len(key) != 1 or _letter_or_digit(key) or key.isspace():",
-        "if _letter_or_digit(key) or key.isspace():",
-    ),
-    "strip_chars may grow": (
-        CFG,
-        "    if added:\n        errors.append(",
-        "    if False:\n        errors.append(",
-    ),
-    "strip_chars may shrink": (
-        CFG,
-        "    if dropped:\n        errors.append(",
-        "    if False:\n        errors.append(",
-    ),
-    "a stripped character mapped": (CFG, "        if key in stripped:\n", "        if False:\n"),
-    "a stripped character in a mapped value": (
-        CFG,
-        "        if stripped & set(value):\n",
-        "        if False:\n",
-    ),
-    "samples not normalised": (
-        CFG,
-        "hit = re.search(p, fixed_normalise(sample))",
-        "hit = re.search(p, sample)",
-    ),
-    "whitespace punctuation key accepted": (
-        CFG,
-        "if len(key) != 1 or _letter_or_digit(key) or key.isspace():",
-        'if len(key) != 1 or _letter_or_digit(key) or key == " ":',
-    ),
-    "a pattern that matches nothing accepted": (CFG, "        if not hit:", "        if False:"),
-    "unpaired samples accepted": (
-        CFG,
-        "if len(samples) != len(patterns):",
-        "if False:",
-    ),
-    "letters stripped before quotes": (
-        CFG,
-        'if any(c.isalnum() or c.isspace() for c in text["strip_chars"]):',
-        "if False:",
-    ),
-    "letters mapped before quotes": (CFG, "if _letter_or_digit(value):", "if False:"),
-    "empty punctuation value allowed": (
-        CFG,
-        "if len(value) != 1 or value.isspace():",
-        "if len(value) > 1 or value.isspace():",
-    ),
-    "multi-character punctuation value allowed": (
-        CFG,
-        "if len(value) != 1 or value.isspace():",
-        "if not value or value.isspace():",
-    ),
-    "whitespace punctuation value allowed": (
-        CFG,
-        "if len(value) != 1 or value.isspace():",
-        "if len(value) != 1:",
-    ),
-    "ellipsis allowed for another key": (
-        CFG,
-        'if not (key == ELLIPSIS and value == "..."):',
-        'if value != "...":',
-    ),
     # The run's [text] settings reaching a check other than quote matching. The replacement
     # imports the configured normalisation itself: the module no longer does.
-    "control identity uses the configured normalisation": (
-        BRIEF,
-        "if fixed_normalise(cand) == fixed_normalise(ctrl):",
-        f"if {CFG_NORM}(cand, cfg) == {CFG_NORM}(ctrl, cfg):",
-    ),
-    "one-quote flag with run config": (
-        REC,
-        "quotes.append(fixed_normalise(quote))",
-        f"quotes.append({CFG_NORM}(quote, cfg))",
-    ),
-    "whole-brief check uses the configured normalisation": (
-        REC,
-        "        prompt = fixed_normalise(transcript_prompt(transcript, cfg))\n",
-        f"        prompt = {CFG_NORM}(transcript_prompt(transcript, cfg), cfg)\n"
-        f'        brief = {CFG_NORM}(read_text(rdir / f"brief_j{{judge}}.md"), cfg)\n',
-    ),
-    "void brief check uses the configured normalisation": (
-        REC,
-        "    pasted = brief in fixed_normalise(transcript_prompt(transcript, cfg))\n",
-        f'    brief = {CFG_NORM}(read_text(rdir / f"brief_j{{judge}}.md"), cfg)\n'
-        f"    pasted = brief in {CFG_NORM}(transcript_prompt(transcript, cfg), cfg)\n",
-    ),
-    "casefold skipped": (
+    "a removed setting read as an unknown key": (
         CFG,
-        "return any(c.isalnum() for c in s + s.casefold())",
-        "return any(c.isalnum() for c in s)",
+        "        if not path and key in REMOVED_SECTIONS:\n",
+        "        if False:\n",
     ),
-    "scan uses the configured normalisation": (
-        f"{PKG}/text.py",
-        "    low = fixed_normalise(text)\n",
-        "    low = normalise(text, cfg)\n",
+    "learning called by aggregate": (
+        AGG,
+        "        write_feedback(run, entry)\n    return entry",
+        "        write_feedback(run, entry)\n"
+        "    else:\n"
+        '        __import__("sealed_panel.learn", fromlist=["x"]).learn_after_seal(\n'
+        '            run, __import__("sealed_panel.config", fromlist=["x"]).library_dir()\n'
+        "        )\n"
+        "    return entry",
+    ),
+    "a run frozen before 0.4.0 written": (
+        SPEC,
+        '    if version is not None:\n        raise EvalError(\n            f"this run was frozen by',
+        '    if False:\n        raise EvalError(\n            f"this run was frozen by',
+    ),
+    "an older run's own settings hidden": (
+        SPEC,
+        '    return removed_overrides(load_json(run / "config.json"), version)\n',
+        "    return []\n",
+    ),
+    "an older run refused through MCP as a settings difference": (
+        MCP,
+        "        refuse_older_run(where)  # its own refusal, not a settings difference\n",
+        "",
+    ),
+    "the control compared raw": (
+        BRIEF,
+        "if normalise(cand) == normalise(ctrl):",
+        "if cand == ctrl:",
+    ),
+    "the whole-brief check compared raw": (
+        REC,
+        '        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
+        "        prompt = normalise(transcript_prompt(transcript, cfg))\n",
+        '        brief = read_text(rdir / f"brief_j{judge}.md")\n'
+        "        prompt = transcript_prompt(transcript, cfg)\n",
+    ),
+    "the re-roll hash taken raw": (
+        TEXT,
+        "digest = hashlib.sha256(normalise(text).encode",
+        "digest = hashlib.sha256((text).encode",
+    ),
+    "a pasted brief looked for raw before a void": (
+        REC,
+        '    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
+        "    pasted = brief in normalise(transcript_prompt(transcript, cfg))\n",
+        '    brief = read_text(rdir / f"brief_j{judge}.md")\n'
+        "    pasted = brief in transcript_prompt(transcript, cfg)\n",
+    ),
+    "one quote for all compared raw": (
+        REC,
+        "quotes.append(normalise(quote))",
+        "quotes.append(quote)",
+    ),
+    "learning writes into a git tree when it proposes nothing": (
+        LEARN,
+        "    writable_library(lib)  # refused even when the run proposes nothing\n",
+        "",
+    ),
+    "a candidate written into a git tree": (
+        LIB,
+        '    writable_library(lib)\n    kind = proposal["kind"]',
+        '    kind = proposal["kind"]',
     ),
     "judges per persona unbounded (config)": (
         CFG,
@@ -996,8 +883,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "output cap ignored": (RUN, "if size > cap:", "if False:"),
     "a group refusing the signal crashes the runner": (
         RUN,
-        "            return\n        except OSError:\n            pass\n",
-        "            return\n        except ProcessLookupError:\n            pass\n",
+        "        return\n    except OSError:\n        pass\n",
+        "        return\n    except ProcessLookupError:\n        pass\n",
     ),
     "interrupted judge left unrecorded": (
         RUN,
@@ -1032,11 +919,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if p.is_symlink():\n",
         "        if False:\n",
     ),
-    "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
+    "library inside a run accepted": (CFG, '    outside_runs(real, "the rubric library")\n', ""),
     "root listed with the grading settings": (
         CFG,
-        'NOT_GRADING = frozenset({"library.path", "mcp.root"})',
-        'NOT_GRADING = frozenset({"library.path"})',
+        'NOT_GRADING = frozenset({"mcp.root"})',
+        "NOT_GRADING = frozenset()",
     ),
     "voids left out of the aggregate line": (
         f"{PKG}/cli.py",
@@ -1075,10 +962,15 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "proof = transcript_path(transcript) if transcript is not None else None",
         "proof = path(transcript) if transcript is not None else None",
     ),
-    "a void read from a transcript under the root": (
+    "rubrics_use writes outside the root": (
         MCP,
-        "            proof = transcript_path(transcript)\n",
-        "            proof = path(transcript)\n",
+        'target = outside_runs(path(out), "the spec")',
+        'target = outside_runs(Path(out), "the spec")',
+    ),
+    "rubrics_use writes inside a run": (
+        MCP,
+        'target = outside_runs(path(out), "the spec")',
+        "target = path(out)",
     ),
     "links followed in a transcript root": (
         MCP,
@@ -1104,11 +996,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/cli.py",
         "'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}'",
         "'sealed-panel[mcp]'",
-    ),
-    "a candidate id unquoted in a command": (
-        MCP,
-        "where, name = shlex.quote(str(lib)), shlex.quote(cid)",
-        "where, name = shlex.quote(str(lib)), cid",
     ),
     # How a run touches the disk.
     "a failed write leaves its draft": (
@@ -1189,9 +1076,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n",
     ),
     "a taken seat stops the command line": (
-        f"{PKG}/cli.py",
-        "            except SeatTaken as exc:\n",
-        "            except ZeroDivisionError as exc:\n",
+        RUN,
+        "        except SeatTaken as exc:\n            if on_seat:",
+        "        except ZeroDivisionError as exc:\n            if on_seat:",
     ),
     "the handback tool counted as a tool use": (
         REC,
@@ -1223,8 +1110,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a frozen configuration not checked for its shape": (
         SPEC,
-        "    if shape:\n",
-        "    if False:\n",
+        "    if data is None or shape:\n",
+        "    if data is None:\n",
     ),
     "stale files settled in host mode": (
         RUN,
@@ -1245,11 +1132,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         RUN,
         '    if any(r["ok"] for r in results_by_judge(rdir).get(judge, [])):\n        return\n',
         "",
-    ),
-    "a library replaced by a link accepted": (
-        SPEC,
-        "    if path.resolve() != path:\n",
-        "    if False:\n",
     ),
     "an empty transcript root argument fails": (
         f"{PKG}/cli.py",
@@ -1368,8 +1250,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Every item of a brief is scanned for text addressed to a judge, and any flag blocks.
     "only the candidate is scanned": (
         BRIEF,
-        '"injection_flags_by_role": flags_by_role(roles, cfg),',
-        '"injection_flags_by_role": flags_by_role(roles[:1], cfg),',
+        '"injection_flags_by_role": flags_by_role(roles),',
+        '"injection_flags_by_role": flags_by_role(roles[:1]),',
     ),
     "the gate reads the candidate's flags only": (
         f"{PKG}/decide.py",
@@ -1457,9 +1339,14 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # 0.4.0 review: nested runs, the run lock, leftover records.
     "a run created inside a run": (
-        SPEC,
-        '        if (outer / "rubric.lock").exists():\n',
+        f"{PKG}/store.py",
+        '        if (folder / "rubric.lock").exists():\n',
         "        if False:\n",
+    ),
+    "init does not check for a run above": (
+        SPEC,
+        '    outside_runs(run, "the run")\n',
+        "",
     ),
     "a lock file that cannot be opened crashes": (
         f"{PKG}/store.py",
@@ -1503,8 +1390,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init onto the server's lock file accepted": (
         MCP,
-        "        if where.is_relative_to(init_lock):\n",
-        "        if False:\n",
+        "        return top.samefile(lock)\n",
+        "        return False\n",
     ),
     "the lock file not reserved at startup": (
         MCP,
@@ -1912,6 +1799,37 @@ def merge(paths: Sequence[Path]) -> int:
     return judge(outcomes) or (1 if missing or twice or unknown else 0)
 
 
+def anchor_problems(names: Iterable[str]) -> list[str]:
+    """Each mutation whose anchor is not found exactly once in its file, with the count. No
+    test runs: a code change that moves an anchor shows here in a second, not after an hour."""
+    problems = []
+    for name in names:
+        rel, old, _new = MUTATIONS[name]
+        found = (ROOT / rel).read_text(encoding="utf-8").count(old)
+        if found != 1:
+            problems.append(f"{name}: anchor found {found} times in {rel}")
+    return problems
+
+
+def check_anchors(names: Sequence[str]) -> int:
+    """Print every anchor problem and a count; 1 when there is one."""
+    problems = anchor_problems(names)
+    for line in problems:
+        print(line)
+    print(f"{len(names) - len(problems)} of {len(names)} anchors found exactly once")
+    return 1 if problems else 0
+
+
+def _sharded(ap: argparse.ArgumentParser, names: list[str], shard: str | None) -> list[str]:
+    """The mutations of shard k/n, or all of them without a shard."""
+    if not shard:
+        return names
+    k, n = (int(x) for x in shard.split("/"))
+    if not 0 <= k < n:
+        ap.error("--shard needs k/n with 0 <= k < n")
+    return [m for m in names if in_shard(m, k, n)]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Seed one defect at a time; the tests must fail.")
     ap.add_argument("--only", help="run a single mutation by name")
@@ -1922,6 +1840,11 @@ def main(argv: list[str] | None = None) -> int:
         "--full-suite", action="store_true", help="run the whole suite on each mutation"
     )
     ap.add_argument("--merge", nargs="+", type=Path, help="merge shard reports and judge them")
+    ap.add_argument(
+        "--anchors-only",
+        action="store_true",
+        help="check that every anchor is found exactly once, and run no test",
+    )
     a = ap.parse_args(argv)
     if a.merge:
         return merge(a.merge)
@@ -1929,11 +1852,9 @@ def main(argv: list[str] | None = None) -> int:
     if not names:
         print(f"no mutation named {a.only!r}")
         return 2
-    if a.shard:
-        k, n = (int(x) for x in a.shard.split("/"))
-        if not 0 <= k < n:
-            ap.error("--shard needs k/n with 0 <= k < n")
-        names = [m for m in names if in_shard(m, k, n)]
+    if a.anchors_only:
+        return check_anchors(names)
+    names = _sharded(ap, names, a.shard)
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp) / "baseline"

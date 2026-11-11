@@ -9,6 +9,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Nothing a tool creates goes inside a run: one guard (`store.outside_runs`) refuses a new run,
+  the `rubrics_use` spec skeleton, and a rubric library at or under a folder holding
+  `rubric.lock`. A skeleton written to `run/rounds/r1/result.json` would have faked an
+  aggregated round, and one named `run/sealed` blocked the sealed panel; `init` uses the same
+  guard in place of its own check.
+- The MCP tools refuse the root's lock file under any name that reaches it: the check compares
+  inodes, so another case of the name on a case-insensitive filesystem, or a hard link, gets the
+  tool's own refusal instead of a later, less clear one. `docs/cli.md` now says the server
+  keeps that one dot-file at the root and does not start on a root it cannot write.
 - One judge per seat now rests on a lock: every call that records an attempt (`judge`,
   host-mode `record`, and `aggregate` for every seat of its round) holds `fcntl.flock` on
   `seat_j<J>.lock` from the seat check to the stored attempt. Host-mode `record` had no guard:
@@ -36,10 +45,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Every run file is written to a private temporary file in its directory and moved over the
-  target. Every file sealed-panel creates in a run, the lock files and the judge's stderr log
-  included, is owner-only (0600), and every directory of a run is created 0700: a file's earlier
-  mode is no longer kept.
+- **Breaking:** Refusals that the MCP tools also raise no longer name command-line flags: "a
+  void needs the agent's transcript", "the round number is required for a loop round", "the
+  agent id ...", "say whether it passed". A stop decision's `next` is "brief the sealed panel"
+  instead of "seal", which no longer names a tool.
+- The plugin's marketplace entry installs the plugin from the release tag (`"source":
+  {"source": "github", "repo": ..., "ref": "v<version>"}`) instead of the repository's default
+  branch, the tag `.mcp.json` already pins the server to: between releases, `main`'s skill
+  could call tools the pinned server lacks. The release commit bumps both.
+- `judge_round` takes `on_seat(seat, result, why_skipped)`, called after each seat; the command
+  line's `judge` is `judge_round` with a printer, instead of its own copy of the loop. Output
+  unchanged.
+- **Breaking:** writing to a rubric library inside a git working tree. Before: any use of a
+  library in a git working tree was refused unless `git check-ignore` said the tree ignored it,
+  asked of the user's git. After: no git process runs, so that exception is gone: a library
+  with a `.git` at or above it (a directory, or a worktree's file) is refused for every write
+  (`learning learn`, `feedback`, `rubrics promote`, `rubrics reject`), ignored or not, with a
+  message saying to point `--library` or `$SEALED_PANEL_RUBRICS` at a folder outside any
+  repository; every read (`rubrics list|suggest|show|use`, the MCP `rubrics_suggest` and
+  `rubrics_use`, `init` from a template) works there, the default library of a user whose home
+  is a git tree included.
+- New MCP tool `rubrics_use(id, out, persona_file?, library?)`: writes the spec skeleton of a
+  template under the root (refused outside it, or when `out` exists), as `rubrics use` does.
+- **Breaking:** Every run file is written to a private temporary file in its directory and moved
+  over the target. Every file sealed-panel creates in a run, the lock files and the judge's
+  stderr log included, is owner-only (0600), and every directory of a run is created 0700: a
+  file's earlier mode is no longer kept.
 - `record` and `judge` calls on a round may overlap; a call on a held seat is refused (`judge`
   skips it). The refusal now reads "seat J is held by another call (a judge running or a reply
   being recorded)", in place of "judge J is being judged by another call", since a host
@@ -48,10 +79,65 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the tool argument).
 - A transcript under a transcript root may go through a link that stays under that root; one
   that leaves every root is refused.
-- A dotted key in a frozen configuration is refused as an unknown key.
+- **Breaking:** A dotted key in a frozen configuration is refused as an unknown key.
+- `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
+  exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
 
 ### Removed
 
+- **Breaking:** the `Config` properties of the removed settings: `strip_chars`, `punctuation`,
+  `injection_patterns` and `library` (`Config` is in `__all__`). Before: they read `[text]`,
+  `[injection]` and `[library]`. After: use `text.STRIP_CHARS`, `text.PUNCTUATION`,
+  `text.INJECTION_PATTERNS`, and `config.library_dir()` for the library; the thresholds are
+  `learn.CONTROL_MIN_CANDIDATE` and `learn.CONTROL_GAP`. `normalise` and `injection_flags` lost
+  their `cfg` argument, and `fixed_normalise`, `normalise_with` and `library_dir`'s `cfg`
+  argument are gone.
+- **Breaking:** writing to a run frozen before 0.4.0. Before: every command worked on any run.
+  After: `brief`, `record` (a void included), `judge`, `measure`, `aggregate`, `learning learn`
+  and `feedback`, on the command line and through MCP, refuse a run whose `config.json` holds a
+  section 0.4.0 removed, naming the version that froze it ("frozen by sealed-panel 0.3.1, before
+  0.4.0: ... Finish it with sealed-panel 0.3.1"); `status` and `report` read it, `status` says
+  so under `read_only`, and both list its own frozen `[text]`, `[injection]` and `[library]`
+  values that differ from their 0.3.1 default, labelled as frozen by that version.
+- **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
+  its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
+  derives the rounds from the round files (loop rounds first, by number) and the rubric hash
+  from `rubric.lock`. A run frozen before keeps its `ledger.json`, which agrees with its round
+  files (0.4.0 never writes to such a run) and is no longer read.
+- The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
+  the judge's process group): the package declares POSIX only and never ran there. No change on
+  macOS or Linux.
+- **Breaking:** Learning on every seal, and `[library]` (`path`, `learn`,
+  `control_min_candidate`, `control_gap`). Before: every sealed `aggregate` wrote candidates to
+  the inbox of a library frozen into the run at `init` (`library.path`), unless `library.learn`
+  was false, and printed `learning` and `inbox`; `sealed-panel learn RUN` retried. After:
+  `aggregate` writes nothing outside the run and no longer prints or returns `learning`/`inbox`
+  (CLI, MCP `aggregate`, `aggregate_round`); learning is `sealed-panel learning learn RUN
+  [--library DIR]`, which the skill runs after a sealed panel; `init` freezes no library; the
+  library is `--library`, else `$SEALED_PANEL_RUBRICS`, else the user default; the thresholds
+  are constants (4.0, 1.0); and `--run` on `rubrics` commands and `run` on the MCP rubrics tools
+  are gone. A file that sets a `[library]` key is refused, naming it; a run frozen before reads
+  as for `[text]`.
+- **Breaking:** `[injection]` (`patterns`, `samples`). Before: a configuration could add
+  patterns (every default had to stay, each matching its sample line). After: the five 0.3.1
+  patterns are the constant `text.INJECTION_PATTERNS`, and `injection_flags(text)` takes no
+  configuration. A file that sets an `[injection]` key is refused, naming it; a run frozen
+  before 0.4.0 reads as for `[text]`.
+- **Breaking:** `[text]` (`strip_chars`, `punctuation`). Before: a configuration could map
+  punctuation and hold the stripped characters for quote matching, within bounds, while every
+  other check used the defaults. After: both are constants in `text.py`, equal to the 0.3.1
+  defaults, and one `normalise(text)` serves every comparison (`normalise` lost its `cfg`
+  argument; `fixed_normalise` and `normalise_with` are gone). A file that sets a `[text]` key is
+  refused with a message naming it ("text.strip_chars: no longer a setting, ... fixed in code
+  since 0.4.0"); a run frozen before 0.4.0 keeps reading: its lock is checked against
+  `config.json` as frozen, then `[text]` is dropped.
+- **Breaking:** MCP tools, 14 to 10 (`tests/mcp_tools.json` regenerated). Before: `seal`,
+  `void`, `rubrics_list`, `rubrics_show` and `feedback` were tools. After: `seal(...)` is
+  `brief(..., sealed=true)` (its `round` defaults to 1, as `--sealed` does, and a loop round
+  needs it); `void(...)` is `record(..., transcript=..., void=true)`; `rubrics_list` and
+  `rubrics_show` are replaced by `rubrics_suggest` (kept) and the new `rubrics_use`; `feedback`
+  is a command only (`sealed-panel feedback`). Learning has no tool: a host can answer a
+  confirmation itself, so only a person at the command line touches candidates.
 - The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
   rename-to-stale step and its re-read, replaced by the seat lock.
 - The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based

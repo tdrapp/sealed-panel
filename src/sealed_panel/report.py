@@ -17,9 +17,10 @@ from .decide import (
     sealed_done,
 )
 from .ledger import other_runs, used_agent_ids
+from .ledger import view as ledger_view
 from .record import RUNNER
-from .spec import dims_for, load_frozen, run_config
-from .store import load_json, write_file
+from .spec import dims_for, frozen_before, frozen_settings, load_frozen, run_config
+from .store import write_file
 
 # Hex characters of the rubric hash shown in the report.
 HASH_CHARS = 12
@@ -83,7 +84,7 @@ def status(run: Path) -> dict[str, Any]:
     """
     spec = load_frozen(run)
     cfg = run_config(run)
-    ledger = load_json(run / "ledger.json")
+    ledger = ledger_view(run)
     d = decide(spec, ledger)
     loop = [r for r in ledger["rounds"] if not r.get("sealed")]
     if d["decision"] == "CONTINUE" and loop:
@@ -95,7 +96,13 @@ def status(run: Path) -> dict[str, Any]:
     d.pop("final", None)
     if spec.get(INJECTION_ACK):
         d[INJECTION_ACK] = spec[INJECTION_ACK]
-    d["overrides"] = overrides(cfg, spec)
+    d["overrides"] = overrides(cfg, spec) + frozen_settings(run)
+    version = frozen_before(run)
+    if version is not None:
+        d["read_only"] = (
+            f"frozen by sealed-panel {version}: this version reads it and writes nothing to it; "
+            f"finish it with sealed-panel {version}"
+        )
     return d
 
 
@@ -310,10 +317,10 @@ def render_report(run: Path) -> str:
     """
     spec = load_frozen(run)
     cfg = run_config(run)
-    ledger = load_json(run / "ledger.json")
+    ledger = ledger_view(run)
     d = decide(spec, ledger)
     n_ctx = len(used_agent_ids(run))
-    changed = overrides(cfg, spec)
+    changed = overrides(cfg, spec) + frozen_settings(run)
     ref = spec.get("template") or {}
     template = (
         f"template {ref.get('id')} v{ref.get('version')}"

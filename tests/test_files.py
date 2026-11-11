@@ -38,7 +38,7 @@ from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import extract_json, record_from, record_reply, seat_lock
 from sealed_panel.report import render_report
 from sealed_panel.runner import judge_round, judge_seat, open_seats
-from sealed_panel.spec import init_run, run_config, run_library
+from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
@@ -732,7 +732,7 @@ class TestCommandLineEdges:
         def interrupted(*args: Any) -> None:
             raise KeyboardInterrupt
 
-        monkeypatch.setattr(cli, "judge_seat", interrupted)
+        monkeypatch.setattr(runner, "judge_seat", interrupted)
         assert cli.main(["judge", str(h.run), "--round", "1"]) == cli.INTERRUPTED
         assert "interrupted" in capsys.readouterr().out
 
@@ -742,10 +742,10 @@ class TestCommandLineEdges:
         init_judge(h, [sys.executable, str(STUB)])
         h.brief(1, "cand")
 
-        def taken(run: Path, rnd: int, seat: int, sealed: bool) -> dict[str, Any]:
+        def taken(run: Path, rnd: int, seat: int, sealed: bool, *_: Any) -> dict[str, Any]:
             raise SeatTaken(f"judge {seat} is being judged by another call")
 
-        monkeypatch.setattr(cli, "judge_seat", taken)
+        monkeypatch.setattr(runner, "judge_seat", taken)
         assert cli.main(["judge", str(h.run), "--round", "1"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("SKIPPED judge 1: judge 1 is being judged")
@@ -827,14 +827,6 @@ class TestFrozenConfiguration:
         with pytest.raises(EvalError, match=r"unknown configuration key 'limits\.extra'"):
             run_config(h.run)
 
-    def test_punctuation_keeps_its_open_table(self, h: Harness) -> None:
-        cfg = h.tmp / "p.toml"
-        cfg.write_text('[text.punctuation]\n"\\u2032" = "\'"\n')
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        assert run_config(h.run).punctuation[chr(0x2032)] == "'"
-
     def test_differences_are_read_section_by_section(self, h: Harness) -> None:
         h.init()
         data = json.loads((h.run / "config.json").read_text())
@@ -915,20 +907,6 @@ class TestStartedRecords:
 
 
 class TestLibraryMoved:
-    def test_a_library_replaced_by_a_link_is_refused(self, h: Harness) -> None:
-        lib = h.tmp / "lib"
-        lib.mkdir()
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, None, lib)
-        outside = h.tmp / "outside"
-        outside.mkdir()
-        lib.rename(h.tmp / "lib.real")
-        lib.symlink_to(outside)
-        with pytest.raises(EvalError, match="a link was put in its place"):
-            run_library(h.run)
-        assert list(outside.iterdir()) == []
-
     def test_a_linked_library_folder_writes_nothing(self, tmp_path: Path) -> None:
         outside = tmp_path / "outside"
         outside.mkdir()

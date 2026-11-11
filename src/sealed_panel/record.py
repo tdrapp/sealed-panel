@@ -20,9 +20,9 @@ from typing import Any
 from .config import Config, resolve
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
-from .spec import dims_for, load_frozen, run_config
+from .spec import dims_for, load_writable, refuse_older_run, run_config, writes_run
 from .store import dump_json, load_json, locked, read_text, round_dir, under_run_lock
-from .text import fixed_normalise, quote_found
+from .text import normalise, quote_found
 
 SCORE_MIN, SCORE_MAX = 1, 5
 # Characters searched for the agent id, from the start of a transcript.
@@ -302,7 +302,7 @@ def check_output(
             raw_scores[did] = s
             quotes_total += 1
             quote = str(d.get("quote", ""))
-            quotes.append(fixed_normalise(quote))
+            quotes.append(normalise(quote))
             quoted[did] = quote
             if not quote_found(quote, texts[role], cfg):
                 quotes_bad += 1
@@ -398,8 +398,8 @@ def _void(
     """An agent that received a brief and stopped without a reply: recorded as void so the
     round can be aggregated. A void clears the unrecorded-agent block but never fills a seat.
     Refused when the agent got the whole brief and left any reply: that reply is recorded."""
-    brief = fixed_normalise(read_text(rdir / f"brief_j{judge}.md"))
-    pasted = brief in fixed_normalise(transcript_prompt(transcript, cfg))
+    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
+    pasted = brief in normalise(transcript_prompt(transcript, cfg))
     # Fails closed: any tool call counts as a reply, whichever its name, because a runtime may
     # deliver the answer through a tool this run does not know. Only silence can be voided.
     replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))
@@ -569,6 +569,7 @@ def record_reply(
     """
     if source == RUNNER:
         raise EvalError("a runner reply is recorded by `sealed-panel judge` only, with its proof")
+    refuse_older_run(run)  # before the seat's lock file is created
     rdir = round_dir(run, rnd, sealed)
     _judge_meta(round_keys(rdir, rnd), judge, rdir)  # a seat that exists, before its lock file
     with seat_lock(rdir, judge):
@@ -595,7 +596,7 @@ def _record_reply(
     `void` the process gave no reply. Only runner.judge_seat passes a proof. The caller holds
     the seat's lock (seat_lock); the run's lock is taken here, after it, for the run-wide
     checks (an agent id or a reply already used) and the store."""
-    spec = load_frozen(run)
+    spec = load_writable(run)
     cfg = run_config(run)
     if (runner is None) != (source != RUNNER):
         raise EvalError("a runner reply needs the runner's proof, and only a runner reply has one")
@@ -605,7 +606,7 @@ def _record_reply(
     keys = round_keys(rdir, rnd)
     meta = _judge_meta(keys, judge, rdir)
     if not agent_id.strip():
-        raise EvalError("--agent-id is required: it proves each judge is a fresh context")
+        raise EvalError("the agent id is required: it proves each judge is a fresh context")
     if agent_id in used_agent_ids(run):
         raise EvalError(
             f"agent {agent_id} already judged in this run: every brief needs a fresh judge"
@@ -615,14 +616,14 @@ def _record_reply(
     extra_chars = 0
     if void and runner is None:
         if transcript is None:
-            raise EvalError("--void needs the agent's --transcript, to show it never replied")
+            raise EvalError("a void needs the agent's transcript, to show it never replied")
         if not meta.get("nonce"):
             raise EvalError("this run's briefs carry no brief id: a void cannot be checked")
         if meta["nonce"] not in read_text(transcript):
             raise EvalError(f"this transcript never saw brief j{judge}: nothing to void")
     elif transcript is not None:
-        brief = fixed_normalise(read_text(rdir / f"brief_j{judge}.md"))
-        prompt = fixed_normalise(transcript_prompt(transcript, cfg))
+        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
+        prompt = normalise(transcript_prompt(transcript, cfg))
         if brief not in prompt:
             raise EvalError(
                 f"this transcript's prompt does not contain brief j{judge} verbatim: "
@@ -723,9 +724,10 @@ def record_from(
         output: The pasted reply, or None.
         void: Record the transcript's agent as an attempt that never replied.
     """
+    refuse_older_run(run)
     _refuse_in_a_runner_run(run_config(run))
     if void and transcript is None:
-        raise EvalError("--void needs --transcript")
+        raise EvalError("a void needs the agent's transcript")
     if (transcript is None) == (output is None):
         raise EvalError("give the judge's transcript or its pasted reply, not both")
     if transcript is None:
@@ -733,7 +735,7 @@ def record_from(
     frozen = run_config(run)
     found = transcript_agent_id(transcript, frozen)
     if found and found != agent_id:
-        raise EvalError(f"--agent-id {agent_id} does not match the transcript's agent {found}")
+        raise EvalError(f"the agent id {agent_id} does not match the transcript's agent {found}")
     raw, source, malformed = "", ("void" if void else "transcript"), ""
     if not void:
         try:
@@ -748,6 +750,7 @@ def record_from(
     return record_reply(run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed)
 
 
+@writes_run
 @under_run_lock
 def record_measurement(
     run: Path, rnd: int, mid: str, value: str, passed: bool | None, sealed: bool
@@ -763,7 +766,7 @@ def record_measurement(
         passed: Pass or fail, for a criterion without a numeric threshold; else None.
         sealed: Whether the round is the sealed panel's.
     """
-    spec = load_frozen(run)
+    spec = load_writable(run)
     run_config(run)
     m = next((x for x in spec.get("measured") or [] if x["id"] == mid), None)
     if m is None:
@@ -777,7 +780,7 @@ def record_measurement(
             raise EvalError(f"{mid} needs a number, got {value!r}") from exc
         passed = ("max" not in m or num <= m["max"]) and ("min" not in m or num >= m["min"])
     elif passed is None:
-        raise EvalError(f"{mid} has no numeric threshold: say --pass or --fail")
+        raise EvalError(f"{mid} has no numeric threshold: say whether it passed")
     rdir = round_dir(run, rnd, sealed)
     if not (rdir / "keys.json").exists():
         raise EvalError("brief the round before measuring it")

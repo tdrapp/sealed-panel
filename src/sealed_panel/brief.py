@@ -16,17 +16,17 @@ from typing import Any
 from .config import Config, resolve
 from .decide import BLOCKED, INJECTION_ACK, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
-from .spec import dims_for, load_frozen, rubric_hash, run_config
+from .ledger import view as ledger_view
+from .spec import dims_for, load_writable, rubric_hash, run_config, writes_run
 from .store import (
     dump_json,
-    load_json,
     make_dir,
     read_text,
     round_dir,
     under_run_lock,
     write_file,
 )
-from .text import fixed_normalise, injection_flags, text_hash
+from .text import injection_flags, normalise, text_hash
 
 # Letters drawn without repetition to label the items of one brief.
 LABEL_POOL = "BCDFGHJKLMNPQRSTVWXZ"
@@ -236,15 +236,14 @@ def _check_loop(
         raise EvalError("the loop has stopped: seal instead of briefing a new round")
 
 
-def flags_by_role(roles: list[tuple[str, str]], cfg: Config) -> dict[str, list[str]]:
+def flags_by_role(roles: list[tuple[str, str]]) -> dict[str, list[str]]:
     """The injection patterns each text placed in the brief matches, by role (only the roles
     with a match).
 
     Args:
         roles: (role, text) of every item of the brief.
-        cfg: The run's configuration.
     """
-    found = {role: injection_flags(text, cfg) for role, text in roles}
+    found = {role: injection_flags(text) for role, text in roles}
     return {role: flags for role, flags in found.items() if flags}
 
 
@@ -253,7 +252,7 @@ def _refuse_a_flagged_seal(
 ) -> None:
     """Refuse a sealed brief that would carry text addressed to a judge, before anything is
     written: its grade could not stand, and a run has one sealed panel."""
-    found = flags_by_role(roles, cfg) if sealed else {}
+    found = flags_by_role(roles) if sealed else {}
     if found and not spec.get(INJECTION_ACK):
         raise EvalError(
             f"the sealed brief would carry text addressed to a judge in the "
@@ -262,6 +261,7 @@ def _refuse_a_flagged_seal(
         )
 
 
+@writes_run
 @under_run_lock
 def write_briefs(
     run: Path, rnd: int, artefact: Path, control: Path, good: Path | None, sealed: bool
@@ -276,9 +276,9 @@ def write_briefs(
         good: An optional known-good text, validated by the user.
         sealed: Whether to brief the sealed panel.
     """
-    spec = load_frozen(run)
+    spec = load_writable(run)
     cfg = run_config(run)
-    ledger = load_json(run / "ledger.json")
+    ledger = ledger_view(run)
     cand, ctrl = read_text(artefact), read_text(control)
     if rnd < 1:
         raise EvalError("rounds start at 1")
@@ -289,16 +289,16 @@ def write_briefs(
     rdir = round_dir(run, rnd, sealed)
     if rdir.exists() and any(rdir.glob("brief_*.md")):
         raise EvalError(f"{rdir} already has briefs; a round is briefed once")
-    if fixed_normalise(cand) == fixed_normalise(ctrl):
+    if normalise(cand) == normalise(ctrl):
         raise EvalError("the control is identical to the candidate")
     roles: list[tuple[str, str]] = [("candidate", cand), ("control", ctrl)]
     if not sealed and rnd >= 2:
         prev_path = round_dir(run, rnd - 1) / "candidate.md"
-        if prev_path.exists() and fixed_normalise(read_text(prev_path)) != fixed_normalise(cand):
+        if prev_path.exists() and normalise(read_text(prev_path)) != normalise(cand):
             roles.append(("previous", read_text(prev_path)))
     if sealed:
         first = round_dir(run, 1) / "candidate.md"
-        if first.exists() and fixed_normalise(read_text(first)) != fixed_normalise(cand):
+        if first.exists() and normalise(read_text(first)) != normalise(cand):
             roles.append(("baseline", read_text(first)))
     if good is not None:
         roles.append(("known_good", read_text(good)))
@@ -349,8 +349,8 @@ def write_briefs(
             "rubric_sha256": rubric_hash(spec),
             "candidate_hash": text_hash(cand),
             "roles": [r for r, _ in roles],
-            "injection_flags": injection_flags(cand, cfg),
-            "injection_flags_by_role": flags_by_role(roles, cfg),
+            "injection_flags": injection_flags(cand),
+            "injection_flags_by_role": flags_by_role(roles),
             "judges": judges,
         },
     )

@@ -46,9 +46,10 @@ The first release, in this order:
 
 A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
 version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace
-file, `.mcp.json`, the README's version line and the install lines (`tests/test_packaging.py`
-checks they agree), merge, and push a tag `v<version>`. The workflow checks that the tag names
-the package version, builds the sdist and the wheel, and publishes them.
+file (its `version` and the `ref` of its plugin source, the tag), `.mcp.json`, the README's
+version line and the install lines (`tests/test_packaging.py` checks they agree), merge, and
+push a tag `v<version>`. The workflow checks that the tag names the package version, builds the
+sdist and the wheel, and publishes them.
 
 After the first publish, the docs' index lines apply: the hint `sealed-panel mcp` prints without
 the extra (`cli.py`) may then name the index. Until then it names the tag, because an agent

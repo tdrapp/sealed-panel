@@ -81,6 +81,26 @@ class TestExitCodes:
         assert mc.judge({**detected, **survivors, next(iter(detected)): "interrupt"}) == 0
 
 
+class TestAnchorsOnly:
+    def test_every_anchor_is_found_exactly_once(self, mc: ModuleType) -> None:
+        assert mc.anchor_problems(mc.MUTATIONS) == []
+        assert mc.main(["--anchors-only"]) == 0
+
+    def test_a_missing_or_repeated_anchor_fails_without_running_a_test(
+        self, mc: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def no_pytest(*_: Any) -> Any:
+            raise AssertionError("--anchors-only runs no test")
+
+        monkeypatch.setattr(mc, "_pytest", no_pytest)
+        monkeypatch.setitem(mc.MUTATIONS, "gone", (mc.REC, "no such text anywhere", "x"))
+        monkeypatch.setitem(mc.MUTATIONS, "twice", (mc.REC, "\n\n", "x"))
+        assert mc.main(["--anchors-only"]) == 1
+        problems = mc.anchor_problems(["gone", "twice"])
+        assert problems[0] == f"gone: anchor found 0 times in {mc.REC}"
+        assert problems[1].startswith("twice: anchor found ")
+
+
 class TestShards:
     @pytest.mark.parametrize("n", [1, 2, 4, 7])
     def test_the_shards_partition_the_mutations(self, mc: ModuleType, n: int) -> None:

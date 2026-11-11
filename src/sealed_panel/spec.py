@@ -2,27 +2,32 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
 import re
 import secrets
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .config import (
     MAX_JUDGES_PER_PERSONA,
+    REMOVED_SECTIONS,
     RUN_BOUNDS,
     Config,
-    guard_library,
+    fingerprint,
     library_dir,
+    removed_overrides,
     resolve,
     run_value_error,
     schema_errors,
+    without_removed,
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import contained, dump_json, load_json, make_dir, read_text, write_file
+from .store import contained, dump_json, load_json, make_dir, outside_runs, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -366,7 +371,8 @@ def init_run(
         run: A new or empty directory for the run.
         spec_path: The spec file.
         cfg: The configuration; the packaged defaults when None.
-        library: The user rubric library; the default one when None.
+        library: The user rubric library, read for a template the spec names; the default
+            one when None.
         facts_root: A folder a `facts_file` must resolve under, or None.
         acknowledge: Whether this caller may freeze a spec that acknowledges injection flags:
             a person at the command line may, the MCP server's caller (the author) may not.
@@ -374,7 +380,7 @@ def init_run(
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
-    _refuse_nested(run)
+    outside_runs(run, "the run")
     if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
         raise EvalError(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
@@ -388,27 +394,22 @@ def init_run(
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent, facts_root)
-    lib = library_dir(library, cfg)  # resolved before anything is written: a refusal leaves no run
     if isinstance(spec.get("template"), dict):
-        _check_template_ref(spec, cfg, lib)
+        _check_template_ref(spec, cfg, library_dir(library))
     exposed = " ".join(
         [spec["title"], spec["purpose"]]
         + [p["description"] for p in spec["personas"]]
         + [c["choice"] for c in spec.get("declared_choices") or []]
     )
-    if injection_flags(exposed, cfg):
+    if injection_flags(exposed):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     make_dir(run)
-    frozen = json.loads(json.dumps(cfg.data))
-    frozen["library"] = {**cfg.library, "path": str(lib)}
-    cfg = Config(frozen)
     dump_json(run / "config.json", cfg.data)
     write_file(run / "config.lock", cfg.fingerprint + "\n")
     dump_json(run / "spec.json", spec)
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
     write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
-    dump_json(run / "ledger.json", {"rubric_sha256": digest, "rounds": []})
     return digest
 
 
@@ -425,14 +426,6 @@ def run_salt(run: Path) -> bytes | None:
     except (OSError, ValueError, EvalError):
         return None
     return salt if len(salt) == SALT_BYTES else None
-
-
-def _refuse_nested(run: Path) -> None:
-    """Refuse a run inside another run: a directory created there (a lock file's name, a
-    result's) would block that run's rounds."""
-    for outer in run.resolve().parents:
-        if (outer / "rubric.lock").exists():
-            raise EvalError(f"{run} is inside the run {outer}: a run never holds another run")
 
 
 def load_frozen(run: Path) -> dict[str, Any]:
@@ -453,25 +446,87 @@ def load_frozen(run: Path) -> dict[str, Any]:
     return spec
 
 
-def run_library(run: Path) -> Path:
-    """The library frozen into a run at init; a run frozen by 0.1.0 resolves it now. A frozen
-    path that resolves elsewhere now (it, or a folder above it, became a link) is refused."""
-    frozen = run_config(run).data.get("library") or {}
-    if not frozen.get("path"):
-        return library_dir()
-    path = Path(frozen["path"])
-    if path.resolve() != path:
+def frozen_before(run: Path) -> str | None:
+    """The version that froze a run before 0.4.0, or None for a run of this version. Every
+    earlier version froze the `[text]` and `[injection]` sections that 0.4.0 removed, so their
+    presence in config.json is the mark; the rest narrows the version: the env salt came with
+    0.3.1, `[judge]` with 0.3.0, `[library]` with 0.2.0.
+
+    Args:
+        run: The run directory.
+    """
+    if not (run / "config.json").is_file():
+        return None  # not a run: the step's own check says so
+    raw = load_json(run / "config.json")
+    if not isinstance(raw, dict) or not any(k in raw for k in REMOVED_SECTIONS):
+        return None
+    if (run / ENV_SALT).is_file():
+        return "0.3.1"
+    if "judge" in raw:
+        return "0.3.0"
+    return "0.2.x" if "library" in raw else "0.1.0"
+
+
+def refuse_older_run(run: Path) -> None:
+    """Refuse to write to a run frozen before 0.4.0: its frozen settings name sections this
+    version no longer applies, so a step written now would be graded by other rules than the
+    steps before it. `status` and `report` still read it.
+
+    Args:
+        run: The run directory.
+    """
+    version = frozen_before(run)
+    if version is not None:
         raise EvalError(
-            f"the library {path} frozen into this run now resolves to {path.resolve()}: a "
-            "link was put in its place; restore the folder"
+            f"this run was frozen by sealed-panel {version}, before 0.4.0: 0.4.0 reads it "
+            f"(status, report) but never writes to it. Finish it with sealed-panel {version}, "
+            "the version that started it, or start a new run"
         )
-    return guard_library(path)
 
 
-def library_for(flag: Path | None, run: Path | None) -> Path:
-    """The library a rubrics command reads: the flag, else the one frozen into the run, else
-    the user library (environment, setting, or user-level default)."""
-    return library_dir(flag) if flag or not run else run_library(run)
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Path, P], R]:
+    """Run `fn(run, ...)` only for a run this version may write (see refuse_older_run), checked
+    before anything is created in it, the run's lock file included.
+
+    Args:
+        fn: A step whose first argument is the run directory.
+    """
+
+    @functools.wraps(fn)
+    def checked(run: Path, /, *args: P.args, **kwargs: P.kwargs) -> R:
+        refuse_older_run(run)
+        return fn(run, *args, **kwargs)
+
+    return checked
+
+
+def load_writable(run: Path) -> dict[str, Any]:
+    """The run's frozen spec, for a step that writes to the run: refused for a run frozen
+    before 0.4.0, then checked as load_frozen checks it.
+
+    Args:
+        run: The run directory.
+    """
+    refuse_older_run(run)
+    return load_frozen(run)
+
+
+def frozen_settings(run: Path) -> list[str]:
+    """The settings of a run frozen before 0.4.0 that this version no longer has and that
+    differ from their 0.3.1 default (see config.removed_overrides); empty for a run of this
+    version.
+
+    Args:
+        run: The run directory.
+    """
+    version = frozen_before(run)
+    if version is None:
+        return []
+    return removed_overrides(load_json(run / "config.json"), version)
 
 
 def run_config(run: Path) -> Config:
@@ -479,12 +534,14 @@ def run_config(run: Path) -> Config:
     lock = run / "config.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    data = load_json(run / "config.json")
-    shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
-    if shape:
+    raw = load_json(run / "config.json")
+    data = without_removed(raw) if isinstance(raw, dict) else None
+    shape = ["not a table"] if data is None else schema_errors(data)
+    if data is None or shape:
         raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
     frozen = Config(data)
-    if frozen.fingerprint != read_text(lock).strip():
+    # Checked against the data as frozen: a run frozen before 0.4.0 keeps its removed sections.
+    if fingerprint(raw) != read_text(lock).strip():
         raise EvalError(
             "the configuration changed after the freeze: scores are no longer comparable. "
             "Start a new run directory."

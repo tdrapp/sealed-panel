@@ -157,7 +157,7 @@ class TestCliRounds:
         h.init()
         args = ["--artefact", str(h.files["cand"]), "--control", str(h.files["ctrl"])]
         assert main(["brief", str(h.run), *args]) == 2
-        assert "--round is required" in capsys.readouterr().err
+        assert "the round number is required" in capsys.readouterr().err
         assert main(["brief", str(h.run), "--sealed", *args]) == 0
         assert (h.run / "sealed" / "r1" / "brief_j1.md").exists()
 
