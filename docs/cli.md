@@ -290,15 +290,18 @@ resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in
 configuration, else the directory the server starts in. A path outside it, or one starting with
 `~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too. The
 `init` tool holds a lock at the root (`.sealed-panel-init.lock`), so two inits never run at
-once; the server creates that file at startup, refuses to start when anything but a file holds
-its name, and every tool refuses it and any path under it.
+once. It is the one file the server keeps at the root: the server creates it at startup, and
+refuses to start when anything but a file holds its name, or when it cannot create it (a root it
+cannot write). Every tool refuses that file and any path under it, under any name that reaches
+it: compared by inode, another case of the name on a case-insensitive filesystem, or a hard
+link, is refused as the lock.
 
 `--config` is the configuration of every run the server changes, and the only place a
 `[judge] command` comes from. It is read once at startup and must live outside the root, or the
 server does not start. The `init` tool freezes it and takes no configuration from the caller.
-The read-only tools (`status`, `report` and the `rubrics_*` tools) read any run whose lock and
+The read-only tools (`status`, `report` and `rubrics_suggest`) read any run whose lock and
 shape hold; every tool that changes a run refuses one whose settings differ from the server's
-(the path of its library aside, and a setting the run lacks counting as its default), and
+(a setting the run lacks counting as its default), and
 `status` says whether the run is `served`. A run from another configuration, or one whose
 setting changed default since it was frozen, is changed through the command line or a server
 started with that configuration.

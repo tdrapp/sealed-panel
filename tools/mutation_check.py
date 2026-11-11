@@ -1326,8 +1326,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init onto the server's lock file accepted": (
         MCP,
-        "        if where.is_relative_to(init_lock):\n",
-        "        if False:\n",
+        "        return top.samefile(lock)\n",
+        "        return False\n",
     ),
     "the lock file not reserved at startup": (
         MCP,

@@ -9,6 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- The MCP tools refuse the root's lock file under any name that reaches it: the check compares
+  inodes, so another case of the name on a case-insensitive filesystem, or a hard link, gets the
+  tool's own refusal instead of a later, less clear one. `docs/cli.md` now says the server
+  keeps that one dot-file at the root and does not start on a root it cannot write.
 - One judge per seat now rests on a lock: every call that records an attempt (`judge`,
   host-mode `record`, and `aggregate` for every seat of its round) holds `fcntl.flock` on
   `seat_j<J>.lock` from the seat check to the stored attempt. Host-mode `record` had no guard:

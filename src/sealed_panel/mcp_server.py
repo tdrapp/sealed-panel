@@ -271,6 +271,25 @@ def _reserve(base: Path) -> Path:
     return lock
 
 
+def names_lock(where: Path, base: Path, lock: Path) -> bool:
+    """Whether a resolved path under the root is the root's lock file or under it, compared by
+    inode on the entry right under the root: a name that differs only in case, on a
+    case-insensitive filesystem, or a hard link, is the lock too.
+
+    Args:
+        where: The resolved path, under `base`.
+        base: The root.
+        lock: The lock file, directly under the root.
+    """
+    if where == base:
+        return False
+    top = base / where.relative_to(base).parts[0]
+    try:
+        return top.samefile(lock)
+    except OSError:
+        return False  # nothing there yet: not the lock, which exists from startup
+
+
 def build_server(
     root: Path | None = None,
     config: Path | None = None,
@@ -316,7 +335,7 @@ def build_server(
             where = contained(given if given.is_absolute() else base / given, base, repr(p))
         except EvalError as exc:
             raise ToolError(str(exc)) from exc
-        if where.is_relative_to(init_lock):
+        if names_lock(where, base, init_lock):
             raise ToolError(f"{p!r} is the server's own lock file: name another path")
         return where
 

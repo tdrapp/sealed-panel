@@ -711,6 +711,25 @@ class TestPaths:
             assert lock.is_file()
             await call(c, "init", run="r1", spec="spec.json")
 
+    async def test_the_lock_file_under_another_name_is_refused(self, h: Harness, mode: str) -> None:
+        """The check compares inodes: another case of the name (on a case-insensitive
+        filesystem) or a hard link to the lock is the lock, and the tool says so."""
+        write_spec(h)
+        lock = h.tmp / mcp_server.INIT_LOCK
+        upper = mcp_server.INIT_LOCK.upper()
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            os.link(lock, h.tmp / "alias.lock")
+            names = ["alias.lock", "alias.lock/x"]
+            if (h.tmp / upper).exists():  # a case-insensitive filesystem
+                names += [upper, f"{upper}/x"]
+            for name in names:
+                msg = await error(c, "init", run=name, spec="spec.json")
+                assert "the server's own lock file" in msg, name
+            assert "own lock file" in await error(c, "init", run="r", spec="alias.lock")
+        assert lock.is_file() and not (h.tmp / "r").exists()
+        assert not mcp_server.names_lock(h.tmp, h.tmp, lock)
+        assert not mcp_server.names_lock(h.tmp / "absent", h.tmp, lock)
+
     def test_a_server_whose_lock_path_is_taken_does_not_start(self, h: Harness) -> None:
         (h.tmp / mcp_server.INIT_LOCK).mkdir()
         with pytest.raises(ConfigError, match="the server's own lock file"):
