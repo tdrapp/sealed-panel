@@ -83,89 +83,25 @@
           "description": "a known-good the user validated"
         },
         "round": {
-          "description": "loop round number, from 1",
-          "type": "integer"
-        },
-        "run": {
-          "description": "the run directory",
-          "type": "string"
-        }
-      },
-      "required": [
-        "run",
-        "round",
-        "artefact",
-        "control"
-      ],
-      "type": "object"
-    },
-    "name": "brief",
-    "output_schema": {
-      "description": "The briefs of one round, one per judge.",
-      "properties": {
-        "briefs": {
-          "description": "one brief file per judge, in judge order",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "round": {
-          "type": "integer"
-        },
-        "run": {
-          "type": "string"
-        },
-        "sealed": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "run",
-        "round",
-        "sealed",
-        "briefs"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "annotations": {
-      "destructive_hint": false,
-      "open_world_hint": false,
-      "read_only_hint": false
-    },
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
-        "artefact": {
-          "description": "the final text file",
-          "type": "string"
-        },
-        "control": {
-          "description": "the same control as the loop",
-          "type": "string"
-        },
-        "good": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "integer"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "a known-good the user validated"
-        },
-        "round": {
-          "default": 1,
-          "description": "sealed round number",
-          "type": "integer"
+          "description": "round number; optional for the sealed panel (1)"
         },
         "run": {
           "description": "the run directory",
           "type": "string"
+        },
+        "sealed": {
+          "default": false,
+          "description": "brief the sealed panel: after CONVERGED, PLATEAU or CAP, or as a one-shot grade; the control is the loop's",
+          "type": "boolean"
         }
       },
       "required": [
@@ -175,7 +111,7 @@
       ],
       "type": "object"
     },
-    "name": "seal",
+    "name": "brief",
     "output_schema": {
       "description": "The briefs of one round, one per judge.",
       "properties": {
@@ -278,6 +214,11 @@
           ],
           "default": null,
           "description": "the judge's JSONL transcript (best proof)"
+        },
+        "void": {
+          "default": false,
+          "description": "the agent received the brief and never replied (needs its transcript, holding the brief id); a void never fills a seat",
+          "type": "boolean"
         }
       },
       "required": [
@@ -288,95 +229,6 @@
       "type": "object"
     },
     "name": "record",
-    "output_schema": {
-      "description": "One recorded attempt: a valid reply, a rejected one, or a void.",
-      "properties": {
-        "agent_id": {
-          "type": "string"
-        },
-        "errors": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "judge": {
-          "type": "integer"
-        },
-        "source": {
-          "type": "string"
-        },
-        "status": {
-          "enum": [
-            "VALID",
-            "REJECTED",
-            "VOID"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "judge",
-        "agent_id",
-        "status",
-        "errors",
-        "source"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "annotations": {
-      "destructive_hint": false,
-      "open_world_hint": false,
-      "read_only_hint": false
-    },
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
-        "agent_id": {
-          "description": "the agent that never replied",
-          "type": "string"
-        },
-        "judge": {
-          "description": "the judge slot",
-          "type": "integer"
-        },
-        "round": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "round number; optional for the sealed panel (1)"
-        },
-        "run": {
-          "description": "the run directory",
-          "type": "string"
-        },
-        "sealed": {
-          "default": false,
-          "description": "the sealed panel instead of a loop round",
-          "type": "boolean"
-        },
-        "transcript": {
-          "description": "its transcript, holding the brief id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "run",
-        "judge",
-        "agent_id",
-        "transcript"
-      ],
-      "type": "object"
-    },
-    "name": "void",
     "output_schema": {
       "description": "One recorded attempt: a valid reply, a rejected one, or a void.",
       "properties": {
@@ -816,150 +668,6 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {
-        "library": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "user rubric library; default: the run's, else the user library"
-        },
-        "run": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "type": "object"
-    },
-    "name": "rubrics_list",
-    "output_schema": {
-      "description": "Every template and the open candidates of a library.",
-      "properties": {
-        "candidates": {
-          "items": {
-            "description": "An open rubric candidate in the library's inbox.",
-            "properties": {
-              "commands": {
-                "description": "what a person runs to decide; never run them",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "count": {
-                "type": "integer"
-              },
-              "dimension": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string"
-              },
-              "rejected_before": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "template": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "id",
-              "kind",
-              "template",
-              "dimension",
-              "count",
-              "rejected_before",
-              "commands"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
-        "library": {
-          "type": "string"
-        },
-        "templates": {
-          "items": {
-            "description": "A rubric template the library serves.",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "source": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "version": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "id",
-              "version",
-              "source",
-              "title"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
-        "warnings": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "library",
-        "templates",
-        "candidates",
-        "warnings"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "annotations": {
-      "open_world_hint": false,
-      "read_only_hint": true
-    },
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
         "kind": {
           "description": "the kind of text, such as email or cv",
           "type": "string"
@@ -1079,14 +787,15 @@
   },
   {
     "annotations": {
+      "destructive_hint": false,
       "open_world_hint": false,
-      "read_only_hint": true
+      "read_only_hint": false
     },
     "input_schema": {
       "additionalProperties": false,
       "properties": {
         "id": {
-          "description": "the template id",
+          "description": "the template id, from rubrics_suggest",
           "type": "string"
         },
         "library": {
@@ -1100,6 +809,22 @@
           ],
           "default": null,
           "description": "user rubric library; default: the run's, else the user library"
+        },
+        "out": {
+          "description": "where to write the spec; refused if it exists",
+          "type": "string"
+        },
+        "persona_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "a JSON list of personas (id, description)"
         },
         "run": {
           "anyOf": [
@@ -1114,168 +839,30 @@
         }
       },
       "required": [
-        "id"
+        "id",
+        "out"
       ],
       "type": "object"
     },
-    "name": "rubrics_show",
+    "name": "rubrics_use",
     "output_schema": {
-      "description": "One template as served, and the open candidates on it.",
+      "description": "A spec skeleton written from a template. `init` refuses it until every marker is\nfilled.",
       "properties": {
-        "candidates": {
-          "items": {
-            "description": "An open rubric candidate in the library's inbox.",
-            "properties": {
-              "commands": {
-                "description": "what a person runs to decide; never run them",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "count": {
-                "type": "integer"
-              },
-              "dimension": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string"
-              },
-              "rejected_before": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "template": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "id",
-              "kind",
-              "template",
-              "dimension",
-              "count",
-              "rejected_before",
-              "commands"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
-        "id": {
-          "type": "string"
-        },
-        "source": {
+        "path": {
           "type": "string"
         },
         "template": {
-          "additionalProperties": true,
-          "type": "object"
-        },
-        "version": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "id",
-        "version",
-        "source",
-        "template",
-        "candidates"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "annotations": {
-      "destructive_hint": false,
-      "open_world_hint": false,
-      "read_only_hint": false
-    },
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
-        "dimension": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "the dimension; none proposes a new one"
-        },
-        "library": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "user rubric library; default: the run's, else the user library"
-        },
-        "note": {
-          "description": "where the user's own read differs",
           "type": "string"
         },
-        "run": {
-          "description": "the run directory",
+        "todo_marker": {
+          "description": "the marker left in every field a person fills",
           "type": "string"
         }
       },
       "required": [
-        "run",
-        "note"
-      ],
-      "type": "object"
-    },
-    "name": "feedback",
-    "output_schema": {
-      "description": "Your read recorded as a candidate. A person decides it.",
-      "properties": {
-        "candidate_id": {
-          "type": "string"
-        },
-        "commands": {
-          "description": "what a person runs to decide; never run them",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "candidate_id",
         "path",
-        "commands"
+        "template",
+        "todo_marker"
       ],
       "type": "object"
     }

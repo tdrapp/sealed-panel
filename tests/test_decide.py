@@ -170,7 +170,7 @@ class TestInjectionGate:
         h.full(1, "cand", FIVE, sealed=True, good=True)
         assert h.decision()["decision"] == "SEALED"
 
-    def test_the_mcp_seal_refuses_a_flagged_round_1_too(self, h: Harness) -> None:
+    def test_the_mcp_sealed_brief_refuses_a_flagged_round_1_too(self, h: Harness) -> None:
         pytest.importorskip("fastmcp")
         from fastmcp import Client
 
@@ -182,8 +182,8 @@ class TestInjectionGate:
 
         async def seal() -> str:
             async with Client(build_server(h.tmp)) as c:
-                args = {"run": "run", "artefact": "v3.md", "control": "ctrl.md"}
-                r = await c.call_tool_mcp("seal", args)
+                args = {"run": "run", "artefact": "v3.md", "control": "ctrl.md", "sealed": True}
+                r = await c.call_tool_mcp("brief", args)
                 assert r.is_error
                 return str(r.content[0].text)  # type: ignore[union-attr]
 

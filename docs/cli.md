@@ -300,25 +300,28 @@ started with that configuration.
 
 `--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. A
 leading `~`, `$HOME` or `${HOME}` is the user's home. It is read only, for the transcript of
-`record` and `void`. Through MCP a transcript is accepted only there, resolved with its links
-followed and refused unless it stays under a transcript root: a file the caller can write is no
-proof. A transcript root that overlaps the root (a
-host started from the home folder, whose transcripts sit under it) is turned off rather than
-stopping the server: `status` and every transcript refusal say why. Start the host from a
-project directory to read transcripts again.
+`record` (a void included). Through MCP a transcript is accepted only there, resolved with its
+links followed and refused unless it stays under a transcript root: a file the caller can write
+is no proof. A transcript root that overlaps the root (a host started from the home folder,
+whose transcripts sit under it) is turned off rather than stopping the server: `status` and
+every transcript refusal say why. Start the host from a project directory to read transcripts
+again.
 
-The tools, in this order: `init`, `brief`, `seal` (`brief --sealed`), `record`, `void`
-(`record --void`), `judge`, `measure`, `aggregate`, `status`, `report`, `rubrics_list`,
-`rubrics_suggest`, `rubrics_show`, `feedback`. Each calls the same function as the command, so
-every refusal is the same; a refusal, a missing file or a file of the wrong shape comes back as
-a tool error with its reason, and any other error is masked. Each returns a structured result
-(and the same object as text). `record` takes exactly one of `transcript`, `reply_file` or
-`reply` (the reply text, flagged as pasted). `judge` reports progress after each judge and
-stops after an hour; a judge already started then still finishes and is recorded.
+The ten tools, in this order: `init`, `brief` (`sealed=true` for `brief --sealed`), `record`
+(`void=true` for `record --void`), `judge`, `measure`, `aggregate`, `status`, `report`,
+`rubrics_suggest`, `rubrics_use`. Each calls the same function as the command, so every refusal
+is the same; a refusal, a missing file or a file of the wrong shape comes back as a tool error
+with its reason, and any other error is masked. Each returns a structured result (and the same
+object as text). `record` takes exactly one of `transcript`, `reply_file` or `reply` (the reply
+text, flagged as pasted); a void takes the `transcript`. `judge` reports progress after each
+judge and stops after an hour; a judge already started then still finishes and is recorded.
+`rubrics_use` writes the spec skeleton under the root, and refuses a path that exists.
 
-`rubrics promote` and `rubrics reject` are not tools: a host can answer a confirmation by
-itself, so a tool call proves no person decided. `rubrics_show`, `rubrics_list` and `feedback`
-return the command a person runs instead. `rubrics use` and `learn` stay on the command line.
+Before 0.4.0 the server had fourteen tools: `seal` is now `brief` with `sealed=true`, `void` is
+`record` with `void=true`, `rubrics_list` and `rubrics_show` gave way to `rubrics_suggest` and
+`rubrics_use`, and `feedback` is a command only. Learning (`feedback`, `rubrics promote`,
+`rubrics reject`) has no tool: a host can answer a confirmation by itself, so a tool call
+proves no person decided.
 See [integrations.md](integrations.md) for host configuration.
 
 ## rubrics

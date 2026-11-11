@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 356 mutations, 354
+bound or boundary at a time and requires the suite to fail on each. Of its 355 mutations, 353
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -326,12 +326,12 @@ whole prompt.
 
 [docs/integrations.md](docs/integrations.md) covers each in full.
 
-**Agent hosts, through MCP.** `sealed-panel mcp` serves the commands as tools over stdio:
-`init`, `brief`, `seal`, `record`, `void`, `judge`, `measure`, `aggregate`, `status`, `report`,
-`rubrics_list`, `rubrics_suggest`, `rubrics_show` and `feedback`. Every tool calls the same
-function as the command, so every refusal holds. Promoting or rejecting a rubric candidate is
-not a tool: a host can answer a confirmation by itself, so the tools return the command a
-person runs.
+**Agent hosts, through MCP.** `sealed-panel mcp` serves the commands as ten tools over stdio:
+`init`, `brief`, `record`, `judge`, `measure`, `aggregate`, `status`, `report`,
+`rubrics_suggest` and `rubrics_use`. Every tool calls the same function as the command, so
+every refusal holds. Learning (rubric candidates, your own read of the grade) is not a tool: a
+host can answer a confirmation by itself, so it stays on the command line, where a person
+decides.
 
 **As a plugin.** The repository is a plugin and its own marketplace for agent hosts that
 install plugins from git. It starts the MCP server with `uvx`, and brings the skill and a judge

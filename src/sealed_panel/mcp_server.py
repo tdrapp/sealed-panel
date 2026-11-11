@@ -11,9 +11,8 @@ a run refuses one frozen with other settings (the read-only tools still read it)
 from the tool parameters and stay under the root (`--root`, `[mcp] root`, or the current
 directory), never from the host. A transcript is proof only under a `--transcript-root`; one
 that overlaps the root is turned off, and `status` says why: a file the caller could write is
-no proof. Promoting or rejecting a
-rubric candidate is not a tool: a host can answer a confirmation on its own, so it proves no
-person decided. The tools that touch candidates return the command a person runs instead."""
+no proof. Learning (rubric candidates, the user's own read) is not a tool: it stays on the
+command line, where a person decides."""
 
 from __future__ import annotations
 
@@ -21,7 +20,6 @@ import contextlib
 import functools
 import logging
 import os
-import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -37,15 +35,14 @@ from . import __version__
 from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import Config, config_differences, library_dir, load_config
+from .config import Config, config_differences, load_config
 from .errors import ConfigError, EvalError, SeatTaken, user_message
-from .learn import user_disagreement
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .runner import judge_seat, open_seats
+from .spec import TODO_MARKER, library_for, run_config
 from .spec import init_run as init_any_run
-from .spec import library_for, run_config
 from .store import contained, locked, resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
@@ -61,11 +58,11 @@ A run: init (freeze the spec), brief (one blind brief per judge), then either ju
 configured judge command answers each brief) or launch one fresh judge per brief yourself,
 with the brief file's text verbatim as its whole prompt and no tools, and record each reply
 (a transcript is better proof than a pasted reply). measure the instruments, aggregate,
-status. Revise from the findings file only while status says CONTINUE; then seal, judge or
-record the sealed panel, aggregate it, and give the user the report.
+status. Revise from the findings file only while status says CONTINUE; then brief the sealed
+panel (sealed=true), judge or record it, aggregate it, and give the user the report.
 
-Promoting or rejecting a rubric candidate is a person's decision: show the user the command
-that rubrics_show or feedback returns, never run it."""
+To start from a rubric template: rubrics_suggest for the kind of text, then rubrics_use to
+write a spec skeleton; fill every TODO marker before init."""
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 ADDS = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
@@ -170,36 +167,6 @@ class ReportResult(BaseModel):
     markdown: str
 
 
-class TemplateRow(BaseModel):
-    """A rubric template the library serves."""
-
-    id: str
-    version: int
-    source: str
-    title: str
-
-
-class CandidateRow(BaseModel):
-    """An open rubric candidate in the library's inbox."""
-
-    id: str
-    kind: str
-    template: str | None
-    dimension: str | None
-    count: int
-    rejected_before: list[str]
-    commands: list[str] = Field(description="what a person runs to decide; never run them")
-
-
-class RubricsList(BaseModel):
-    """Every template and the open candidates of a library."""
-
-    library: str
-    templates: list[TemplateRow]
-    candidates: list[CandidateRow]
-    warnings: list[str]
-
-
 class Suggestion(BaseModel):
     """A template for the kind of text: when to use it, its dimensions."""
 
@@ -220,22 +187,13 @@ class SuggestResult(BaseModel):
     )
 
 
-class ShowResult(BaseModel):
-    """One template as served, and the open candidates on it."""
+class UseResult(BaseModel):
+    """A spec skeleton written from a template. `init` refuses it until every marker is
+    filled."""
 
-    id: str
-    version: int
-    source: str
-    template: dict[str, Any]
-    candidates: list[CandidateRow]
-
-
-class FeedbackResult(BaseModel):
-    """Your read recorded as a candidate. A person decides it."""
-
-    candidate_id: str
     path: str
-    commands: list[str] = Field(description="what a person runs to decide; never run them")
+    template: str
+    todo_marker: str = Field(description="the marker left in every field a person fills")
 
 
 def _calling(fn: Callable[[], T]) -> T:
@@ -272,30 +230,6 @@ def _record_result(r: dict[str, Any]) -> RecordResult:
         status=state,
         errors=list(r["errors"]),
         source=str(r.get("source")),
-    )
-
-
-def _decide_commands(lib: Path, cid: str) -> list[str]:
-    where, name = shlex.quote(str(lib)), shlex.quote(cid)
-    return [
-        f"sealed-panel rubrics promote {name} --library {where}",
-        f'sealed-panel rubrics reject {name} --reason "<why>" --library {where}',
-    ]
-
-
-def _candidate_row(lib: Path, c: dict[str, Any]) -> CandidateRow:
-    tpl = c.get("template") or {}
-    return CandidateRow(
-        id=c["id"],
-        kind=c["kind"],
-        template=f"{tpl.get('id')} v{tpl.get('version')}" if tpl else None,
-        dimension=c.get("dimension"),
-        count=int(c.get("count") or 0),
-        rejected_before=[
-            f"v{(b.get('template') or {}).get('version')}: {b.get('reason')}"
-            for b in c.get("rejected_before") or []
-        ],
-        commands=_decide_commands(lib, c["id"]),
     )
 
 
@@ -462,36 +396,29 @@ def build_server(
     @mcp.tool(annotations=ADDS)
     def brief(
         run: RunPath,
-        round: Annotated[int, Field(description="loop round number, from 1")],
         artefact: Annotated[str, Field(description="the candidate text file")],
         control: Annotated[str, Field(description="the deliberately bad version")],
+        round: RoundNo = None,
+        sealed: Annotated[
+            bool,
+            Field(
+                description="brief the sealed panel: after CONVERGED, PLATEAU or CAP, or as a "
+                "one-shot grade; the control is the loop's"
+            ),
+        ] = False,
         good: Annotated[str | None, Field(description="a known-good the user validated")] = None,
     ) -> BriefResult:
-        """Write one blind brief per judge for a loop round."""
-        paths = _calling(
-            lambda: write_briefs(
-                served(run), round, path(artefact), path(control), opt(good), False
-            )
-        )
-        return BriefResult(
-            run=str(path(run)), round=round, sealed=False, briefs=list(map(str, paths))
-        )
+        """Write one blind brief per judge: for a loop round, or for the sealed panel."""
 
-    @mcp.tool(annotations=ADDS)
-    def seal(
-        run: RunPath,
-        artefact: Annotated[str, Field(description="the final text file")],
-        control: Annotated[str, Field(description="the same control as the loop")],
-        good: Annotated[str | None, Field(description="a known-good the user validated")] = None,
-        round: Annotated[int, Field(description="sealed round number")] = 1,
-    ) -> BriefResult:
-        """Brief the sealed panel: after CONVERGED, PLATEAU or CAP, or as a one-shot grade."""
-        paths = _calling(
-            lambda: write_briefs(served(run), round, path(artefact), path(control), opt(good), True)
-        )
-        return BriefResult(
-            run=str(path(run)), round=round, sealed=True, briefs=list(map(str, paths))
-        )
+        def call() -> BriefResult:
+            rnd = resolve_round(round, sealed)
+            where = served(run)
+            paths = write_briefs(where, rnd, path(artefact), path(control), opt(good), sealed)
+            return BriefResult(
+                run=str(where), round=rnd, sealed=sealed, briefs=list(map(str, paths))
+            )
+
+        return _calling(call)
 
     @mcp.tool(annotations=ADDS)
     def record(
@@ -505,8 +432,16 @@ def build_server(
         ] = None,
         reply_file: Annotated[str | None, Field(description="the reply saved to a file")] = None,
         reply: Annotated[str | None, Field(description="the reply text, unchanged")] = None,
+        void: Annotated[
+            bool,
+            Field(
+                description="the agent received the brief and never replied (needs its "
+                "transcript, holding the brief id); a void never fills a seat"
+            ),
+        ] = False,
     ) -> RecordResult:
-        """Validate and store one judge's reply: from its transcript, or pasted (flagged)."""
+        """Validate and store one judge's reply: from its transcript, or pasted (flagged). With
+        void, record an agent that received a brief and never replied."""
 
         def call() -> RecordResult:
             given = [x for x in (transcript, reply_file, reply) if x is not None]
@@ -518,27 +453,7 @@ def build_server(
             rnd = resolve_round(round, sealed)
             where = served(run)
             proof = transcript_path(transcript) if transcript is not None else None
-            r = record_from(where, rnd, judge, agent_id, sealed, proof, text)
-            return _record_result(r)
-
-        return _calling(call)
-
-    @mcp.tool(annotations=ADDS)
-    def void(
-        run: RunPath,
-        judge: Annotated[int, Field(description="the judge slot")],
-        agent_id: Annotated[str, Field(description="the agent that never replied")],
-        transcript: Annotated[str, Field(description="its transcript, holding the brief id")],
-        round: RoundNo = None,
-        sealed: Sealed = False,
-    ) -> RecordResult:
-        """Record an agent that received a brief and never replied. A void never fills a seat."""
-
-        def call() -> RecordResult:
-            rnd = resolve_round(round, sealed)
-            where = served(run)
-            proof = transcript_path(transcript)
-            r = record_from(where, rnd, judge, agent_id, sealed, proof, void=True)
+            r = record_from(where, rnd, judge, agent_id, sealed, proof, text, void)
             return _record_result(r)
 
         return _calling(call)
@@ -640,31 +555,6 @@ def build_server(
         return ReportResult(markdown=_calling(lambda: render_report(readable(run))))
 
     @mcp.tool(annotations=READ)
-    def rubrics_list(library: LibraryPath = None, run: str | None = None) -> RubricsList:
-        """Every rubric template (built-in and user) and the open candidates of the library."""
-
-        def call() -> RubricsList:
-            lib = library_for(opt(library), readable(run) if run else None)
-            templates, warnings = rubrics_lib.all_templates(lib)
-            cands, more = rubrics_lib.open_candidates(lib)
-            return RubricsList(
-                library=str(lib),
-                templates=[
-                    TemplateRow(
-                        id=tid,
-                        version=int(s["template"]["version"]),
-                        source=str(s["source"]),
-                        title=str(s["template"]["title"]),
-                    )
-                    for tid, s in templates.items()
-                ],
-                candidates=[_candidate_row(lib, c) for c in cands],
-                warnings=warnings + more,
-            )
-
-        return _calling(call)
-
-    @mcp.tool(annotations=READ)
     def rubrics_suggest(
         kind: Annotated[str, Field(description="the kind of text, such as email or cv")],
         text: Annotated[
@@ -705,52 +595,23 @@ def build_server(
 
         return _calling(call)
 
-    @mcp.tool(annotations=READ)
-    def rubrics_show(
-        id: Annotated[str, Field(description="the template id")],
-        library: LibraryPath = None,
-        run: str | None = None,
-    ) -> ShowResult:
-        """One template as served (a user template overrides a built-in), with the open
-        candidates on it and the command a person runs to decide each."""
-
-        def call() -> ShowResult:
-            lib = library_for(opt(library), readable(run) if run else None)
-            shown = rubrics_lib.get_template(lib, id)
-            t = shown["template"]
-            cands = [
-                c
-                for c in rubrics_lib.open_candidates(lib)[0]
-                if (c.get("template") or {}).get("id") == id
-            ]
-            return ShowResult(
-                id=id,
-                version=int(t["version"]),
-                source=str(shown["source"]),
-                template=dict(t),
-                candidates=[_candidate_row(lib, c) for c in cands],
-            )
-
-        return _calling(call)
-
     @mcp.tool(annotations=ADDS)
-    def feedback(
-        run: RunPath,
-        note: Annotated[str, Field(description="where the user's own read differs")],
-        dimension: Annotated[
-            str | None, Field(description="the dimension; none proposes a new one")
+    def rubrics_use(
+        id: Annotated[str, Field(description="the template id, from rubrics_suggest")],
+        out: Annotated[str, Field(description="where to write the spec; refused if it exists")],
+        persona_file: Annotated[
+            str | None, Field(description="a JSON list of personas (id, description)")
         ] = None,
         library: LibraryPath = None,
-    ) -> FeedbackResult:
-        """Record the user's read disagreeing with the sealed grade, as a rubric candidate. A
-        person decides it with the returned command."""
+        run: str | None = None,
+    ) -> UseResult:
+        """Write a spec skeleton from a template, under the root. A person fills every TODO
+        marker it leaves (the facts, the personas, the choices), then init freezes it."""
 
-        def call() -> FeedbackResult:
-            lib = library_dir(opt(library)) if library else None
-            p = user_disagreement(served(run), note, dimension, lib)
-            return FeedbackResult(
-                candidate_id=p.stem, path=str(p), commands=_decide_commands(p.parent.parent, p.stem)
-            )
+        def call() -> UseResult:
+            lib = library_for(opt(library), readable(run) if run else None)
+            written = rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))
+            return UseResult(path=str(written), template=id, todo_marker=TODO_MARKER)
 
         return _calling(call)
 

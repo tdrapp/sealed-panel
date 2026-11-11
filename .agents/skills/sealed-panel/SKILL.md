@@ -18,11 +18,12 @@ Set `RUN` to a new directory per evaluation (for example `runs/<slug>`). Give th
 title: judges see it.
 
 **Tools or commands.** When the sealed-panel MCP tools are available, use them: each carries
-the name of the command below (`init`, `brief`, `record`, `measure`, `aggregate`, `status`,
-`report`, `feedback`, `rubrics_list`, `rubrics_suggest`, `rubrics_show`), with `seal` for
-`brief --sealed`, `void` for `record --void`, and `judge` for `sealed-panel judge`. Otherwise
-run the `sealed-panel` command. Never promote or reject a rubric candidate yourself, through
-any tool or command: show the user the command and let them run it.
+the name of the command below (`init`, `brief`, `record`, `judge`, `measure`, `aggregate`,
+`status`, `report`), with `sealed=true` for `--sealed`, `void=true` for `record --void`, and
+`rubrics_suggest` and `rubrics_use` for `rubrics suggest` and `rubrics use`. Otherwise run the
+`sealed-panel` command. The learning commands (`sealed-panel learning ...`, `feedback`) have no
+tool: run them at the command line. Never promote or reject a rubric candidate yourself,
+through any tool or command: show the user the command and let them run it.
 
 ## 0. Scope
 

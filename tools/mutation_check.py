@@ -1076,10 +1076,10 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "proof = transcript_path(transcript) if transcript is not None else None",
         "proof = path(transcript) if transcript is not None else None",
     ),
-    "a void read from a transcript under the root": (
+    "rubrics_use writes outside the root": (
         MCP,
-        "            proof = transcript_path(transcript)\n",
-        "            proof = path(transcript)\n",
+        "rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))",
+        "rubrics_lib.write_skeleton(lib, id, Path(out), opt(persona_file))",
     ),
     "links followed in a transcript root": (
         MCP,
@@ -1105,11 +1105,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/cli.py",
         "'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v{__version__}'",
         "'sealed-panel[mcp]'",
-    ),
-    "a candidate id unquoted in a command": (
-        MCP,
-        "where, name = shlex.quote(str(lib)), shlex.quote(cid)",
-        "where, name = shlex.quote(str(lib)), cid",
     ),
     # How a run touches the disk.
     "a failed write leaves its draft": (

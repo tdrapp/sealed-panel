@@ -36,6 +36,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- New MCP tool `rubrics_use(id, out, persona_file?, library?)`: writes the spec skeleton of a
+  template under the root (refused outside it, or when `out` exists), as `rubrics use` does.
 - Every run file is written to a private temporary file in its directory and moved over the
   target. Every file sealed-panel creates in a run, the lock files and the judge's stderr log
   included, is owner-only (0600), and every directory of a run is created 0700: a file's earlier
@@ -54,6 +56,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- MCP tools, 14 to 10 (`tests/mcp_tools.json` regenerated). Before: `seal`, `void`,
+  `rubrics_list`, `rubrics_show` and `feedback` were tools. After: `seal(...)` is
+  `brief(..., sealed=true)` (its `round` defaults to 1, as `--sealed` does, and a loop round
+  needs it); `void(...)` is `record(..., transcript=..., void=true)`; `rubrics_list` and
+  `rubrics_show` are replaced by `rubrics_suggest` (kept) and the new `rubrics_use`; `feedback`
+  is a command only (`sealed-panel feedback`). Learning has no tool: a host can answer a
+  confirmation itself, so only a person at the command line touches candidates.
 - The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
   rename-to-stale step and its re-read, replaced by the seat lock.
 - The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
