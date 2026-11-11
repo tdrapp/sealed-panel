@@ -241,9 +241,11 @@ as named constants:
 - the size of the brief id (6 random bytes) and of the shuffle seed (64 bits) (`brief.py`);
 - the cap of 3 void attempts per judge slot and round (`record.py`);
 - the judge runner's base environment (`PATH`, `HOME`, `LANG`), the size of its agent ids (6
-  random bytes), the grace period after it stops a process (5 seconds), the size of a read
-  (64 KiB), and the margin past the timeout after which an in-progress marker whose runner
-  still runs counts as stale (60 seconds) (`runner.py`);
+  random bytes), the grace period after it stops a process (5 seconds), and the size of a read
+  (64 KiB) (`runner.py`);
+- every file sealed-panel creates in a run (records, briefs, lock files, the judge's stderr log)
+  written owner-only (0600), and every directory created 0700, whatever the umask or the mode of
+  the file it replaces (`store.py`, `runner.py`);
 - the length above which the report shows a value by hash (80 characters) (`config.py`);
 - the score scale, integers 1 to 5, with 5 as the convergence target, and the required anchors
   1, 3 and 5 (`decide.py`, `spec.py`);

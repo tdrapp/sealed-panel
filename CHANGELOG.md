@@ -7,6 +7,57 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- One judge per seat now rests on a lock: every call that records an attempt (`judge`,
+  host-mode `record`, and `aggregate` for every seat of its round) holds `fcntl.flock` on
+  `seat_j<J>.lock` from the seat check to the stored attempt. Host-mode `record` had no guard:
+  two concurrent calls on one seat could both pass the check. The kernel releases a lock when
+  its holder dies, and a runner's started record (`started_j<J>_<id>.json`) left by a runner
+  that died becomes a void for the next call, under the void cap (none when its attempt is
+  already stored; an unreadable record still gives one). A filesystem without `flock` is
+  refused; `flock` may not hold on NFS.
+- The run-wide checks hold under concurrent calls: an agent id used once per run, a reply
+  counted once, and a round briefed once are read and written under the run's lock
+  (`run.lock`), taken after any seat lock. Two concurrent `record` calls with one agent id on
+  two seats, or two concurrent briefings of one round, could both pass before. `measure`
+  takes the same lock, so two concurrent readings of one round are both kept.
+- `init` refuses a run path inside another run: through MCP the author could put a directory
+  where a round's lock or result goes and block the round. The MCP `init` tool holds a lock at
+  the root (`.sealed-panel-init.lock`), so two concurrent inits cannot both pass that check.
+  The server creates that file at startup, refuses to start when anything but a file holds its
+  name, and every tool refuses it as a path argument, so no caller can occupy it.
+- One containment guard, `contained()` (resolve, then require the path to stay under the
+  root), confines every MCP tool path, a spec's `facts_file`, and a transcript to its
+  transcript roots.
+- `SECURITY.md` rewritten: the threat model stops at the run directory, states what is defended
+  and what is not, and maps each guard to the threat it answers. Decision record
+  `docs/decisions/2026-11-10-threat-model-stops-at-the-run-directory.md`.
+
+### Changed
+
+- Every run file is written to a private temporary file in its directory and moved over the
+  target. Every file sealed-panel creates in a run, the lock files and the judge's stderr log
+  included, is owner-only (0600), and every directory of a run is created 0700: a file's earlier
+  mode is no longer kept.
+- `record` and `judge` calls on a round may overlap; a call on a held seat is refused (`judge`
+  skips it). The refusal now reads "seat J is held by another call (a judge running or a reply
+  being recorded)", in place of "judge J is being judged by another call", since a host
+  `record` holds seats too.
+- A path refused for leaving the root is named as the caller gave it (`facts_file '...'`, or
+  the tool argument).
+- A transcript under a transcript root may go through a link that stays under that root; one
+  that leaves every root is refused.
+- A dotted key in a frozen configuration is refused as an unknown key.
+
+### Removed
+
+- The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
+  rename-to-stale step and its re-read, replaced by the seat lock.
+- The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
+  writes and their fallback, the link check on every entry of a round directory, and the
+  dotted-key check: each answered a writer inside the run directory, now out of scope.
+
 ## [0.3.1] - 2026-11-09
 
 ### Fixed

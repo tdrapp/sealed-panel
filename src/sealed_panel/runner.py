@@ -11,9 +11,11 @@ stderr goes to a log file beside the brief, never into the reply.
 
 A process that exits with a non-zero status, runs past `[judge] timeout_s`, writes nothing, or
 writes more than `[judge] max_reply_bytes` gives no reply: the attempt is recorded as void,
-under the void cap, and never as a reply. A seat is held by an in-progress marker from its
-check to its record, so concurrent calls never judge one seat twice, and a marker a stopped
-runner left is recorded as a void by the next call.
+under the void cap, and never as a reply. A seat is held by a lock (fcntl.flock on
+`seat_j<J>.lock`) from its check to its record, so concurrent calls never judge one seat twice.
+Before its process starts, the runner writes a started record; a runner that died before
+recording leaves it behind (the kernel releases its lock), and the next call records it as a
+void.
 """
 
 from __future__ import annotations
@@ -22,23 +24,22 @@ import contextlib
 import hashlib
 import json
 import os
-import re
 import secrets
 import signal
 import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .errors import EvalError
+from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
-from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys
+from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys, seat_lock
 from .spec import load_frozen, run_config, run_salt
-from .store import read_no_follow, round_dir
+from .store import dump_json, load_json, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
 BASE_ENV = ("PATH", "HOME", "LANG")
@@ -50,14 +51,11 @@ STOP_GRACE_S = 5
 READ_CHUNK = 65536
 # A run frozen before the output caps existed gets the default.
 DEFAULT_MAX_BYTES = 1 << 20
-# A seat's in-progress marker, beside its brief: running_j<J>.json.
-MARKER_PREFIX = "running_j"
-# A marker moved aside by the call settling it, until its void is recorded.
-STALE_SUFFIX = ".stale"
+# A runner's attempt, beside its brief from before its process starts until it is recorded:
+# started_j<J>_<agent id>.json.
+STARTED_PREFIX = "started_j"
 # Seconds between looks at a running judge.
 POLL_S = 0.02
-# Seconds past the timeout after which a marker whose holder still runs counts as stale.
-STALE_MARGIN_S = 60
 
 
 def judge_command(cfg: Config) -> list[str]:
@@ -132,118 +130,81 @@ def _open_round(
     check_judge(cfg, expected)
     rdir = round_dir(run, rnd, sealed)
     keys = round_keys(rdir, rnd)
-    if (rdir / "result.json").exists():
-        raise EvalError("this round is already aggregated: the runner fills a round before that")
+    _refuse_closed(rdir)
     return cfg, rdir, keys
 
 
-class SeatTaken(EvalError):
-    """A seat another call is judging right now, or one that already holds a valid reply."""
+def _refuse_closed(rdir: Path) -> None:
+    if (rdir / "result.json").is_file():
+        raise EvalError("this round is already aggregated: the runner fills a round before that")
 
 
-def _marker(rdir: Path, judge: int) -> Path:
-    return rdir / f"{MARKER_PREFIX}{judge}.json"
+# What a void keeps from a started record: the command and its start time, nothing else.
+STARTED_KEYS = ("argv", "started_at")
 
 
-def _alive(pid: int) -> bool:
+def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path) -> None:
+    """Under the seat's lock: each started record left there belongs to a runner that died
+    (a live one would hold the lock). When its attempt is already stored (the runner died
+    between storing it and removing the record), the record just goes. Otherwise the attempt is
+    recorded as a void, under a fresh agent id and the void cap, then the record goes. A seat
+    with a valid reply takes no void, and a seat at its cap is left as it is."""
+    for path in sorted(rdir.glob(f"{STARTED_PREFIX}{judge}_*.json")):
+        held = _started(path)
+        stored = {r.get("agent_id") for r in results_by_judge(rdir).get(judge, [])}
+        if held.get("agent_id") not in stored:
+            _record_stale(run, rnd, judge, sealed, rdir, held)
+        path.unlink(missing_ok=True)
+
+
+def _started(path: Path) -> dict[str, Any]:
+    """A started record's content; an unreadable one (cut short by a power loss) is empty, so
+    its attempt still becomes a void, with nothing taken from it."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True  # it exists, under another user
-    return True
-
-
-def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Config) -> None:
-    """Deal with the seat's in-progress marker. A live one (its holder runs, within the timeout
-    and a margin) means another call is judging the seat: SeatTaken. A stale one was left by a
-    runner that stopped before recording: its attempt is recorded as a void, then the marker
-    goes. The marker is first moved to a unique name, so two calls never record it twice."""
-    path = _marker(rdir, judge)
-    try:
-        text = read_no_follow(path).decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        return
+        held = load_json(path)
     except EvalError:
-        path.unlink(missing_ok=True)  # a link or a FIFO: no runner writes one
-        return
-    try:
-        held = json.loads(text)
-    except ValueError:
-        held = {}
-    if not isinstance(held, dict):
-        held = {}
-    pid, started = held.get("pid"), held.get("started")
-    limit = int(cfg.judge["timeout_s"]) + STALE_MARGIN_S
-    fresh = isinstance(started, (int, float)) and time.time() - started < limit
-    if isinstance(pid, int) and _alive(pid) and fresh:
-        raise SeatTaken(f"judge {judge} is being judged by another call (pid {pid}): wait for it")
-    taken = path.with_name(f"{path.name}.{secrets.token_hex(AGENT_BYTES)}{STALE_SUFFIX}")
-    try:
-        path.rename(taken)
-    except FileNotFoundError:
-        return  # another call settled it first
-    if read_no_follow(taken).decode("utf-8", errors="replace") != text:
-        # Another call settled the stale marker and took the seat in between: put its live
-        # marker back, unless yet another call holds the seat by now.
-        with contextlib.suppress(FileExistsError):
-            os.link(taken, path)
-        taken.unlink(missing_ok=True)
-        raise SeatTaken(f"judge {judge} is being judged by another call")
-    _record_stale(run, rnd, judge, sealed, taken, held)
-
-
-# What a void keeps from a marker: who held the seat and since when, nothing it could forge.
-MARKER_KEYS = ("pid", "started", "argv")
+        return {}
+    return held if isinstance(held, dict) else {}
 
 
 def _record_stale(
-    run: Path, rnd: int, judge: int, sealed: bool, taken: Path, held: dict[str, Any]
+    run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, held: dict[str, Any]
 ) -> None:
-    """A stopped runner's attempt, recorded as a void under a fresh agent id and the void cap.
-    A marker is a file anyone with access to the run can write, so the void takes nothing from
-    it but its holder and start time. A seat that already has a valid reply takes no void."""
-    try:
-        if any(r["ok"] for r in results_by_judge(taken.parent).get(judge, [])):
-            return
-        agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
-        failure = "the runner that started this judge stopped before recording it"
-        kept = {k: held[k] for k in MARKER_KEYS if k in held}
-        proof = {**kept, "stale": True, "failure": failure}
-        try:
-            _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
-        except EvalError:
-            # At the void cap, or a round closed: the seat already says why; another seat's
-            # judge must not fail for it.
-            return
-    finally:
-        taken.unlink(missing_ok=True)
-
-
-def settle_stale_files(run: Path, rnd: int, sealed: bool) -> None:
-    """Markers already moved aside by a runner killed right after the move: record them. Only
-    a run with a judge command has markers; elsewhere such a file is ignored. One for a seat
-    the round does not have is dropped."""
-    cfg = run_config(run)
-    if not cfg.judge["command"]:
+    """A dead runner's attempt, recorded as a void."""
+    if any(r["ok"] for r in results_by_judge(rdir).get(judge, [])):
         return
+    agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
+    failure = "the runner that started this judge stopped before recording it"
+    kept = {k: held[k] for k in STARTED_KEYS if k in held}
+    proof = {**kept, "stale": True, "failure": failure}
+    try:
+        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
+    except EvalError:
+        # At the void cap, or a round closed: the seat already says why; another seat's
+        # judge must not fail for it.
+        return
+
+
+@contextlib.contextmanager
+def every_seat(run: Path, rnd: int, sealed: bool) -> Iterator[None]:
+    """Hold every seat of a round while the block runs, as the aggregate step does: refused
+    while any seat is held by another call (a judge running or a reply being recorded). In a
+    run with a judge command, a dead runner's attempt is first recorded as a void.
+
+    Args:
+        run: The run directory.
+        rnd: The round number, from 1.
+        sealed: Whether the round is the sealed panel's.
+    """
+    cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
-    seats = {j.get("judge") for j in round_keys(rdir, rnd)["judges"] if isinstance(j, dict)}
-    for taken in sorted(rdir.glob(f"{MARKER_PREFIX}*{STALE_SUFFIX}")):
-        found = re.match(rf"{MARKER_PREFIX}(\d+)\.json\.", taken.name)
-        if found is None or int(found.group(1)) not in seats:
-            taken.unlink(missing_ok=True)
-            continue
-        try:
-            held = json.loads(read_no_follow(taken))
-        except EvalError:
-            taken.unlink(missing_ok=True)  # a link or a FIFO: no runner writes one
-            continue
-        except ValueError:
-            held = {}
-        held = held if isinstance(held, dict) else {}
-        _record_stale(run, rnd, int(found.group(1)), sealed, taken, held)
+    seats = [j["judge"] for j in round_keys(rdir, rnd)["judges"] if isinstance(j, dict)]
+    with contextlib.ExitStack() as held:
+        for seat in seats:
+            held.enter_context(seat_lock(rdir, seat))
+            if cfg.judge["command"]:
+                _settle(run, rnd, seat, sealed, rdir)
+        yield
 
 
 def open_seats(
@@ -253,9 +214,9 @@ def open_seats(
     only: list[int] | None = None,
     expected: Mapping[str, Any] | None = None,
 ) -> list[int]:
-    """The judge slots of a round without a valid reply and not being judged by another call,
-    in order (only those in `only` when given). A marker a stopped runner left is recorded as
-    a void first. Every refusal is checked here, before any process starts. `expected` is the
+    """The judge slots of a round without a valid reply and not held by another call,
+    in order (only those in `only` when given). A dead runner's attempt is recorded as a void
+    first. Every refusal is checked here, before any process starts. `expected` is the
     judge section the caller must match (see check_judge).
 
     Args:
@@ -267,7 +228,6 @@ def open_seats(
             the run's.
     """
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
-    settle_stale_files(run, rnd, sealed)
     slots = [j["judge"] for j in keys["judges"] if isinstance(j, dict)]
     if only:
         unknown = sorted(set(only) - set(slots))
@@ -277,7 +237,8 @@ def open_seats(
     busy = []
     for s in slots:
         try:
-            _settle(run, rnd, s, sealed, rdir, cfg)
+            with seat_lock(rdir, s):
+                _settle(run, rnd, s, sealed, rdir)
         except SeatTaken:
             busy.append(s)
     by_judge = results_by_judge(rdir)
@@ -290,7 +251,7 @@ def open_seats(
         seats.append(s)
     if not seats:
         raise EvalError(
-            "every judge asked for already has a valid reply or is being judged by another call"
+            "every judge asked for already has a valid reply or its seat is held by another call"
             + (f" ({busy})" if busy else ": aggregate the round")
         )
     return seats
@@ -336,7 +297,7 @@ def _launch(
     with (
         tempfile.TemporaryDirectory(prefix="sealed-panel-judge-") as cwd,
         tempfile.TemporaryFile() as stdin,
-        log.open("wb") as err,
+        os.fdopen(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as err,
     ):
         stdin.write(brief)
         stdin.seek(0)
@@ -392,8 +353,8 @@ def judge_seat(
 ) -> dict[str, Any]:
     """Start one fresh judge process on one brief and record what it gave: a reply (valid or
     rejected), or a void when it failed, timed out, wrote nothing or too much, or its reply was
-    refused. The seat is held by an in-progress marker from the check to the record, so two
-    calls never judge it at once; every process started ends recorded. Returns the result.
+    refused. The seat's lock is held from the check to the record, so two calls never judge it
+    at once (the second gets SeatTaken); every process started ends recorded. Returns the result.
 
     Args:
         run: The run directory.
@@ -406,33 +367,26 @@ def judge_seat(
     cfg, rdir, keys = _open_round(run, rnd, sealed, expected)
     if not any(isinstance(j, dict) and j.get("judge") == judge for j in keys["judges"]):
         raise EvalError(f"no judge {judge} in {rdir}/keys.json")
-    _settle(run, rnd, judge, sealed, rdir, cfg)
+    with seat_lock(rdir, judge):
+        return _judge_held(run, rnd, judge, sealed, rdir, cfg)
+
+
+def _judge_held(
+    run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Config
+) -> dict[str, Any]:
+    """judge_seat, under the seat's lock."""
+    _refuse_closed(rdir)  # aggregated since the first check
+    _settle(run, rnd, judge, sealed, rdir)
+    prior = results_by_judge(rdir).get(judge, [])
+    if any(r["ok"] for r in prior):
+        raise SeatTaken(
+            f"judge {judge} already has a valid reply in this round: "
+            "a second one would be a re-roll"
+        )
+    _runnable(judge, prior, cfg)
+    brief = (rdir / f"brief_j{judge}.md").read_bytes()
     agent_id = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
     argv = judge_command(cfg)
-    held = {"pid": os.getpid(), "agent_id": agent_id, "started": time.time(), "argv": argv}
-    marker = _marker(rdir, judge)
-    # Written whole under a unique name, then linked into place: the link fails when the marker
-    # exists, and no reader ever sees a marker without its holder.
-    draft = marker.with_name(f"{marker.name}.{agent_id}.new")
-    draft.write_text(json.dumps(held), encoding="utf-8")
-    try:
-        os.link(draft, marker)
-    except FileExistsError as exc:
-        raise SeatTaken(f"judge {judge} is being judged by another call") from exc
-    finally:
-        draft.unlink(missing_ok=True)
-    try:
-        prior = results_by_judge(rdir).get(judge, [])
-        if any(r["ok"] for r in prior):
-            raise SeatTaken(
-                f"judge {judge} already has a valid reply in this round: "
-                "a second one would be a re-roll"
-            )
-        _runnable(judge, prior, cfg)
-        brief = read_no_follow(rdir / f"brief_j{judge}.md")
-    except BaseException:
-        marker.unlink(missing_ok=True)
-        raise
     timeout = int(cfg.judge["timeout_s"])
     cap = int(cfg.judge.get("max_reply_bytes", DEFAULT_MAX_BYTES))
     cap_err = int(cfg.judge.get("max_stderr_bytes", DEFAULT_MAX_BYTES))
@@ -448,19 +402,21 @@ def judge_seat(
         "env_sha256": env_hashes(cfg, env, run_salt(run)),
         "stderr_log": log.name,
     }
+    started = rdir / f"{STARTED_PREFIX}{judge}_{agent_id}.json"
+    dump_json(started, {"agent_id": agent_id, "argv": argv, "started_at": time.time()})
     try:
         code, timed_out, over, seconds, out = _launch(
             argv, brief, timeout, (cap, cap_err), env, log
         )
     except EvalError:
-        marker.unlink(missing_ok=True)  # the command never started: nothing to record
+        started.unlink(missing_ok=True)  # the command never started: nothing to record
         raise
     except BaseException as exc:
         # Interrupted while the judge ran: record the attempt, then stop. If even that fails,
-        # the marker stays, and the next call records it as a void.
+        # the started record stays, and the next call records it as a void.
         proof["failure"] = f"the runner was interrupted ({type(exc).__name__})"
         _record_reply(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)
-        marker.unlink(missing_ok=True)
+        started.unlink(missing_ok=True)
         raise
     reply = out.decode("utf-8", errors="replace")
     if timed_out:
@@ -495,7 +451,7 @@ def judge_seat(
         result = _record_reply(
             run, rnd, judge, agent_id, reply, sealed, RUNNER, void=True, runner=proof
         )
-    marker.unlink(missing_ok=True)
+    started.unlink(missing_ok=True)
     return result
 
 

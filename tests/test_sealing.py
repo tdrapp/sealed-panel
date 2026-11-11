@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from conftest import BAD, FLAT, Harness
@@ -102,22 +100,3 @@ class TestRunFiles:
     def test_init_takes_a_new_or_empty_directory(self, h: Harness) -> None:
         h.run.mkdir()
         h.init()
-
-    def test_a_planted_link_stops_a_brief(self, h: Harness, tmp_path: Path) -> None:
-        h.init()
-        rdir = h.run / "rounds" / "r1"
-        rdir.mkdir(parents=True)
-        outside = tmp_path / "outside.md"
-        (rdir / "candidate.md").symlink_to(outside)
-        with pytest.raises(EvalError, match="symbolic link"):
-            h.brief(1, "cand")
-        assert not outside.exists()
-
-    def test_a_planted_link_stops_the_findings(self, h: Harness, tmp_path: Path) -> None:
-        h.init(judges_per_persona=2)
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (h.run / "feedback").symlink_to(outside)
-        with pytest.raises(EvalError, match="symbolic link"):
-            h.full(1, "cand", FLAT)
-        assert list(outside.iterdir()) == []

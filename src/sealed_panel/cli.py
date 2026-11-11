@@ -12,11 +12,11 @@ from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import LIBRARY_ENV, library_dir, load_config
 from .decide import sealed_done
-from .errors import EvalError, user_message
+from .errors import EvalError, SeatTaken, user_message
 from .learn import learn_safely, user_disagreement
 from .record import outcome_line, record_from, record_measurement
 from .report import feedback_path, render_report, status
-from .runner import SeatTaken, judge_seat, open_seats
+from .runner import judge_seat, open_seats
 from .spec import TODO_MARKER, init_run, library_for
 from .store import load_json, resolve_round
 

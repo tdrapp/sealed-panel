@@ -13,6 +13,10 @@ class MalformedReply(EvalError):
     """A reply the transcript holds in a shape that cannot be read: recorded as rejected."""
 
 
+class SeatTaken(EvalError):
+    """A seat another call is judging right now, or one that already holds a valid reply."""
+
+
 def user_message(exc: BaseException) -> str | None:
     """What the caller is told for an error it can fix (a refusal, a missing file, a file of
     the wrong shape), or None for an error in sealed-panel itself. The command line and the

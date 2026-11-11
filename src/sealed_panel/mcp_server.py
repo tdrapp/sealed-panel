@@ -17,6 +17,7 @@ person decided. The tools that touch candidates return the command a person runs
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import os
@@ -37,15 +38,15 @@ from . import library as rubrics_lib
 from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import Config, config_differences, library_dir, load_config
-from .errors import ConfigError, EvalError, user_message
+from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .learn import user_disagreement
 from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
-from .runner import SeatTaken, judge_seat, open_seats
+from .runner import judge_seat, open_seats
 from .spec import init_run as init_any_run
 from .spec import library_for, run_config
-from .store import resolve_round
+from .store import contained, locked, resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -318,6 +319,26 @@ def init_run(
     return init_any_run(run, spec_path, cfg, library, facts_root, acknowledge=False)
 
 
+# The lock the init tool holds, at the root: the one file the server owns there.
+INIT_LOCK = ".sealed-panel-init.lock"
+
+
+def _reserve(base: Path) -> Path:
+    """Create the root's init lock at startup, before any tool runs, so no caller can put
+    anything else at its name; refuse to start when something other than a file holds it."""
+    lock = base / INIT_LOCK
+    if lock.is_symlink() or (lock.exists() and not lock.is_file()):
+        raise ConfigError(
+            f"{lock} is not a regular file: it is the server's own lock file; remove what is "
+            "there, then start the server again"
+        )
+    try:
+        os.close(os.open(lock, os.O_RDWR | os.O_CREAT, 0o600))
+    except OSError as exc:
+        raise ConfigError(f"cannot create the server's lock file {lock}: {exc.strerror}") from exc
+    return lock
+
+
 def build_server(
     root: Path | None = None,
     config: Path | None = None,
@@ -351,15 +372,21 @@ def build_server(
     for reason in turned_off:
         logging.getLogger("sealed_panel").warning("transcripts off: %s", reason)
 
+    # Held by the init tool: a dot-file, so no run is named after it.
+    init_lock = _reserve(base)
+
     def path(p: str) -> Path:
         """A path a caller gave, resolved (links followed) and confined to the root."""
         if p.startswith("~"):
             raise ToolError(f"{p!r}: paths are relative to the root {base}, never under ~")
         given = Path(p)
-        resolved = (given if given.is_absolute() else base / given).resolve()
-        if not resolved.is_relative_to(base):
-            raise ToolError(f"{p!r} is outside the root {base}: every path stays under it")
-        return resolved
+        try:
+            where = contained(given if given.is_absolute() else base / given, base, repr(p))
+        except EvalError as exc:
+            raise ToolError(str(exc)) from exc
+        if where.is_relative_to(init_lock):
+            raise ToolError(f"{p!r} is the server's own lock file: name another path")
+        return where
 
     def opt(p: str | None) -> Path | None:
         return path(p) if p else None
@@ -398,17 +425,9 @@ def build_server(
                     "the folder where your host writes them"
                 )
             )
-        given = Path(os.path.abspath(p))  # `..` goes here, before any comparison
         for r in allowed:
-            real = r.resolve()
-            for form in (r.absolute(), real):
-                if given.is_relative_to(form):
-                    current = real
-                    for part in given.relative_to(form).parts:
-                        current = current / part
-                        if current.is_symlink():
-                            raise ToolError(f"{p!r} goes through a symbolic link: refused")
-                    return current
+            with contextlib.suppress(EvalError):
+                return contained(Path(p), r)
         raise ToolError(f"{p!r} is outside every transcript root: a transcript is proof only there")
 
     mcp = FastMCP(
@@ -431,8 +450,12 @@ def build_server(
         command line."""
 
         def call() -> InitResult:
-            digest = init_run(path(run), path(spec), server, opt(library), base)
-            return InitResult(run=str(path(run)), rubric_sha256=digest)
+            where = path(run)
+            # One init at a time under this root: a run's checks (no run among its ancestors,
+            # an empty or new directory) then hold against a concurrent init.
+            with locked(init_lock, "another init is running", wait=True):
+                digest = init_run(where, path(spec), server, opt(library), base)
+            return InitResult(run=str(where), rubric_sha256=digest)
 
         return _calling(call)
 

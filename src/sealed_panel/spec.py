@@ -22,7 +22,7 @@ from .config import (
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import dump_json, load_json, read_no_follow, read_text, write_file
+from .store import contained, dump_json, load_json, make_dir, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -302,8 +302,8 @@ def _freeze_facts(spec: dict[str, Any], base: Path, root: Path | None = None) ->
         path = Path(facts_file).expanduser()
         if not path.is_absolute():
             path = base / path  # relative to the spec file's folder
-        if root is not None and not path.resolve().is_relative_to(root):
-            raise EvalError(f"facts_file {facts_file!r} is outside the root {root}")
+        if root is not None:
+            path = contained(path, root, f"facts_file {facts_file!r}")
         if not path.is_file():
             raise EvalError(f"facts_file does not exist: {facts_file!r}")
         spec["facts"] = read_text(path)  # frozen by content, not by path
@@ -374,6 +374,7 @@ def init_run(
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
+    _refuse_nested(run)
     if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
         raise EvalError(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
@@ -397,7 +398,7 @@ def init_run(
     )
     if injection_flags(exposed, cfg):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
-    run.mkdir(parents=True, exist_ok=True)
+    make_dir(run)
     frozen = json.loads(json.dumps(cfg.data))
     frozen["library"] = {**cfg.library, "path": str(lib)}
     cfg = Config(frozen)
@@ -420,10 +421,18 @@ def run_salt(run: Path) -> bytes | None:
         run: The run directory.
     """
     try:
-        salt = bytes.fromhex(read_no_follow(run / ENV_SALT).decode("ascii").strip())
+        salt = bytes.fromhex(read_text(run / ENV_SALT).strip())
     except (OSError, ValueError, EvalError):
         return None
     return salt if len(salt) == SALT_BYTES else None
+
+
+def _refuse_nested(run: Path) -> None:
+    """Refuse a run inside another run: a directory created there (a lock file's name, a
+    result's) would block that run's rounds."""
+    for outer in run.resolve().parents:
+        if (outer / "rubric.lock").exists():
+            raise EvalError(f"{run} is inside the run {outer}: a run never holds another run")
 
 
 def load_frozen(run: Path) -> dict[str, Any]:

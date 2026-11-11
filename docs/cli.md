@@ -16,8 +16,13 @@ malformed input (a file that is not JSON, a spec or run file of the wrong shape)
 names the problem, never a traceback. A rejected judge reply is not a refusal: `record` stores
 it, prints `REJECTED`, and exits 0.
 
-`record` calls for one round must run one after the other, not in parallel: each call reads the
-files the previous one wrote. `judge` calls may overlap, since a marker holds each seat.
+`record` and `judge` calls may overlap: each holds its judge slot's lock from the slot's check
+to the stored attempt, and a call on a slot another call holds is refused with "seat J is held
+by another call" (`judge` skips it). The run-wide checks (an agent id or a reply already used in
+the run, a round already briefed, the round's readings) run under the run's lock, which
+`record`, `brief`, `measure` and `aggregate` wait for briefly. The locks are `fcntl.flock` on
+`seat_j<J>.lock` beside the brief and on `run.lock` in the run; a filesystem that does not
+support them is refused, never written unlocked.
 
 ## init
 
@@ -28,8 +33,9 @@ sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
 content, and refuses a spec whose own text addresses the judges. Writes `spec.json`,
 `rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and an empty `ledger.json`.
-Refuses if `RUN` is already initialised (a new rubric is a new run), or if it holds other files:
-`init` takes a new or empty directory, so it never writes over another program's files.
+Refuses if `RUN` is already initialised (a new rubric is a new run), if it lies inside another
+run, or if it holds other files: `init` takes a new or empty directory, so it never writes over
+another program's files.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,
@@ -78,7 +84,8 @@ panel, the round-1 text rides along as a blind baseline when it differs from the
 Refused: a round number below 1, a round already briefed, a text already judged in this run, a
 round past `max_rounds`, a loop round after the loop stopped or after a seal, a second sealed
 panel, a control identical to the candidate, a text containing the item tag, a symbolic link
-where the round writes (the round directory, its parent, or an entry inside it).
+on the round directory or its parent. A link on a file inside the round is replaced, never
+written through.
 
 ## record
 
@@ -131,7 +138,7 @@ one fresh process from the argument list (never through a shell), in an empty te
 directory, with an environment holding only `PATH`, `HOME`, `LANG` and the names in `[judge]
 env_allow`. It writes the brief file's exact bytes to the process's stdin, closes it, and reads
 stdout as the reply; stderr goes to `runner_j<J>_<id>.log` beside the brief, never into the
-reply. A brief file that is a symbolic link is refused. The reply is recorded as `record` would,
+reply. The reply is recorded as `record` would,
 with source `runner`, under an agent id the runner draws (`runner-<12 hex>`), with its proof
 (see [protocol.md](protocol.md)). Prints one line per slot: `VALID judge J`, `REJECTED judge J:
 <reasons>`, `VOID judge J: <why>` (then the duration and the log file), or `SKIPPED judge J` for
@@ -145,17 +152,19 @@ it wrote (up to the cap) is stored for a human and never read as a reply. A proc
 another process holding its output is stopped at the timeout. Run `judge` again to fill a void
 or rejected slot with a fresh process.
 
-One process per slot at a time: from the slot's check to its record, the runner holds the
-slot with `running_j<J>.json` beside the brief, created only when absent. A second call skips
-a held slot, `judge --judge J` on it is refused, and `aggregate` refuses the round while a slot
-is held. A marker whose runner stopped (its process is gone, or it is older than the timeout
-plus 60 seconds) is recorded as a void by the next `judge`, never reused silently. That void
-counts against the void cap, gets a fresh agent id and keeps only the holder's pid, start time
-and command from the marker; a marker on a slot that already holds a valid reply, or for a slot
-the round does not have, is dropped without one, and so is a marker that is a link or not a
-regular file. Markers exist only in a run with a judge command; elsewhere such a file means
-nothing. Every process started ends recorded: a reply the record refuses (one already recorded)
-and an interrupted run are recorded as voids.
+One process per slot at a time: from the slot's check to its record, the runner holds the slot's
+lock. A second call skips a held slot, `judge --judge J` on it is refused, and `aggregate`
+refuses the round while a slot is held. Before its process starts, the runner writes
+`started_j<J>_<id>.json` beside the brief (its agent id, command and start time) and removes it
+once the attempt is recorded. A runner that dies in between leaves the record; the kernel
+releases its lock with its process, and the next `judge` or `aggregate` records the attempt as a
+void, never a free slot. That void counts against the void cap, gets a fresh agent id and keeps
+only the command and start time from the record (nothing from an unreadable one); on a slot that
+already holds a valid reply, past the cap, or when the attempt it names is already stored, the
+record is dropped without one. Started records are read only in a run with a judge command. A
+slot another call filled after this call listed the open slots is skipped. Every process started
+ends recorded: a reply the record refuses (one already recorded) and an interrupted run are
+recorded as voids.
 
 Refused before any process starts: a run without a judge command (host mode), a round not
 briefed or already aggregated, a slot not in the round, every asked slot already holding a
@@ -193,12 +202,17 @@ to `ledger.json`. After a loop round, also writes `RUN/feedback/after_rN.md`, th
 author revises from. After a sealed panel, writes learned candidates to the user library's
 inbox (unless `[library] learn` is false) and prints how many.
 
-Refused: a round already aggregated; a sealed panel with a measured criterion not yet measured;
-a judge slot with no real attempt (a void never fills a seat: brief a fresh replacement on the
-same brief); an agent
-whose transcript (in a folder a recorded transcript came from) holds one of the round's brief
-ids but was never recorded; fewer than `min_valid_judges` valid judges for a persona, or
-verified scores for a dimension. A transcript folder that no longer exists is skipped.
+`aggregate` holds every seat of the round, then the run's lock, for the whole step. In a run
+with a judge command, it first records the attempt of a runner that died as a void (see
+`judge`).
+
+Refused: a round already aggregated; a seat held by another call ("seat J is held by another
+call": a judge running, or a host `record` in progress); a sealed panel with a measured
+criterion not yet measured; a judge slot with no real attempt (a void never fills a seat: brief
+a fresh replacement on the same brief); an agent whose transcript (in a folder a recorded
+transcript came from) holds one of the round's brief ids but was never recorded; fewer than
+`min_valid_judges` valid judges for a persona, or verified scores for a dimension. A transcript
+folder that no longer exists is skipped.
 
 ## status
 
@@ -269,7 +283,10 @@ Needs the `mcp` extra; without it, the command says so, with the install line, a
 status 2. stdout carries the protocol only; logs go to stderr. Every path a tool takes must
 resolve, symbolic links followed, under the root: `--root`, else `[mcp] root` in the
 configuration, else the directory the server starts in. A path outside it, or one starting with
-`~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too.
+`~`, is refused, whether given absolute or relative, and a `facts_file` in a spec too. The
+`init` tool holds a lock at the root (`.sealed-panel-init.lock`), so two inits never run at
+once; the server creates that file at startup, refuses to start when anything but a file holds
+its name, and every tool refuses it and any path under it.
 
 `--config` is the configuration of every run the server changes, and the only place a
 `[judge] command` comes from. It is read once at startup and must live outside the root, or the
@@ -283,8 +300,9 @@ started with that configuration.
 
 `--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. A
 leading `~`, `$HOME` or `${HOME}` is the user's home. It is read only, for the transcript of
-`record` and `void`. Through MCP a transcript is accepted only there, with no symbolic link on
-the way: a file the caller can write is no proof. A transcript root that overlaps the root (a
+`record` and `void`. Through MCP a transcript is accepted only there, resolved with its links
+followed and refused unless it stays under a transcript root: a file the caller can write is no
+proof. A transcript root that overlaps the root (a
 host started from the home folder, whose transcripts sit under it) is turned off rather than
 stopping the server: `status` and every transcript refusal say why. Start the host from a
 project directory to read transcripts again.
