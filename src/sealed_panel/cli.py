@@ -6,17 +6,18 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import __version__, library
 from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import LIBRARY_ENV, library_dir, load_config
 from .decide import sealed_done
-from .errors import EvalError, SeatTaken, user_message
+from .errors import EvalError, user_message
 from .learn import learn_after_seal, user_disagreement
 from .record import outcome_line, record_from, record_measurement
 from .report import feedback_path, render_report, status
-from .runner import judge_seat, open_seats
+from .runner import judge_round
 from .spec import TODO_MARKER, init_run
 from .store import load_json, resolve_round
 
@@ -255,6 +256,14 @@ def _record(a: argparse.Namespace) -> str:
     return outcome_line(r)
 
 
+def _print_seat(seat: int, r: dict[str, Any] | None, skipped: str) -> None:
+    if r is None:
+        print(f"SKIPPED judge {seat}: {skipped}")
+        return
+    proof = r["runner"]
+    print(f"{outcome_line(r)} ({proof['duration_s']:g} s, stderr in {proof['stderr_log']})")
+
+
 def _run(a: argparse.Namespace) -> None:
     if a.cmd == "init":
         cfg = load_config(a.config) if a.config else None
@@ -265,15 +274,7 @@ def _run(a: argparse.Namespace) -> None:
     elif a.cmd == "record":
         print(_record(a))
     elif a.cmd == "judge":
-        rnd = _round(a)
-        for seat in open_seats(a.run, rnd, a.sealed, a.judge):
-            try:
-                r = judge_seat(a.run, rnd, seat, a.sealed)
-            except SeatTaken as exc:
-                print(f"SKIPPED judge {seat}: {exc}")
-                continue
-            proof = r["runner"]
-            print(f"{outcome_line(r)} ({proof['duration_s']:g} s, stderr in {proof['stderr_log']})")
+        judge_round(a.run, _round(a), a.sealed, a.judge, on_seat=_print_seat)
     elif a.cmd == "measure":
         ok = record_measurement(a.run, _round(a), a.id, a.value, a.passed, a.sealed)
         print(f"measured {a.id} = {a.value} ({'pass' if ok else 'fail'})")

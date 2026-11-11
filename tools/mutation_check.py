@@ -1017,9 +1017,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n",
     ),
     "a taken seat stops the command line": (
-        f"{PKG}/cli.py",
-        "            except SeatTaken as exc:\n",
-        "            except ZeroDivisionError as exc:\n",
+        RUN,
+        "        except SeatTaken as exc:\n            if on_seat:",
+        "        except ZeroDivisionError as exc:\n            if on_seat:",
     ),
     "the handback tool counted as a tool use": (
         REC,

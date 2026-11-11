@@ -460,6 +460,7 @@ def judge_round(
     sealed: bool,
     only: list[int] | None = None,
     expected: Mapping[str, Any] | None = None,
+    on_seat: Callable[[int, dict[str, Any] | None, str], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run the judge command once for every open seat of a round, one after the other, and
     return each recorded result. A seat another call takes meanwhile is skipped; any other
@@ -472,11 +473,18 @@ def judge_round(
         only: The judge slots to run, or None for every open one.
         expected: The judge section the caller must match (the MCP server's own), or None to take
             the run's.
+        on_seat: Called after each seat with the seat, its result (None when skipped) and why
+            it was skipped, so a caller can report as it goes.
     """
     results = []
     for seat in open_seats(run, rnd, sealed, only, expected):
         try:
-            results.append(judge_seat(run, rnd, seat, sealed, expected))
-        except SeatTaken:
+            r = judge_seat(run, rnd, seat, sealed, expected)
+        except SeatTaken as exc:
+            if on_seat:
+                on_seat(seat, None, str(exc))
             continue
+        results.append(r)
+        if on_seat:
+            on_seat(seat, r, "")
     return results

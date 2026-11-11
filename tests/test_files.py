@@ -732,7 +732,7 @@ class TestCommandLineEdges:
         def interrupted(*args: Any) -> None:
             raise KeyboardInterrupt
 
-        monkeypatch.setattr(cli, "judge_seat", interrupted)
+        monkeypatch.setattr(runner, "judge_seat", interrupted)
         assert cli.main(["judge", str(h.run), "--round", "1"]) == cli.INTERRUPTED
         assert "interrupted" in capsys.readouterr().out
 
@@ -742,10 +742,10 @@ class TestCommandLineEdges:
         init_judge(h, [sys.executable, str(STUB)])
         h.brief(1, "cand")
 
-        def taken(run: Path, rnd: int, seat: int, sealed: bool) -> dict[str, Any]:
+        def taken(run: Path, rnd: int, seat: int, sealed: bool, *_: Any) -> dict[str, Any]:
             raise SeatTaken(f"judge {seat} is being judged by another call")
 
-        monkeypatch.setattr(cli, "judge_seat", taken)
+        monkeypatch.setattr(runner, "judge_seat", taken)
         assert cli.main(["judge", str(h.run), "--round", "1"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("SKIPPED judge 1: judge 1 is being judged")

@@ -36,6 +36,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `judge_round` takes `on_seat(seat, result, why_skipped)`, called after each seat; the command
+  line's `judge` is `judge_round` with a printer, instead of its own copy of the loop. Output
+  unchanged.
 - A rubric library inside a git working tree is refused even when the tree ignores it. Before:
   `git check-ignore` decided, run with the user's git and a cleaned environment. After: any
   `.git` above the folder (a directory, or a worktree's file) refuses it, and the core starts
