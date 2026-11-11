@@ -12,23 +12,23 @@ There are two ways to change one.
   default. No other command accepts `--config`.
 
 The defaults define the shape. An override that names an unknown key, or gives a value of
-another type, is refused. One table accepts new keys: `text.punctuation`.
+another type, is refused. A key 0.4.0 removed is refused with a message that names it.
 
 Settings that guard the protocol have hard bounds, listed below. A value outside its bounds is
 refused with a message naming the key, whether it comes from a configuration file or from a
 spec. Within those bounds a configuration can loosen or tighten a value, and every value
 that differs from the defaults is printed in the report header and by `status`. What it cannot
 do: raise a severity cap above its ceiling, lower the quote floors or raise the bad-quote share
-past their bounds, drop a default injection pattern, add a pattern that matches nothing, or
-normalise away letters, digits or spaces before quotes are compared.
+past their bounds, drop a default injection pattern, or add a pattern that matches nothing.
+The normalisation that texts go through before they are compared is fixed in code.
 
 At `init`, the effective configuration is written to `config.json` in the run directory and its
 sha256 to `config.lock`. Every later command reads that frozen copy and refuses if it was
-edited, or if it holds a key the defaults do not know or a key with a dot (the open
-`text.punctuation` table aside); a key it lacks, from an older version, counts as its
-default. The report header and the output of `status` list every setting that differs from the
-packaged defaults, including the per-run keys of the spec, so a loosened or tightened setting
-is always visible next to the grade.
+edited, or if it holds a key the defaults do not know or a key with a dot; a key it lacks,
+from an older version, counts as its default, and a section 0.4.0 removed is dropped once the
+lock is checked. The report header and the output of `status` list every setting that differs
+from the packaged defaults, including the per-run keys of the spec, so a loosened or tightened
+setting is always visible next to the grade.
 
 Example override file:
 
@@ -78,37 +78,27 @@ agent_id_key = "session_id"
 | `min_fragment_chars` | `6` | 6 to `min_chars` (the default is the floor) | When an ellipsis joins fragments, each fragment must be at least this long. |
 | `max_bad_share` | `"1/3"` | 0 to 1/3 | A judge whose share of unverified quotes is above this fraction is discarded. Written as a fraction string so the comparison is exact. |
 
-## `[text]`
+## Normalisation (fixed since 0.4.0)
 
-| Key | Default | Meaning |
-|---|---|---|
-| `strip_chars` | `` "*_`#>" `` | Characters removed before quotes are compared (markdown emphasis and headings). Held at the default set (a safety floor and ceiling): adding a character would loosen the quote check, removing one would fail quotes of markdown-emphasised text. Quote matching only: every other check uses the default (see below). |
-| `punctuation` | curly quotes, guillemets, dashes, ellipsis | Characters mapped to plain ones before quotes are compared, written as TOML escapes. Each key is one character that is not a letter, a digit or whitespace, before or after case folding (non-breaking spaces need no entry: NFKC already turns them into plain spaces). Each value is exactly one character that is not whitespace, not a letter or digit before or after case folding, and not a stripped character; the one exception is the built-in entry for the ellipsis character, which keeps its `...`, and no other key may map to `...`. A key may not be a stripped character either. So a mapping turns one punctuation character into another: it never deletes one, splits a word or joins two. A value of `.` is legal, so any run of mapped and literal dots that normalises to an ellipsis (`---`, `- - -` or `.--` with `"-" = "."`) reads as one, and joins quote fragments; a judge could write `...` anyway, so no reach is gained. NFKC turns the ellipsis character into `...` before the map runs, so the built-in entry for it has no effect; it stays so that runs frozen with it remain valid. Text is also put in Unicode NFKC form, whitespace is collapsed, and case is folded. Quote matching only: every other check uses the default map (see below). |
+Before 0.4.0, a `[text]` table set the characters stripped and the punctuation map that quote
+matching used. 0.4.0 fixed both in code, at their 0.3.1 defaults (`text.STRIP_CHARS` and
+`text.PUNCTUATION`), and every comparison of texts uses the same normalisation: Unicode NFKC,
+the punctuation map (curly quotes and guillemets to straight quotes, en and em dashes to a
+hyphen), the markdown characters `` *_`#> `` removed, whitespace collapsed, case folded. That
+covers quote matching, the injection scan, the re-roll hash, the identity of the control and
+the candidate, whether the previous version or the baseline rides along, the one-quote flag,
+and the whole-brief check of a transcript.
 
-The run's `[text]` settings decide one thing: whether a judge's quote is found in an item.
-Every other check normalises with the built-in settings, whatever the configuration says,
-because a legal override would loosen each of them in one direction or the other. Merging two
-punctuation characters (`"," = "."`) and undoing a default mapping (a key mapped to itself,
-such as the right single quote) would move each check as follows, if it used the run's
-settings:
-
-| Check | Code | Normalisation | A merge would make it | An undone mapping would make it |
-|---|---|---|---|---|
-| A quote is found in the item | `text.quote_found` | the run's `[text]` | looser | stricter |
-| Injection scan | `text.injection_flags` | built-in | can break a match: looser | can break a match: looser |
-| Re-roll: the same text judged again | `brief._check_loop`, `text_hash` | built-in | stricter | looser: a typographic variant passes |
-| The control is identical to the candidate | `brief.write_briefs` | built-in | stricter | looser: a copy passes as the control |
-| The previous version or the baseline rides along | `brief.write_briefs` | built-in | left out more often | shown more often |
-| A judge gave one quote for every dimension | `record.check_output` | built-in | flagged more often | flagged less often: looser |
-| The transcript holds the whole brief | `record.record_reply` | built-in | looser: an edited brief passes | stricter |
-| A void needs a brief that was never pasted | `record._void` | built-in | stricter | looser: a pasted brief is voided |
+A configuration file that still sets a `[text]` key is refused with a message naming the key.
+A run frozen before 0.4.0 holds its `[text]` table in `config.json`: its lock is checked
+against the file as frozen, then the table is dropped, and the fixed normalisation applies.
 
 ## `[injection]`
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on text normalised with the built-in `[text]` settings, whatever the configuration says. Every text placed in a brief is scanned (candidate, control, previous version, baseline, known-good); a match is flagged per item in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
-| `samples` | one line per default pattern | one per pattern, in the same order | A line each pattern must match after the scan's normalisation, the built-in one (default punctuation map and stripped characters, whitespace, case): a pattern holding a character that normalisation removes or maps can never match, and is refused. A pattern that matches nothing would switch the check off, so it is refused. |
+| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on normalised text (see Normalisation). Every text placed in a brief is scanned (candidate, control, previous version, baseline, known-good); a match is flagged per item in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
+| `samples` | one line per default pattern | one per pattern, in the same order | A line each pattern must match after the scan's normalisation (punctuation map, stripped characters, whitespace, case): a pattern holding a character that normalisation removes or maps can never match, and is refused. A pattern that matches nothing would switch the check off, so it is refused. |
 
 ## `[transcript]`
 
@@ -155,15 +145,10 @@ names. A judge whose prompt held the whole brief and that left any of those cann
   limits, stances); they are also spec keys, and frozen into the spec.
 - `[limits]`: the floors of those choices; an organisation may want them stricter.
 - `[severity]`: how much a flaw costs; bounded so it can only cost more.
-- `[quotes]` and `[text]`: how strict the quote check is, and which typography it forgives. The
-  quote floors are the defaults, so quotes can only be made stricter. `[text]` decides only
-  whether a judge's quote is found: every other check, the injection scan included, uses the
-  built-in normalisation (see the table under `[text]`), so an override can loosen none of them.
-  The settings are bounded: `strip_chars` is held at the default set, and a punctuation mapping
-  turns one punctuation character into another, never deleting one, splitting a word or joining
-  two (a run of mapped and literal dots that normalises to an ellipsis reads as one, which a
-  judge could write as `...` anyway). They are listed as overrides in the report header and in
-  `status`.
+- `[quotes]`: how strict the quote check is. The quote floors are the defaults, so quotes can
+  only be made stricter. Which typography the check forgives is no longer a setting: a legal
+  `[text]` override could only loosen some check in one direction or another, and no user set
+  one, so 0.4.0 fixed it in code.
 - `[injection]`: texts in other languages need more patterns; the defaults always stay.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.

@@ -9,7 +9,6 @@
   "src/sealed_panel/cli.py:_rubrics": 19,
   "src/sealed_panel/cli.py:_run": 23,
   "src/sealed_panel/config.py:_judge_errors": 12,
-  "src/sealed_panel/config.py:_text_errors": 17,
   "src/sealed_panel/config.py:bound_errors": 41,
   "src/sealed_panel/config.py:overrides": 11,
   "src/sealed_panel/decide.py:decide": 17,

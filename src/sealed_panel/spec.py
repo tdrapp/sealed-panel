@@ -14,11 +14,13 @@ from .config import (
     MAX_JUDGES_PER_PERSONA,
     RUN_BOUNDS,
     Config,
+    fingerprint,
     guard_library,
     library_dir,
     resolve,
     run_value_error,
     schema_errors,
+    without_removed,
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
@@ -479,12 +481,14 @@ def run_config(run: Path) -> Config:
     lock = run / "config.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    data = load_json(run / "config.json")
-    shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
-    if shape:
+    raw = load_json(run / "config.json")
+    data = without_removed(raw) if isinstance(raw, dict) else None
+    shape = ["not a table"] if data is None else schema_errors(data)
+    if data is None or shape:
         raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
     frozen = Config(data)
-    if frozen.fingerprint != read_text(lock).strip():
+    # Checked against the data as frozen: a run frozen before 0.4.0 keeps its removed sections.
+    if fingerprint(raw) != read_text(lock).strip():
         raise EvalError(
             "the configuration changed after the freeze: scores are no longer comparable. "
             "Start a new run directory."

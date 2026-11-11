@@ -40,9 +40,9 @@ REC, AGG, SPEC, CFG, BRIEF = (
     f"{PKG}/{m}.py" for m in ("record", "aggregate", "spec", "config", "brief")
 )
 DEFAULTS = f"{PKG}/defaults.toml"
-CFG_NORM = '__import__("sealed_panel.text", fromlist=["normalise"]).normalise'
 LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
 RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
+TEXT = f"{PKG}/text.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -73,7 +73,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "fragment order ignored": (f"{PKG}/text.py", "pos = i + len(p)", "pos = 0"),
-    "smart quotes not normalised": (DEFAULTS, '"\\u201c" = "\\""\n', ""),
+    "smart quotes not normalised": (TEXT, """    "\\u201c": '"',\n""", ""),
     "boolean score accepted": (
         REC,
         "if isinstance(s, bool) or not isinstance(s, int) or",
@@ -240,28 +240,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if text_hash(cand) in {r.get("candidate_hash") for r in loop}:',
         "if False:",
     ),
-    "re-roll hash with run config": (
-        BRIEF,
-        'if text_hash(cand) in {r.get("candidate_hash") for r in loop}:',
-        f'if __import__("hashlib").sha256({CFG_NORM}(cand, cfg).encode("utf-8")).hexdigest()'
-        '[:16] in {r.get("candidate_hash") for r in loop}:',
-    ),
-    "baseline inclusion with run config": (
-        BRIEF,
-        "if first.exists() and fixed_normalise(read_text(first)) != fixed_normalise(cand):",
-        f"if first.exists() and {CFG_NORM}(read_text(first), cfg) != {CFG_NORM}(cand, cfg):",
-    ),
-    "previous inclusion with run config": (
-        BRIEF,
-        "if prev_path.exists() and fixed_normalise(read_text(prev_path)) != fixed_normalise(cand):",
-        f"if prev_path.exists() and {CFG_NORM}(read_text(prev_path), cfg)"
-        f" != {CFG_NORM}(cand, cfg):",
-    ),
     # The spec and its freeze.
     "rubric lock off": (SPEC, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
         SPEC,
-        "if frozen.fingerprint != read_text(lock).strip():",
+        "if fingerprint(raw) != read_text(lock).strip():",
         "if False:",
     ),
     "declared choice unchecked": (
@@ -367,17 +350,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "control equal to candidate": (
         BRIEF,
-        "if fixed_normalise(cand) == fixed_normalise(ctrl):",
+        "if normalise(cand) == normalise(ctrl):",
         "if False:",
     ),
     "init twice": (SPEC, 'if (run / "rubric.lock").exists():', "if False:"),
     "measure twice": (REC, 'if any(r["id"] == mid for r in rows):', "if False:"),
     "baseline dropped": (BRIEF, 'roles.append(("baseline", read_text(first)))', "pass"),
-    "open table type unchecked": (
-        CFG,
-        "if path in OPEN_TABLES and sample is not None and _type_ok(sample, value):",
-        "if path in OPEN_TABLES:",
-    ),
     "invalid regex accepted": (
         CFG,
         '            errors.append(f"injection.patterns: {p!r} is not a valid expression '
@@ -776,36 +754,10 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    if missing:\n        errors.append(",
         "    if False:\n        errors.append(",
     ),
-    "punctuation key length unchecked": (
-        CFG,
-        "if len(key) != 1 or _letter_or_digit(key) or key.isspace():",
-        "if _letter_or_digit(key) or key.isspace():",
-    ),
-    "strip_chars may grow": (
-        CFG,
-        "    if added:\n        errors.append(",
-        "    if False:\n        errors.append(",
-    ),
-    "strip_chars may shrink": (
-        CFG,
-        "    if dropped:\n        errors.append(",
-        "    if False:\n        errors.append(",
-    ),
-    "a stripped character mapped": (CFG, "        if key in stripped:\n", "        if False:\n"),
-    "a stripped character in a mapped value": (
-        CFG,
-        "        if stripped & set(value):\n",
-        "        if False:\n",
-    ),
     "samples not normalised": (
         CFG,
-        "hit = re.search(p, fixed_normalise(sample))",
+        "hit = re.search(p, normalise(sample))",
         "hit = re.search(p, sample)",
-    ),
-    "whitespace punctuation key accepted": (
-        CFG,
-        "if len(key) != 1 or _letter_or_digit(key) or key.isspace():",
-        'if len(key) != 1 or _letter_or_digit(key) or key == " ":',
     ),
     "a pattern that matches nothing accepted": (CFG, "        if not hit:", "        if False:"),
     "unpaired samples accepted": (
@@ -813,65 +765,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if len(samples) != len(patterns):",
         "if False:",
     ),
-    "letters stripped before quotes": (
-        CFG,
-        'if any(c.isalnum() or c.isspace() for c in text["strip_chars"]):',
-        "if False:",
-    ),
-    "letters mapped before quotes": (CFG, "if _letter_or_digit(value):", "if False:"),
-    "empty punctuation value allowed": (
-        CFG,
-        "if len(value) != 1 or value.isspace():",
-        "if len(value) > 1 or value.isspace():",
-    ),
-    "multi-character punctuation value allowed": (
-        CFG,
-        "if len(value) != 1 or value.isspace():",
-        "if not value or value.isspace():",
-    ),
-    "whitespace punctuation value allowed": (
-        CFG,
-        "if len(value) != 1 or value.isspace():",
-        "if len(value) != 1:",
-    ),
-    "ellipsis allowed for another key": (
-        CFG,
-        'if not (key == ELLIPSIS and value == "..."):',
-        'if value != "...":',
-    ),
     # The run's [text] settings reaching a check other than quote matching. The replacement
     # imports the configured normalisation itself: the module no longer does.
-    "control identity uses the configured normalisation": (
-        BRIEF,
-        "if fixed_normalise(cand) == fixed_normalise(ctrl):",
-        f"if {CFG_NORM}(cand, cfg) == {CFG_NORM}(ctrl, cfg):",
-    ),
-    "one-quote flag with run config": (
-        REC,
-        "quotes.append(fixed_normalise(quote))",
-        f"quotes.append({CFG_NORM}(quote, cfg))",
-    ),
-    "whole-brief check uses the configured normalisation": (
-        REC,
-        "        prompt = fixed_normalise(transcript_prompt(transcript, cfg))\n",
-        f"        prompt = {CFG_NORM}(transcript_prompt(transcript, cfg), cfg)\n"
-        f'        brief = {CFG_NORM}(read_text(rdir / f"brief_j{{judge}}.md"), cfg)\n',
-    ),
-    "void brief check uses the configured normalisation": (
-        REC,
-        "    pasted = brief in fixed_normalise(transcript_prompt(transcript, cfg))\n",
-        f'    brief = {CFG_NORM}(read_text(rdir / f"brief_j{{judge}}.md"), cfg)\n'
-        f"    pasted = brief in {CFG_NORM}(transcript_prompt(transcript, cfg), cfg)\n",
-    ),
-    "casefold skipped": (
+    "a removed setting read as an unknown key": (
         CFG,
-        "return any(c.isalnum() for c in s + s.casefold())",
-        "return any(c.isalnum() for c in s)",
-    ),
-    "scan uses the configured normalisation": (
-        f"{PKG}/text.py",
-        "    low = fixed_normalise(text)\n",
-        "    low = normalise(text, cfg)\n",
+        "        if not path and key in REMOVED_SECTIONS:\n",
+        "        if False:\n",
     ),
     "judges per persona unbounded (config)": (
         CFG,
@@ -1219,8 +1118,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a frozen configuration not checked for its shape": (
         SPEC,
-        "    if shape:\n",
-        "    if False:\n",
+        "    if data is None or shape:\n",
+        "    if data is None:\n",
     ),
     "stale files settled in host mode": (
         RUN,

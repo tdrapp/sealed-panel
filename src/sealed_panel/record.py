@@ -22,7 +22,7 @@ from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
 from .spec import dims_for, load_frozen, run_config
 from .store import dump_json, load_json, locked, read_text, round_dir, under_run_lock
-from .text import fixed_normalise, quote_found
+from .text import normalise, quote_found
 
 SCORE_MIN, SCORE_MAX = 1, 5
 # Characters searched for the agent id, from the start of a transcript.
@@ -302,7 +302,7 @@ def check_output(
             raw_scores[did] = s
             quotes_total += 1
             quote = str(d.get("quote", ""))
-            quotes.append(fixed_normalise(quote))
+            quotes.append(normalise(quote))
             quoted[did] = quote
             if not quote_found(quote, texts[role], cfg):
                 quotes_bad += 1
@@ -398,8 +398,8 @@ def _void(
     """An agent that received a brief and stopped without a reply: recorded as void so the
     round can be aggregated. A void clears the unrecorded-agent block but never fills a seat.
     Refused when the agent got the whole brief and left any reply: that reply is recorded."""
-    brief = fixed_normalise(read_text(rdir / f"brief_j{judge}.md"))
-    pasted = brief in fixed_normalise(transcript_prompt(transcript, cfg))
+    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
+    pasted = brief in normalise(transcript_prompt(transcript, cfg))
     # Fails closed: any tool call counts as a reply, whichever its name, because a runtime may
     # deliver the answer through a tool this run does not know. Only silence can be voided.
     replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))
@@ -621,8 +621,8 @@ def _record_reply(
         if meta["nonce"] not in read_text(transcript):
             raise EvalError(f"this transcript never saw brief j{judge}: nothing to void")
     elif transcript is not None:
-        brief = fixed_normalise(read_text(rdir / f"brief_j{judge}.md"))
-        prompt = fixed_normalise(transcript_prompt(transcript, cfg))
+        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
+        prompt = normalise(transcript_prompt(transcript, cfg))
         if brief not in prompt:
             raise EvalError(
                 f"this transcript's prompt does not contain brief j{judge} verbatim: "

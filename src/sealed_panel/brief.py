@@ -26,7 +26,7 @@ from .store import (
     under_run_lock,
     write_file,
 )
-from .text import fixed_normalise, injection_flags, text_hash
+from .text import injection_flags, normalise, text_hash
 
 # Letters drawn without repetition to label the items of one brief.
 LABEL_POOL = "BCDFGHJKLMNPQRSTVWXZ"
@@ -289,16 +289,16 @@ def write_briefs(
     rdir = round_dir(run, rnd, sealed)
     if rdir.exists() and any(rdir.glob("brief_*.md")):
         raise EvalError(f"{rdir} already has briefs; a round is briefed once")
-    if fixed_normalise(cand) == fixed_normalise(ctrl):
+    if normalise(cand) == normalise(ctrl):
         raise EvalError("the control is identical to the candidate")
     roles: list[tuple[str, str]] = [("candidate", cand), ("control", ctrl)]
     if not sealed and rnd >= 2:
         prev_path = round_dir(run, rnd - 1) / "candidate.md"
-        if prev_path.exists() and fixed_normalise(read_text(prev_path)) != fixed_normalise(cand):
+        if prev_path.exists() and normalise(read_text(prev_path)) != normalise(cand):
             roles.append(("previous", read_text(prev_path)))
     if sealed:
         first = round_dir(run, 1) / "candidate.md"
-        if first.exists() and fixed_normalise(read_text(first)) != fixed_normalise(cand):
+        if first.exists() and normalise(read_text(first)) != normalise(cand):
             roles.append(("baseline", read_text(first)))
     if good is not None:
         roles.append(("known_good", read_text(good)))

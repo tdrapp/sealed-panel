@@ -1,9 +1,9 @@
 """Load defaults.toml, merge an optional override file, check bounds, expose typed values.
 
 The defaults define the shape: an override may only set keys that exist there, with a value
-of the same type. One table is open (new keys allowed): `text.punctuation`. Settings that
-guard the protocol have hard bounds, so an override can tighten a guard but never switch it
-off.
+of the same type. Settings that guard the protocol have hard bounds, so an override can
+tighten a guard but never switch it off. A section 0.4.0 fixed in code is refused in a file
+and dropped from a run frozen before.
 """
 
 from __future__ import annotations
@@ -24,7 +24,11 @@ from typing import Any
 
 from .errors import ConfigError
 
-OPEN_TABLES = frozenset({("text", "punctuation")})
+# Sections a version before 0.4.0 froze into every run, and 0.4.0 fixed in code: a file that
+# sets one is refused, naming the key; a run frozen with one is read without it.
+REMOVED_SECTIONS = {
+    "text": "the quote check's normalisation is fixed in code since 0.4.0",
+}
 SEVERITY_NAMES = ("blocking", "material", "cosmetic", "none")
 
 # Hard bounds. A value outside them is refused, in a configuration file or in a spec.
@@ -71,13 +75,9 @@ def merge(
     out = dict(base)
     for key, value in override.items():
         where = ".".join((*path, key))
+        if not path and key in REMOVED_SECTIONS:
+            raise ConfigError(removed_message(key, value))
         if key not in base:
-            sample = next(iter(base.values()), None)
-            if path in OPEN_TABLES and sample is not None and _type_ok(sample, value):
-                out[key] = value
-                continue
-            if path in OPEN_TABLES:
-                raise ConfigError(f"{where} must be of type {type(sample).__name__}")
             raise ConfigError(f"unknown configuration key {where}")
         current = base[key]
         if isinstance(current, dict):
@@ -89,6 +89,20 @@ def merge(
         else:
             out[key] = value
     return out
+
+
+def removed_message(section: str, value: Any) -> str:
+    """The refusal of a section 0.4.0 removed, naming the keys the file sets in it.
+
+    Args:
+        section: The section's name.
+        value: What the file sets there.
+    """
+    keys = [f"{section}.{k}" for k in value] if isinstance(value, dict) and value else [section]
+    return (
+        f"{', '.join(keys)}: no longer a setting, {REMOVED_SECTIONS[section]}; remove "
+        f"[{section}] from the configuration file"
+    )
 
 
 def run_value_error(key: str, value: Any) -> str | None:
@@ -163,7 +177,6 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
         errors.append("quotes.max_bad_share must be a fraction such as 1/3")
     elif not 0 <= share <= MAX_BAD_SHARE_CEILING:
         errors.append(f"quotes.max_bad_share must be between 0 and {MAX_BAD_SHARE_CEILING}")
-    errors += _text_errors(data["text"])
     library = data.get("library") or {}
     if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:
         errors.append("library.control_min_candidate must be between 1 and 5")
@@ -181,75 +194,10 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     return errors
 
 
-# The one value that is not a single character: the built-in entry for the ellipsis character.
-# NFKC already turns it into "..." before the map runs, so the entry has no effect; it stays so
-# that runs frozen with it remain valid. No other key may map to "...".
-ELLIPSIS = "\u2026"
-
-
-def _letter_or_digit(s: str) -> bool:
-    """A letter or digit in `s` or in its case folding: U+0345 is neither, but folds to iota."""
-    return any(c.isalnum() for c in s + s.casefold())
-
-
-def _text_errors(text: Mapping[str, Any]) -> list[str]:
-    """The quote check's normalisation. A key is one character, not a letter, digit or
-    whitespace. A value is exactly one character: not whitespace, not a letter or digit (after
-    case folding too) and not stripped; the only exception is the built-in ELLIPSIS entry. So a
-    mapping can turn one punctuation character into another, never delete one, split a word or
-    join two words. A run of mapped and literal dots that normalises to an ellipsis reads as
-    one, which a judge could write as "..." anyway, so no reach is gained. No other check
-    uses these settings."""
-    errors = []
-    if any(c.isalnum() or c.isspace() for c in text["strip_chars"]):
-        errors.append("text.strip_chars may hold punctuation only, no letter, digit or space")
-    allowed = default_data()["text"]["strip_chars"]
-    added = sorted(set(text["strip_chars"]) - set(allowed))
-    if added:
-        errors.append(
-            f"text.strip_chars may not add to the default {allowed!r}: stripping more would "
-            f"loosen the quote check (added {''.join(added)!r})"
-        )
-    dropped = sorted(set(allowed) - set(text["strip_chars"]))
-    if dropped:
-        errors.append(
-            f"text.strip_chars may not drop from the default {allowed!r}: quotes of "
-            f"markdown-emphasised text would fail (dropped {''.join(dropped)!r})"
-        )
-    for key, value in text["punctuation"].items():
-        if len(key) != 1 or _letter_or_digit(key) or key.isspace():
-            errors.append(
-                f"text.punctuation: {key!r} must be one character, not a letter, digit or space"
-            )
-        if not (key == ELLIPSIS and value == "..."):
-            if len(value) != 1 or value.isspace():
-                errors.append(
-                    f"text.punctuation: the value for {key!r} must be one character, not "
-                    f"whitespace (only {ELLIPSIS!r} keeps its built-in '...')"
-                )
-            if _letter_or_digit(value):
-                errors.append(
-                    f"text.punctuation: the value for {key!r} may not hold a letter or digit"
-                )
-        # The map runs before stripping. A stripped character as a key would escape stripping;
-        # as a value, it would make another character vanish: either changes the stripped set
-        # by another name.
-        stripped = set(text["strip_chars"])
-        if key in stripped:
-            errors.append(
-                f"text.punctuation: {key!r} is a stripped character and may not be mapped"
-            )
-        if stripped & set(value):
-            errors.append(
-                f"text.punctuation: the value for {key!r} may not hold a stripped character"
-            )
-    return errors
-
-
 def _injection_errors(injection: Mapping[str, Any]) -> list[str]:
     """Patterns may be added, never dropped, and each must match its sample line once the
     sample goes through the scan's own normalisation, the built-in one."""
-    from .text import fixed_normalise  # here, not at the top: text.py imports this module
+    from .text import normalise  # here, not at the top: text.py imports this module
 
     errors = []
     patterns, samples = injection["patterns"], injection["samples"]
@@ -265,7 +213,7 @@ def _injection_errors(injection: Mapping[str, Any]) -> list[str]:
         return errors
     for p, sample in zip(patterns, samples, strict=True):
         try:
-            hit = re.search(p, fixed_normalise(sample))
+            hit = re.search(p, normalise(sample))
         except re.error as exc:
             errors.append(f"injection.patterns: {p!r} is not a valid expression ({exc})")
             continue
@@ -306,6 +254,26 @@ def default_data() -> dict[str, Any]:
     return tomllib.loads(text)
 
 
+def fingerprint(data: Any) -> str:
+    """The sha256 of settings as frozen: the canonical JSON of the data, whatever its shape.
+
+    Args:
+        data: The settings, as read from a run's config.json.
+    """
+    canon = json.dumps(data, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
+def without_removed(data: Mapping[str, Any]) -> dict[str, Any]:
+    """A frozen configuration without the sections 0.4.0 removed: the read of a run frozen
+    before, once its lock is checked against the data as it was frozen.
+
+    Args:
+        data: The settings, as read from a run's config.json.
+    """
+    return {k: v for k, v in data.items() if k not in REMOVED_SECTIONS}
+
+
 class Config:
     """The effective configuration: defaults merged with an optional override."""
 
@@ -323,8 +291,7 @@ class Config:
     @property
     def fingerprint(self) -> str:
         """The sha256 of the settings, frozen into a run."""
-        canon = json.dumps(self.data, sort_keys=True, ensure_ascii=False)
-        return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+        return fingerprint(self.data)
 
     def section(self, name: str) -> dict[str, Any]:
         """One table of the settings.
@@ -394,16 +361,6 @@ class Config:
     def max_bad_share(self) -> Fraction:
         """The share of unverified quotes that discards a judge."""
         return Fraction(self.section("quotes")["max_bad_share"])
-
-    @property
-    def strip_chars(self) -> str:
-        """The characters quote matching removes."""
-        return str(self.section("text")["strip_chars"])
-
-    @property
-    def punctuation(self) -> dict[str, str]:
-        """The punctuation map quote matching applies."""
-        return dict(self.section("text")["punctuation"])
 
     @property
     def injection_patterns(self) -> list[str]:
@@ -621,12 +578,9 @@ def schema_errors(
     data: Mapping[str, Any], shape: Mapping[str, Any] | None = None, path: tuple[str, ...] = ()
 ) -> list[str]:
     """A frozen configuration holds only keys the defaults know (no default key holds a dot, so
-    a dotted key is unknown too). Keys may be missing (an older run); the open table
-    (text.punctuation) takes any key, its bounds check the rest."""
+    a dotted key is unknown too). Keys may be missing (an older run)."""
     shape = default_data() if shape is None else shape
     errors: list[str] = []
-    if path in OPEN_TABLES:
-        return errors
     for key, value in data.items():
         where = ".".join((*path, key))
         if key not in shape:

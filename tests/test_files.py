@@ -827,14 +827,6 @@ class TestFrozenConfiguration:
         with pytest.raises(EvalError, match=r"unknown configuration key 'limits\.extra'"):
             run_config(h.run)
 
-    def test_punctuation_keeps_its_open_table(self, h: Harness) -> None:
-        cfg = h.tmp / "p.toml"
-        cfg.write_text('[text.punctuation]\n"\\u2032" = "\'"\n')
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        assert run_config(h.run).punctuation[chr(0x2032)] == "'"
-
     def test_differences_are_read_section_by_section(self, h: Harness) -> None:
         h.init()
         data = json.loads((h.run / "config.json").read_text())

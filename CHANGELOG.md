@@ -56,6 +56,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- `[text]` (`strip_chars`, `punctuation`). Before: a configuration could map punctuation and
+  hold the stripped characters for quote matching, within bounds, while every other check used
+  the defaults. After: both are constants in `text.py`, equal to the 0.3.1 defaults, and one
+  `normalise(text)` serves every comparison (`normalise` lost its `cfg` argument;
+  `fixed_normalise` and `normalise_with` are gone). A file that sets a `[text]` key is refused
+  with a message naming it ("text.strip_chars: no longer a setting, ... fixed in code since
+  0.4.0"); a run frozen before 0.4.0 keeps reading: its lock is checked against `config.json` as
+  frozen, then `[text]` is dropped.
 - MCP tools, 14 to 10 (`tests/mcp_tools.json` regenerated). Before: `seal`, `void`,
   `rubrics_list`, `rubrics_show` and `feedback` were tools. After: `seal(...)` is
   `brief(..., sealed=true)` (its `round` defaults to 1, as `--sealed` does, and a loop round
