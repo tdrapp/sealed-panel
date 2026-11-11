@@ -156,8 +156,8 @@ names. A judge whose prompt held the whole brief and that left any of those cann
 - `[severity]`: how much a flaw costs; bounded so it can only cost more.
 - `[quotes]`: how strict the quote check is. The quote floors are the defaults, so quotes can
   only be made stricter. Which typography the check forgives is no longer a setting: a legal
-  `[text]` override could only loosen some check in one direction or another, and no user set
-  one, so 0.4.0 fixed it in code.
+  `[text]` override could only loosen some check in one direction or another, so 0.4.0 fixed
+  it in code.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.
 - `[judge]`: which program judges, how long it may take, and which credentials it may see,
