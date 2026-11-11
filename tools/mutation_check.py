@@ -720,6 +720,35 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        refuse_older_run(where)  # its own refusal, not a settings difference\n",
         "",
     ),
+    "the control compared raw": (
+        BRIEF,
+        "if normalise(cand) == normalise(ctrl):",
+        "if cand == ctrl:",
+    ),
+    "the whole-brief check compared raw": (
+        REC,
+        '        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
+        "        prompt = normalise(transcript_prompt(transcript, cfg))\n",
+        '        brief = read_text(rdir / f"brief_j{judge}.md")\n'
+        "        prompt = transcript_prompt(transcript, cfg)\n",
+    ),
+    "the re-roll hash taken raw": (
+        TEXT,
+        "digest = hashlib.sha256(normalise(text).encode",
+        "digest = hashlib.sha256((text).encode",
+    ),
+    "a pasted brief looked for raw before a void": (
+        REC,
+        '    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
+        "    pasted = brief in normalise(transcript_prompt(transcript, cfg))\n",
+        '    brief = read_text(rdir / f"brief_j{judge}.md")\n'
+        "    pasted = brief in transcript_prompt(transcript, cfg)\n",
+    ),
+    "one quote for all compared raw": (
+        REC,
+        "quotes.append(normalise(quote))",
+        "quotes.append(quote)",
+    ),
     "judges per persona unbounded (config)": (
         CFG,
         'if run["judges_per_persona"] > MAX_JUDGES_PER_PERSONA:',

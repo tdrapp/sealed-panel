@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import Harness, make_spec
+from conftest import FLAT, Harness, make_spec
+from sealed_panel.brief import write_briefs
 from sealed_panel.config import (
     REMOVED_DEFAULTS,
     Config,
@@ -18,9 +19,10 @@ from sealed_panel.config import (
     merge,
 )
 from sealed_panel.errors import ConfigError, EvalError
-from sealed_panel.record import check_output
+from sealed_panel.record import check_output, record_reply
 from sealed_panel.report import render_report, status
 from sealed_panel.spec import init_run, run_config, validate_spec
+from sealed_panel.store import round_dir
 from sealed_panel.text import (
     INJECTION_PATTERNS,
     PUNCTUATION,
@@ -369,3 +371,69 @@ class TestNormalisation:
     def test_hyphens_still_separate_words_for_the_quote_check(self) -> None:
         source = "a careful selfreview of the plan"
         assert not quote_found("a careful self-review of the plan", source)
+
+
+class TestEveryComparisonIsNormalised:
+    """Every check that compares two texts goes through the one normalisation, so a typographic
+    variant is the same text to it, and a real change is not."""
+
+    @staticmethod
+    def transcript(h: Harness, prompt: str, *replies: str) -> Path:
+        rows = [{"type": "user", "agentId": "a1", "message": {"content": prompt}}]
+        rows += [{"type": "assistant", "message": {"content": [{"type": "text", "text": r}]}}
+                 for r in replies]  # fmt: skip
+        t = h.tmp / "tasks" / "a1.output"
+        t.parent.mkdir(exist_ok=True)
+        t.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+        return t
+
+    def test_a_typographic_copy_is_refused_as_the_control(self, h: Harness) -> None:
+        h.init()
+        cand, ctrl = h.tmp / "a.md", h.tmp / "b.md"
+        cand.write_text("It's the plan, and it's short.", encoding="utf-8")
+        ctrl.write_text("It\u2019s the plan, and it\u2019s short.", encoding="utf-8")
+        with pytest.raises(EvalError, match="identical"):
+            write_briefs(h.run, 1, cand, ctrl, None, False)
+
+    def test_a_typographic_variant_is_no_new_text(self, h: Harness) -> None:
+        h.init()
+        first = h.files["cand"].read_text(encoding="utf-8") + " It's done."
+        h.files["cand"].write_text(first, encoding="utf-8")
+        h.full(1, "cand", FLAT)
+        h.files["cand"].write_text(first.replace("'", "\u2019"), encoding="utf-8")
+        with pytest.raises(EvalError, match="re-roll"):
+            h.brief(2, "cand")
+
+    def test_a_brief_pasted_with_other_dashes_cannot_be_voided(self, h: Harness) -> None:
+        h.init()
+        h.brief(1, "cand")
+        brief = (round_dir(h.run, 1) / "brief_j1.md").read_text(encoding="utf-8")
+        assert "-" in brief
+        t = self.transcript(h, brief.replace("-", "\u2013"), "I think it is a 4 overall.")
+        with pytest.raises(EvalError, match="cannot be voided"):
+            record_reply(h.run, 1, 1, "a1", "", False, "void", t, void=True)
+
+    def test_the_whole_brief_check_has_a_gap_on_neither_side(self, h: Harness) -> None:
+        """Curly quotes and dashes in the prompt are the brief; a comma turned into a period is
+        not."""
+        h.init()
+        h.brief(1, "cand")
+        brief = (round_dir(h.run, 1) / "brief_j1.md").read_text(encoding="utf-8")
+        assert "," in brief and "-" in brief
+        edited = self.transcript(h, brief.replace(",", "."))
+        with pytest.raises(EvalError, match="verbatim"):
+            record_reply(h.run, 1, 1, "a1", "{}", False, "transcript", edited)
+        typographic = self.transcript(h, brief.replace("-", "\u2014"))
+        r = record_reply(h.run, 1, 1, "a1", "{}", False, "transcript", typographic)
+        assert r["source"] == "transcript"  # recorded: the prompt holds the brief
+        assert not any("verbatim" in e for e in r["errors"])
+
+    def test_two_quotes_that_differ_only_in_typography_are_one_quote(self) -> None:
+        dim = {"reasoning": "because", "severity": "none", "score": 4}
+        out = {"items": {"A": {"dimensions": {
+            "clarity": {**dim, "quote": "It's the plan, and it's short."},
+            "evidence": {**dim, "quote": "It\u2019s the plan, and it\u2019s short."},
+        }}}}  # fmt: skip
+        texts = {"candidate": "It's the plan, and it's short."}
+        r = check_output(out, {"A": "candidate"}, texts, ["clarity", "evidence"], load_config())
+        assert r["items"]["candidate"]["one_quote"] is True
