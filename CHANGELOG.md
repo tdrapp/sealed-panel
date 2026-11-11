@@ -48,10 +48,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `judge_round` takes `on_seat(seat, result, why_skipped)`, called after each seat; the command
   line's `judge` is `judge_round` with a printer, instead of its own copy of the loop. Output
   unchanged.
-- A rubric library inside a git working tree is refused even when the tree ignores it. Before:
-  `git check-ignore` decided, run with the user's git and a cleaned environment. After: any
-  `.git` above the folder (a directory, or a worktree's file) refuses it, and the core starts
-  no git process. Move a library that lived in an ignored folder of a repository elsewhere.
+- **Breaking:** writing to a rubric library inside a git working tree. Before: any use of a
+  library in a git working tree was refused unless `git check-ignore` said the tree ignored it,
+  asked of the user's git. After: no git process runs, so that exception is gone: a library
+  with a `.git` at or above it (a directory, or a worktree's file) is refused for every write
+  (`learning learn`, `feedback`, `rubrics promote`, `rubrics reject`), ignored or not, with a
+  message saying to point `--library` or `$SEALED_PANEL_RUBRICS` at a folder outside any
+  repository; every read (`rubrics list|suggest|show|use`, the MCP `rubrics_suggest` and
+  `rubrics_use`, `init` from a template) works there, the default library of a user whose home
+  is a git tree included.
 - New MCP tool `rubrics_use(id, out, persona_file?, library?)`: writes the spec skeleton of a
   template under the root (refused outside it, or when `out` exists), as `rubrics use` does.
 - Every run file is written to a private temporary file in its directory and moved over the

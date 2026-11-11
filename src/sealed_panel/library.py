@@ -22,6 +22,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from .config import writable_library
 from .errors import EvalError
 from .spec import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
 from .store import dump_json, load_json, refuse_links
@@ -418,6 +419,7 @@ def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
     same key. A key already closed (rejected, or promoted into a newer version) is not
     reopened: None is returned. Evidence already recorded is not added twice, so learning a
     run again changes nothing; every run that showed the signal is listed under `runs`."""
+    writable_library(lib)
     kind = proposal["kind"]
     if kind not in CANDIDATE_KINDS:
         raise EvalError(f"unknown candidate kind {kind!r}")
@@ -591,6 +593,7 @@ def side_by_side(current: dict[str, Any], updated: dict[str, Any]) -> list[str]:
 def plan_promotion(lib: Path, cid: str, into: str | None = None) -> dict[str, Any]:
     """Everything promote would write, without writing it. Every refusal comes from here, so
     it comes before the confirmation prompt."""
+    writable_library(lib)
     c = _open_candidate(lib, cid)
     _history_file(lib, c["id"])  # a closed id is refused before the person is asked
     tid = into or (c.get("template") or {}).get("id")
@@ -632,6 +635,7 @@ def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
     """Write the template and close the candidate, all or nothing: both files are staged
     first, then moved into place; if the second move fails, the first is rolled back, and no
     staged file is left behind."""
+    writable_library(lib)
     c, target = plan["candidate"], Path(plan["target"])
     c.update(
         {
@@ -684,6 +688,7 @@ def reject(lib: Path, cid: str, reason: str) -> Path:
     """
     if not reason.strip():
         raise EvalError("--reason is required: say why the candidate is rejected")
+    writable_library(lib)
     c = _open_candidate(lib, cid)
     c.update({"status": "rejected", "closed": _now(), "reason": reason})
     dest = _history_file(lib, c["id"])

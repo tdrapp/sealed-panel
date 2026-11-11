@@ -584,21 +584,53 @@ class TestLibraryGuardrails:
             library_dir()
 
     @pytest.mark.parametrize("marker", ["dir", "file"], ids=["a repository", "a worktree"])
-    def test_inside_a_git_tree_is_refused_even_when_ignored(
-        self, tmp_path: Path, marker: str
+    def test_a_write_inside_a_git_tree_is_refused_even_when_ignored(
+        self, h: Harness, marker: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """No git runs: a `.git` above the folder refuses it, ignored or not (a worktree's
-        `.git` is a file)."""
-        repo = tmp_path / "repo"
+        """No git runs: a `.git` above the folder refuses every write there, ignored or not (a
+        worktree's `.git` is a file), and the message says what to do."""
+        repo = h.tmp / "repo"
         repo.mkdir()
         if marker == "dir":
             (repo / ".git").mkdir()
         else:
             (repo / ".git").write_text("gitdir: /elsewhere\n")
         (repo / ".gitignore").write_text("/lib/\n")
-        with pytest.raises(EvalError, match=f"inside the git working tree {repo}"):
-            library_dir(repo / "lib")
-        assert library_dir(tmp_path / "lib") == tmp_path / "lib"
+        lib = str(repo / "lib")
+        h.init()
+        h.full(1, "cand", FLAT, sealed=True)
+        for args in (
+            ["learning", "learn", str(h.run), "--library", lib],
+            ["feedback", str(h.run), "--note", "too kind", "--library", lib],
+            ["rubrics", "reject", "c-0123456789ab", "--reason", "x", "--library", lib],
+            ["rubrics", "promote", "c-0123456789ab", "--yes", "--library", lib],
+        ):
+            assert main(args) == 2, args
+            err = capsys.readouterr().err
+            assert f"inside the git working tree {repo}" in err, args
+            assert "SEALED_PANEL_RUBRICS at a folder outside any repository" in err, args
+        assert not (repo / "lib").exists()
+        with pytest.raises(EvalError, match="never written there"):
+            library.add_candidate(repo / "lib", {"kind": "user_disagreement"})
+
+    def test_reads_inside_a_git_tree_never_refuse(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Templates are read from a library in a repository, and from the default library of
+        a user whose home is a git tree."""
+        home = h.tmp / "home"
+        (home / ".git").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("SEALED_PANEL_RUBRICS")
+        assert library_dir().is_relative_to(home)
+        assert main(["rubrics", "list"]) == 0
+        assert main(["rubrics", "suggest", "--kind", "email"]) == 0
+        out = h.tmp / "spec.json"
+        assert main(["rubrics", "use", "message", "--out", str(out)]) == 0
+        capsys.readouterr()
+        sp = h.tmp / "t.json"
+        sp.write_text(json.dumps(make_spec(template={"id": "message", "version": 1})))
+        init_run(h.run, sp)  # reads the template from the library in the git tree
 
     @pytest.mark.parametrize("value", ["rubrics", "./lib", "../lib"])
     def test_a_relative_environment_path_is_refused(
@@ -633,14 +665,16 @@ class TestResolvedLibrary:
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         return repo
 
-    def test_a_symlink_into_a_repository_is_refused(self, tmp_path: Path) -> None:
+    def test_a_symlink_into_a_repository_is_refused_for_a_write(self, tmp_path: Path) -> None:
         repo = self.repo(tmp_path)
         (repo / "rubrics").mkdir()
         link = tmp_path / "outside" / "lib"
         link.parent.mkdir()
         link.symlink_to(repo / "rubrics")
-        with pytest.raises(EvalError, match=f"{repo.resolve() / 'rubrics'}"):
-            library_dir(link)
+        lib = library_dir(link)
+        assert lib == (repo / "rubrics").resolve()
+        with pytest.raises(EvalError, match="inside the git working tree"):
+            library.reject(lib, "c-0123456789ab", "a reason")
 
     def test_dot_dot_out_of_a_repository_is_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

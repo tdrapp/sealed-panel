@@ -749,6 +749,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "quotes.append(normalise(quote))",
         "quotes.append(quote)",
     ),
+    "learning writes into a git tree when it proposes nothing": (
+        LEARN,
+        "    writable_library(lib)  # refused even when the run proposes nothing\n",
+        "",
+    ),
+    "a candidate written into a git tree": (
+        LIB,
+        '    writable_library(lib)\n    kind = proposal["kind"]',
+        '    kind = proposal["kind"]',
+    ),
     "judges per persona unbounded (config)": (
         CFG,
         'if run["judges_per_persona"] > MAX_JUDGES_PER_PERSONA:',

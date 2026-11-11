@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import library
-from .config import Config, library_dir
+from .config import Config, library_dir, writable_library
 from .decide import BLOCKED, decide
 from .errors import EvalError
 from .ledger import results_by_judge
@@ -222,6 +222,7 @@ def learn_after_seal(run: Path, lib: Path) -> list[Path]:
         run: The run directory, sealed.
         lib: The user library, resolved by library_dir.
     """
+    writable_library(lib)  # refused even when the run proposes nothing
     paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]
     return sorted({p for p in paths if p is not None})
 

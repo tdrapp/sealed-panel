@@ -85,10 +85,13 @@ environment variable replaces it, and `--library DIR` replaces it for one comman
 expanded everywhere. The environment variable must be absolute (or start with `~`); a flag may
 be relative to the current directory and is made absolute.
 
-Wherever it comes from, a library is refused when it lies inside the installed package, inside
-a run, or inside a git working tree (any folder with a `.git` above it), ignored there or not:
-no candidate is ever written where it could be committed by accident, and no git process runs
-to ask.
+Wherever it comes from, a library is refused when it lies inside the installed package or
+inside a run. A library inside a git working tree (any folder with a `.git` at or above it) is
+read like any other, but refused for every write (`learning learn`, `feedback`, `rubrics
+promote`, `rubrics reject`), whether git ignores the folder or not: candidates quote the judged
+texts, so none is ever written where it could be committed by accident, and no git process runs
+to ask. Before 0.4.0 a folder git ignored was accepted; point `--library` or
+`$SEALED_PANEL_RUBRICS` at a folder outside any repository instead.
 
 No run holds a library: `init` reads it for a template the spec names and freezes nothing of
 it, and only `learning learn`, `feedback` and `rubrics promote` or `reject` write there.

@@ -403,23 +403,35 @@ def _git_top(path: Path) -> Path | None:
 
 
 def guard_library(path: Path) -> Path:
-    """Refuse a library inside the installed package, a run, or a git working tree (a folder
-    with a `.git` above it): candidates quote the judged texts and must never be committed by
-    accident. No git runs: whether the tree ignores the folder is not asked.
-    The path is resolved first (symlinks and `..` followed), so the checks see where candidates
-    would really be written; the resolved path is returned."""
+    """Refuse a library inside the installed package or a run, for any use: its files would be
+    read as templates and candidates. The path is resolved first (symlinks and `..` followed),
+    so the checks see where candidates would really be written; the resolved path is
+    returned."""
     real = path.expanduser().resolve(strict=False)
     package = Path(__file__).resolve().parent
     if real == package or package in real.parents:
         raise ConfigError(f"the rubric library may not live inside the package: {real}")
     outside_runs(real, "the rubric library")
-    top = _git_top(real)
+    return real
+
+
+def writable_library(lib: Path) -> Path:
+    """The library, refused for a write when it lies in a git working tree (a folder with a
+    `.git` at or above it, ignored by git or not: no git process runs to ask). Candidates and
+    their history quote the judged texts, so they are never written where a commit could take
+    them. Reads never refuse.
+
+    Args:
+        lib: The library, as library_dir resolved it.
+    """
+    top = _git_top(lib.resolve())
     if top is not None:
         raise ConfigError(
-            f"the rubric library {real} is inside the git working tree {top}: candidates quote "
-            "the judged texts. Choose a path outside any repository."
+            f"the rubric library {lib} is inside the git working tree {top}: candidates quote "
+            "the judged texts, so they are never written there. Point --library or "
+            f"${LIBRARY_ENV} at a folder outside any repository"
         )
-    return real
+    return lib
 
 
 def library_dir(flag: str | Path | None = None) -> Path:
