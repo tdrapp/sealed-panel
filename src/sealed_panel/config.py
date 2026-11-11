@@ -8,6 +8,7 @@ and dropped from a run frozen before.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -218,10 +219,16 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     return errors
 
 
-def default_data() -> dict[str, Any]:
-    """The packaged defaults, read from defaults.toml."""
+@cache
+def _parsed_defaults() -> dict[str, Any]:
     text = resources.files("sealed_panel").joinpath("defaults.toml").read_text("utf-8")
     return tomllib.loads(text)
+
+
+def default_data() -> dict[str, Any]:
+    """The packaged defaults, read from defaults.toml once per process; each call returns its
+    own copy, which the caller may change."""
+    return copy.deepcopy(_parsed_defaults())
 
 
 def fingerprint(data: Any) -> str:
