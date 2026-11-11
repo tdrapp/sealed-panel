@@ -138,6 +138,14 @@ CI runs every mutation on every pull request, in four shards of two workers each
 `mutation` check merges their reports. A scheduled workflow runs the whole suite on every
 mutation each night, so a fault in the selection shows within a day.
 
+## The plugin follows the release
+
+The plugin's marketplace entry installs the plugin from the release tag (the `ref` of its
+`github` source), and `.mcp.json` pins the server to the same tag: the skill on `main` may call
+tools the released server lacks, so users never get one without the other. The release commit
+bumps both with the version (see [docs/runbook.md](docs/runbook.md)), and
+`tests/test_packaging.py` fails when they disagree with the package version.
+
 ## Branches and pull requests
 
 1. Branch from `main`: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`.

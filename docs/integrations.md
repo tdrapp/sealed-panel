@@ -64,7 +64,9 @@ left in host mode, flagged in the report.
 
 The repository is also a plugin, and its own marketplace, for agent hosts that install plugins
 from a git repository. The plugin manifest and the marketplace file sit in the plugin folder
-at the repository root; the plugin brings three things:
+at the repository root. The marketplace entry installs the plugin from the release tag, the same
+tag `.mcp.json` pins the server to, so the skill and the server it calls always come from one
+release, even while `main` moves ahead of it. The plugin brings three things:
 
 | Part | File | What it does |
 |---|---|---|

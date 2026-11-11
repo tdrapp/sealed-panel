@@ -45,6 +45,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The plugin's marketplace entry installs the plugin from the release tag (`"source":
+  {"source": "github", "repo": ..., "ref": "v<version>"}`) instead of the repository's default
+  branch, the tag `.mcp.json` already pins the server to: between releases, `main`'s skill
+  could call tools the pinned server lacks. The release commit bumps both.
 - `judge_round` takes `on_seat(seat, result, why_skipped)`, called after each seat; the command
   line's `judge` is `judge_round` with a printer, instead of its own copy of the loop. Output
   unchanged.
