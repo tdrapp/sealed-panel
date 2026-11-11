@@ -86,9 +86,10 @@ replaces it, and `--library DIR` replaces it for one command. `~` is expanded ev
 environment variable and the setting must be absolute (or start with `~`); a flag may be
 relative to the current directory and is made absolute.
 
-Wherever it comes from, a library is refused when it lies inside the installed package, or
-inside a git working tree that does not ignore it: no candidate is ever written where it
-could be committed by accident.
+Wherever it comes from, a library is refused when it lies inside the installed package, inside
+a run, or inside a git working tree (any folder with a `.git` above it), ignored there or not:
+no candidate is ever written where it could be committed by accident, and no git process runs
+to ask.
 
 `init` freezes the resolved library into the run. `aggregate` writes the run's candidates
 there and prints the path. `rubrics ... --run RUN` reads the library frozen into that run. A

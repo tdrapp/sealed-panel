@@ -609,21 +609,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "promote without a terminal": (f"{PKG}/cli.py", "if not sys.stdin.isatty():", "if False:"),
     "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
-    "inherited GIT_DIR obeyed": (
-        CFG,
-        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
-        "",
-    ),
-    "no usable git trusted": (
-        CFG,
-        "        return False  # no usable git: the library cannot be shown to be ignored\n",
-        "        return True\n",
-    ),
-    "all GIT_ variables stripped": (
-        CFG,
-        "            env={k: v for k, v in os.environ.items() if k not in local},\n",
-        '            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},\n',
-    ),
     "feedback library unresolved": (
         f"{PKG}/cli.py",
         "lib = library_dir(a.library) if a.library else None",
@@ -636,13 +621,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "library inside a git tree": (
         CFG,
-        "if top is not None and not _git_ignored(top, real):",
-        "if False:",
-    ),
-    "library checked as a file": (
-        CFG,
-        'str(path) + "/"],',
-        "str(path)],",
+        "    if top is not None:\n        raise ConfigError(",
+        "    if False:\n        raise ConfigError(",
     ),
     "relative library path accepted": (
         CFG,

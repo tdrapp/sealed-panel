@@ -214,7 +214,7 @@ A run frozen before 0.3.0 has no `[judge]` section and is in host mode. A run fr
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `path` | `""` | absolute or starting with `~`; never inside the package, inside a run, nor inside a git working tree that does not ignore it | The user rubric library. Empty means the user-level default (`~/.local/share/sealed-panel/rubrics`, or the platform equivalent), never the current directory. `SEALED_PANEL_RUBRICS` overrides it, `~` is expanded, and `init` freezes the resolved path into the run; it is not listed among the settings that differ from the defaults. See [rubrics.md](rubrics.md). |
+| `path` | `""` | absolute or starting with `~`; never inside the package, inside a run, nor inside a git working tree (a `.git` above it), ignored or not | The user rubric library. Empty means the user-level default (`~/.local/share/sealed-panel/rubrics`, or the platform equivalent), never the current directory. `SEALED_PANEL_RUBRICS` overrides it, `~` is expanded, and `init` freezes the resolved path into the run; it is not listed among the settings that differ from the defaults. See [rubrics.md](rubrics.md). |
 | `learn` | `true` | | After a sealed panel aggregates, write learned candidates to the library inbox. |
 | `control_min_candidate` | `4.0` | 1 to 5 | `control_too_close` fires only when the sealed candidate's mean raw score on the dimension is at least this. |
 | `control_gap` | `1.0` | 0 to 4 | ... and the control's mean raw score is within this of it. |

@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 import tomllib
 from collections.abc import Mapping
@@ -404,45 +403,10 @@ def _git_top(path: Path) -> Path | None:
     return None
 
 
-@cache
-def _git_local_env_vars() -> frozenset[str]:
-    """The repository-local variables, as git lists them: the ones git itself clears when it
-    moves to another repository (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and the like)."""
-    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    done = subprocess.run(
-        ["git", "rev-parse", "--local-env-vars"],  # noqa: S607 (the user's own git, from PATH)
-        capture_output=True,
-        text=True,
-        check=True,
-        env=clean,
-    )
-    return frozenset(done.stdout.split())
-
-
-def _git_ignored(top: Path, path: Path) -> bool:
-    """Whether the user's git ignores `path` in the repository at `top`. An inherited
-    repository-local variable (a git hook, a wrapper) would make git answer for another
-    repository, so those are dropped; the user's configuration (GIT_CONFIG_GLOBAL and the like)
-    is kept, so the answer is the one their own git gives. Git classes `-c` settings
-    (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT) as local too, so a wrapper's one-off
-    `-c core.excludesFile` is dropped with them: the user's durable configuration decides."""
-    try:
-        local = _git_local_env_vars()
-        done = subprocess.run(  # noqa: S603 (a fixed argument list, no shell)
-            # A trailing slash: the library is a directory, even before it exists.
-            ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],  # noqa: S607
-            capture_output=True,
-            check=False,
-            env={k: v for k, v in os.environ.items() if k not in local},
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return False  # no usable git: the library cannot be shown to be ignored
-    return done.returncode == 0
-
-
 def guard_library(path: Path) -> Path:
-    """Refuse a library inside the installed package, or inside a git working tree that does
-    not ignore it: candidates quote the judged texts and must never be committed by accident.
+    """Refuse a library inside the installed package, a run, or a git working tree (a folder
+    with a `.git` above it): candidates quote the judged texts and must never be committed by
+    accident. No git runs: whether the tree ignores the folder is not asked.
     The path is resolved first (symlinks and `..` followed), so the checks see where candidates
     would really be written; the resolved path is returned."""
     real = path.expanduser().resolve(strict=False)
@@ -456,10 +420,10 @@ def guard_library(path: Path) -> Path:
             "as templates and candidates"
         )
     top = _git_top(real)
-    if top is not None and not _git_ignored(top, real):
+    if top is not None:
         raise ConfigError(
-            f"the rubric library {real} is inside the git working tree {top} and not ignored "
-            "there: candidates quote the judged texts. Choose a path outside it, or ignore it."
+            f"the rubric library {real} is inside the git working tree {top}: candidates quote "
+            "the judged texts. Choose a path outside any repository."
         )
     return real
 

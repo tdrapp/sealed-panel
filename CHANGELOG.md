@@ -36,6 +36,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A rubric library inside a git working tree is refused even when the tree ignores it. Before:
+  `git check-ignore` decided, run with the user's git and a cleaned environment. After: any
+  `.git` above the folder (a directory, or a worktree's file) refuses it, and the core starts
+  no git process. Move a library that lived in an ignored folder of a repository elsewhere.
 - New MCP tool `rubrics_use(id, out, persona_file?, library?)`: writes the spec skeleton of a
   template under the root (refused outside it, or when `out` exists), as `rubrics use` does.
 - Every run file is written to a private temporary file in its directory and moved over the
