@@ -865,7 +865,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if p.is_symlink():\n",
         "        if False:\n",
     ),
-    "library inside a run accepted": (CFG, "    if run is not None:\n", "    if False:\n"),
+    "library inside a run accepted": (CFG, '    outside_runs(real, "the rubric library")\n', ""),
     "root listed with the grading settings": (
         CFG,
         'NOT_GRADING = frozenset({"mcp.root"})',
@@ -910,8 +910,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "rubrics_use writes outside the root": (
         MCP,
-        "rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))",
-        "rubrics_lib.write_skeleton(lib, id, Path(out), opt(persona_file))",
+        'target = outside_runs(path(out), "the spec")',
+        'target = outside_runs(Path(out), "the spec")',
+    ),
+    "rubrics_use writes inside a run": (
+        MCP,
+        'target = outside_runs(path(out), "the spec")',
+        "target = path(out)",
     ),
     "links followed in a transcript root": (
         MCP,
@@ -1280,9 +1285,14 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # 0.4.0 review: nested runs, the run lock, leftover records.
     "a run created inside a run": (
-        SPEC,
-        '        if (outer / "rubric.lock").exists():\n',
+        f"{PKG}/store.py",
+        '        if (folder / "rubric.lock").exists():\n',
         "        if False:\n",
+    ),
+    "init does not check for a run above": (
+        SPEC,
+        '    outside_runs(run, "the run")\n',
+        "",
     ),
     "a lock file that cannot be opened crashes": (
         f"{PKG}/store.py",

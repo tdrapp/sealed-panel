@@ -747,6 +747,26 @@ class TestPaths:
         assert not (h.run / "sealed" / "r1" / "seat_j1.lock").exists()
         assert not (h.run / "sealed" / "r1" / "result.json").exists()
 
+    async def test_nothing_is_created_inside_a_run(self, h: Harness, mode: str) -> None:
+        """A spec skeleton written into a run would fake a round's result or block the sealed
+        panel (the review's probe): every tool argument that creates something is refused
+        inside a run, by the one guard init uses too."""
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+            for out in ("run/rounds/r1/result.json", "run/sealed", "run/config.json", "run/x.json"):
+                msg = await error(c, "rubrics_use", id="message", out=out)
+                assert "inside the run" in msg, out
+            msg = await error(c, "rubrics_suggest", kind="email", library="run/lib")
+            assert "inside the run" in msg
+            msg = await error(c, "init", run="run/rounds/r1/inner", spec="spec.json")
+            assert "inside the run" in msg
+            assert (await call(c, "status", run="run"))["decision"] == "CONTINUE"
+            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
+        assert not (h.run / "rounds" / "r1" / "result.json").exists()
+        assert not (h.run / "x.json").exists()
+
     async def test_a_foreign_directory_is_not_overwritten(self, h: Harness, mode: str) -> None:
         write_spec(h)
         victim = h.tmp / "someapp"

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ConfigError
+from .store import outside_runs
 
 # Sections a version before 0.4.0 froze into every run, and 0.4.0 fixed in code: a file that
 # sets one is refused, naming the key; a run frozen with one is read without it.
@@ -411,12 +412,7 @@ def guard_library(path: Path) -> Path:
     package = Path(__file__).resolve().parent
     if real == package or package in real.parents:
         raise ConfigError(f"the rubric library may not live inside the package: {real}")
-    run = next((p for p in (real, *real.parents) if (p / "rubric.lock").is_file()), None)
-    if run is not None:
-        raise ConfigError(
-            f"the rubric library may not live inside the run {run}: its files would be read "
-            "as templates and candidates"
-        )
+    outside_runs(real, "the rubric library")
     top = _git_top(real)
     if top is not None:
         raise ConfigError(

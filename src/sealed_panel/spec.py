@@ -23,7 +23,7 @@ from .config import (
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import contained, dump_json, load_json, make_dir, read_text, write_file
+from .store import contained, dump_json, load_json, make_dir, outside_runs, read_text, write_file
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -376,7 +376,7 @@ def init_run(
     cfg = resolve(cfg)
     if (run / "rubric.lock").exists():
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
-    _refuse_nested(run)
+    outside_runs(run, "the run")
     if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
         raise EvalError(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
@@ -422,14 +422,6 @@ def run_salt(run: Path) -> bytes | None:
     except (OSError, ValueError, EvalError):
         return None
     return salt if len(salt) == SALT_BYTES else None
-
-
-def _refuse_nested(run: Path) -> None:
-    """Refuse a run inside another run: a directory created there (a lock file's name, a
-    result's) would block that run's rounds."""
-    for outer in run.resolve().parents:
-        if (outer / "rubric.lock").exists():
-            raise EvalError(f"{run} is inside the run {outer}: a run never holds another run")
 
 
 def load_frozen(run: Path) -> dict[str, Any]:

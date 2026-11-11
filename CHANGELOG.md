@@ -9,6 +9,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Nothing a tool creates goes inside a run: one guard (`store.outside_runs`) refuses a new run,
+  the `rubrics_use` spec skeleton, and a rubric library at or under a folder holding
+  `rubric.lock`. A skeleton written to `run/rounds/r1/result.json` would have faked an
+  aggregated round, and one named `run/sealed` blocked the sealed panel; `init` uses the same
+  guard in place of its own check.
 - The MCP tools refuse the root's lock file under any name that reaches it: the check compares
   inodes, so another case of the name on a case-insensitive filesystem, or a hard link, gets the
   tool's own refusal instead of a later, less clear one. `docs/cli.md` now says the server

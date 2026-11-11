@@ -43,7 +43,7 @@ from .report import status as run_status
 from .runner import judge_seat, open_seats
 from .spec import TODO_MARKER, run_config
 from .spec import init_run as init_any_run
-from .store import contained, locked, resolve_round
+from .store import contained, locked, outside_runs, resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -622,7 +622,8 @@ def build_server(
 
         def call() -> UseResult:
             lib = library_dir(opt(library))
-            written = rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))
+            target = outside_runs(path(out), "the spec")
+            written = rubrics_lib.write_skeleton(lib, id, target, opt(persona_file))
             return UseResult(path=str(written), template=id, todo_marker=TODO_MARKER)
 
         return _calling(call)
