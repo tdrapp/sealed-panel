@@ -19,8 +19,8 @@ refused with a message naming the key, whether it comes from a configuration fil
 spec. Within those bounds a configuration can loosen or tighten a value, and every value
 that differs from the defaults is printed in the report header and by `status`. What it cannot
 do: raise a severity cap above its ceiling, lower the quote floors or raise the bad-quote share
-past their bounds, drop a default injection pattern, or add a pattern that matches nothing.
-The normalisation that texts go through before they are compared is fixed in code.
+past their bounds. The normalisation that texts go through before they are compared, and the
+injection patterns, are fixed in code.
 
 At `init`, the effective configuration is written to `config.json` in the run directory and its
 sha256 to `config.lock`. Every later command reads that frozen copy and refuses if it was
@@ -93,12 +93,17 @@ A configuration file that still sets a `[text]` key is refused with a message na
 A run frozen before 0.4.0 holds its `[text]` table in `config.json`: its lock is checked
 against the file as frozen, then the table is dropped, and the fixed normalisation applies.
 
-## `[injection]`
+## Injection patterns (fixed since 0.4.0)
 
-| Key | Default | Bounds | Meaning |
-|---|---|---|---|
-| `patterns` | five expressions | every default pattern must stay; more may be added; each a valid regular expression that matches its sample | Run on normalised text (see Normalisation). Every text placed in a brief is scanned (candidate, control, previous version, baseline, known-good); a match is flagged per item in the author's findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or declared choices refuses `init`. One default pattern is French, for texts written in French. |
-| `samples` | one line per default pattern | one per pattern, in the same order | A line each pattern must match after the scan's normalisation (punctuation map, stripped characters, whitespace, case): a pattern holding a character that normalisation removes or maps can never match, and is refused. A pattern that matches nothing would switch the check off, so it is refused. |
+Before 0.4.0, `[injection] patterns` could be extended (every default pattern had to stay) and
+`[injection] samples` gave each a line it must match. 0.4.0 fixed the five 0.3.1 defaults in
+code (`text.INJECTION_PATTERNS`), one of them French, for texts written in French. They run on
+normalised text (see Normalisation). Every text placed in a brief is scanned (candidate,
+control, previous version, baseline, known-good); a match is flagged per item in the author's
+findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has
+`injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or
+declared choices refuses `init`. A configuration file that still sets an `[injection]` key is
+refused with a message naming the key; a run frozen before 0.4.0 is read as for `[text]`.
 
 ## `[transcript]`
 
@@ -149,7 +154,6 @@ names. A judge whose prompt held the whole brief and that left any of those cann
   only be made stricter. Which typography the check forgives is no longer a setting: a legal
   `[text]` override could only loosen some check in one direction or another, and no user set
   one, so 0.4.0 fixed it in code.
-- `[injection]`: texts in other languages need more patterns; the defaults always stay.
 - `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
   reader without touching the checks.
 - `[judge]`: which program judges, how long it may take, and which credentials it may see,

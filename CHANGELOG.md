@@ -56,6 +56,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- `[injection]` (`patterns`, `samples`). Before: a configuration could add patterns (every
+  default had to stay, each matching its sample line). After: the five 0.3.1 patterns are the
+  constant `text.INJECTION_PATTERNS`, and `injection_flags(text)` takes no configuration. A
+  file that sets an `[injection]` key is refused, naming it; a run frozen before 0.4.0 reads as
+  for `[text]`.
 - `[text]` (`strip_chars`, `punctuation`). Before: a configuration could map punctuation and
   hold the stripped characters for quote matching, within bounds, while every other check used
   the defaults. After: both are constants in `text.py`, equal to the 0.3.1 defaults, and one

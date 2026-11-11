@@ -28,6 +28,7 @@ from .errors import ConfigError
 # sets one is refused, naming the key; a run frozen with one is read without it.
 REMOVED_SECTIONS = {
     "text": "the quote check's normalisation is fixed in code since 0.4.0",
+    "injection": "the injection patterns are fixed in code since 0.4.0",
 }
 SEVERITY_NAMES = ("blocking", "material", "cosmetic", "none")
 
@@ -182,7 +183,6 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
         errors.append("library.control_min_candidate must be between 1 and 5")
     if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
         errors.append("library.control_gap must be between 0 and 4")
-    errors += _injection_errors(data["injection"])
     errors += _judge_errors(data.get("judge") or default_data()["judge"])
     root = str((data.get("mcp") or {}).get("root", ""))
     if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
@@ -191,34 +191,6 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
             errors.append(f"transcript.{key} must not be empty")
-    return errors
-
-
-def _injection_errors(injection: Mapping[str, Any]) -> list[str]:
-    """Patterns may be added, never dropped, and each must match its sample line once the
-    sample goes through the scan's own normalisation, the built-in one."""
-    from .text import normalise  # here, not at the top: text.py imports this module
-
-    errors = []
-    patterns, samples = injection["patterns"], injection["samples"]
-    default = default_data()["injection"]["patterns"]
-    missing = [p for p in default if p not in patterns]
-    if missing:
-        errors.append(
-            "injection.patterns may be extended, but every default pattern must stay: "
-            f"missing {missing}"
-        )
-    if len(samples) != len(patterns):
-        errors.append("injection.samples needs one sample line per pattern, in the same order")
-        return errors
-    for p, sample in zip(patterns, samples, strict=True):
-        try:
-            hit = re.search(p, normalise(sample))
-        except re.error as exc:
-            errors.append(f"injection.patterns: {p!r} is not a valid expression ({exc})")
-            continue
-        if not hit:
-            errors.append(f"injection.patterns: {p!r} does not match its sample {sample!r}")
     return errors
 
 
@@ -361,11 +333,6 @@ class Config:
     def max_bad_share(self) -> Fraction:
         """The share of unverified quotes that discards a judge."""
         return Fraction(self.section("quotes")["max_bad_share"])
-
-    @property
-    def injection_patterns(self) -> list[str]:
-        """The patterns of text addressed to a judge."""
-        return list(self.section("injection")["patterns"])
 
     @property
     def transcript(self) -> dict[str, Any]:

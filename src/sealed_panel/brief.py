@@ -236,15 +236,14 @@ def _check_loop(
         raise EvalError("the loop has stopped: seal instead of briefing a new round")
 
 
-def flags_by_role(roles: list[tuple[str, str]], cfg: Config) -> dict[str, list[str]]:
+def flags_by_role(roles: list[tuple[str, str]]) -> dict[str, list[str]]:
     """The injection patterns each text placed in the brief matches, by role (only the roles
     with a match).
 
     Args:
         roles: (role, text) of every item of the brief.
-        cfg: The run's configuration.
     """
-    found = {role: injection_flags(text, cfg) for role, text in roles}
+    found = {role: injection_flags(text) for role, text in roles}
     return {role: flags for role, flags in found.items() if flags}
 
 
@@ -253,7 +252,7 @@ def _refuse_a_flagged_seal(
 ) -> None:
     """Refuse a sealed brief that would carry text addressed to a judge, before anything is
     written: its grade could not stand, and a run has one sealed panel."""
-    found = flags_by_role(roles, cfg) if sealed else {}
+    found = flags_by_role(roles) if sealed else {}
     if found and not spec.get(INJECTION_ACK):
         raise EvalError(
             f"the sealed brief would carry text addressed to a judge in the "
@@ -349,8 +348,8 @@ def write_briefs(
             "rubric_sha256": rubric_hash(spec),
             "candidate_hash": text_hash(cand),
             "roles": [r for r, _ in roles],
-            "injection_flags": injection_flags(cand, cfg),
-            "injection_flags_by_role": flags_by_role(roles, cfg),
+            "injection_flags": injection_flags(cand),
+            "injection_flags_by_role": flags_by_role(roles),
             "judges": judges,
         },
     )

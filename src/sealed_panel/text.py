@@ -29,6 +29,17 @@ PUNCTUATION = {
 # Characters removed before texts are compared: markdown emphasis and headings.
 STRIP_CHARS = "*_`#>"
 _STRIPPED = re.compile("[" + re.escape(STRIP_CHARS) + "]")
+# Text addressed to a judge, matched on normalised text. A match in a text placed in a brief is
+# flagged and blocks the grade; a match in the spec's own text refuses `init`. These were the
+# `[injection]` defaults until 0.4.0, which made them fixed. The French one is a phrasing seen
+# in texts written in French ("note to the judge").
+INJECTION_PATTERNS = (
+    r"ignore (all |any )?(previous|prior|above) (instructions|rules)",
+    r"\b(score|grade|rate) (this|it|me) (a )?5\b",
+    r"\byou are (now )?(the|a) (judge|grader|evaluator)\b",
+    r"\bsystem prompt\b",
+    r"\bnote (au|pour le) juge\b",
+)
 
 
 def normalise(text: str) -> str:
@@ -95,13 +106,11 @@ def quote_found(quote: str, source: str, cfg: Config | None = None) -> bool:
     return True
 
 
-def injection_flags(text: str, cfg: Config | None = None) -> list[str]:
+def injection_flags(text: str) -> list[str]:
     """The injection patterns the text matches, once normalised.
 
     Args:
         text: The text.
-        cfg: The run's configuration, which may add patterns.
     """
-    cfg = resolve(cfg)
     low = normalise(text)
-    return [p for p in cfg.injection_patterns if re.search(p, low)]
+    return [p for p in INJECTION_PATTERNS if re.search(p, low)]

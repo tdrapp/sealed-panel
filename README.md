@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 334 mutations, 332
+bound or boundary at a time and requires the suite to fail on each. Of its 329 mutations, 327
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -357,12 +357,12 @@ only `PATH`, `HOME`, `LANG` and the allowed names from the environment.
 ## Configuration
 
 The settings live in [`src/sealed_panel/defaults.toml`](src/sealed_panel/defaults.toml): run
-defaults, limits, severity caps, quote rules, text normalisation, injection patterns and
-transcript field names. A spec may override the per-run keys; `init --config PATH` overrides
-the rest, within hard bounds, and the effective configuration is frozen into the run. The
-brief texts stay in code, because they are the instrument. Every key and bound is documented
-in [docs/configuration.md](docs/configuration.md). The CLI is described in
-[docs/cli.md](docs/cli.md) and the reasoning behind each rule in
+defaults, limits, severity caps, quote rules and transcript field names (the text normalisation
+and the injection patterns are fixed in code). A spec may override the per-run keys; `init
+--config PATH` overrides the rest, within hard bounds, and the effective configuration is
+frozen into the run. The brief texts stay in code, because they are the instrument. Every key
+and bound is documented in [docs/configuration.md](docs/configuration.md). The CLI is
+described in [docs/cli.md](docs/cli.md) and the reasoning behind each rule in
 [docs/protocol.md](docs/protocol.md).
 
 ## Repository structure
@@ -505,10 +505,9 @@ owner-only (0600 and 0700).
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and
 known-good limits, the noise floor, the severity caps (tighter only), the quote lengths and
-bad-quote share (stricter only: the floors are the defaults), added injection patterns (the
-defaults always stay), and the transcript field names. The normalisation of texts before they
-are compared is fixed in code. Every such value is frozen into the run
-at `init`.
+bad-quote share (stricter only: the floors are the defaults), and the transcript field names.
+The normalisation of texts before they are compared, and the injection patterns, are fixed in
+code. Every such value is frozen into the run at `init`.
 
 ## License
 

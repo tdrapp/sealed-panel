@@ -252,7 +252,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if not isinstance(c, dict) or not c.get("choice") or not c.get("user_said"):',
         "if False:",
     ),
-    "spec injection allowed": (SPEC, "if injection_flags(exposed, cfg):", "if False:"),
+    "spec injection allowed": (SPEC, "if injection_flags(exposed):", "if False:"),
     "unknown spec key accepted": (
         SPEC,
         'errors = _unknown(spec, SPEC_KEYS, "spec")',
@@ -337,7 +337,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if len(stripped.split()) == 1 and "/" in stripped:',
         "if False:",
     ),
-    "an injection pattern dropped": (DEFAULTS, "    '\\bsystem prompt\\b',\n", ""),
+    "an injection pattern dropped": (TEXT, '    r"\\bsystem prompt\\b",\n', ""),
     "agent id and transcript mismatch accepted": (
         REC,
         "if found and found != agent_id:",
@@ -356,12 +356,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "init twice": (SPEC, 'if (run / "rubric.lock").exists():', "if False:"),
     "measure twice": (REC, 'if any(r["id"] == mid for r in rows):', "if False:"),
     "baseline dropped": (BRIEF, 'roles.append(("baseline", read_text(first)))', "pass"),
-    "invalid regex accepted": (
-        CFG,
-        '            errors.append(f"injection.patterns: {p!r} is not a valid expression '
-        '({exc})")\n            continue',
-        "            continue",
-    ),
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
     "max_rounds exceeded": (BRIEF, 'if rnd > spec["max_rounds"]:', "if False:"),
     "sealed round directory exists": (BRIEF, "if round_dir(run, rnd, True).exists():", "if False:"),
@@ -749,22 +743,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "severity order off": (CFG, "if values != sorted(values):", "if False:"),
     "run bounds off": (CFG, "if not low <= value <= high:", "if False:"),
     "quote floor off": (CFG, 'if quotes["min_chars"] < MIN_QUOTE_CHARS_FLOOR:', "if False:"),
-    "a default injection pattern dropped": (
-        CFG,
-        "    if missing:\n        errors.append(",
-        "    if False:\n        errors.append(",
-    ),
-    "samples not normalised": (
-        CFG,
-        "hit = re.search(p, normalise(sample))",
-        "hit = re.search(p, sample)",
-    ),
-    "a pattern that matches nothing accepted": (CFG, "        if not hit:", "        if False:"),
-    "unpaired samples accepted": (
-        CFG,
-        "if len(samples) != len(patterns):",
-        "if False:",
-    ),
     # The run's [text] settings reaching a check other than quote matching. The replacement
     # imports the configured normalisation itself: the module no longer does.
     "a removed setting read as an unknown key": (
@@ -1263,8 +1241,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Every item of a brief is scanned for text addressed to a judge, and any flag blocks.
     "only the candidate is scanned": (
         BRIEF,
-        '"injection_flags_by_role": flags_by_role(roles, cfg),',
-        '"injection_flags_by_role": flags_by_role(roles[:1], cfg),',
+        '"injection_flags_by_role": flags_by_role(roles),',
+        '"injection_flags_by_role": flags_by_role(roles[:1]),',
     ),
     "the gate reads the candidate's flags only": (
         f"{PKG}/decide.py",

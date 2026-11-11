@@ -398,7 +398,7 @@ def init_run(
         + [p["description"] for p in spec["personas"]]
         + [c["choice"] for c in spec.get("declared_choices") or []]
     )
-    if injection_flags(exposed, cfg):
+    if injection_flags(exposed):
         raise EvalError("the spec's own text addresses the judges: keep it neutral")
     make_dir(run)
     frozen = json.loads(json.dumps(cfg.data))
