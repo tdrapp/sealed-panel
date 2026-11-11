@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 319 mutations, 317
+bound or boundary at a time and requires the suite to fail on each. Of its 322 mutations, 320
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -456,15 +456,16 @@ skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
-A run frozen by an older version keeps the settings it was frozen with. A setting added later
-counts as its default for such a run, now and in later versions, so a new setting never locks
-an old run out. A setting whose default changed does not: a 0.2.x run keeps
-`transcript.handback_tool = ""`. The MCP server's read-only tools (`status`, `report`,
-`rubrics_*`) read any locked run; the tools that change one need the server's configuration to
-match the run's, so change such a run with the command line, or through a server started with
-`--config` setting that value. In a host's auto mode, where the judge answers through its
-`SubagentHandback` tool, a run frozen with an empty `handback_tool` rejects every judge it
-records: start a new run, or freeze one with `[transcript] handback_tool = "SubagentHandback"`.
+A run frozen by a version before 0.4.0 is read, never written: `status` and `report` (and the
+MCP tools of the same name) read it, and list its own frozen settings that 0.4.0 no longer has
+(`[text]`, `[injection]`, `[library]`) where they differ from their 0.3.1 default, labelled as
+frozen by that version. Every command and tool that writes to a run (`brief`, `record`,
+`judge`, `measure`, `aggregate`, `learning learn`, `feedback`) refuses it, naming the version
+that froze it: finish such a run with that version, or start a new one. Within 0.4.x, a setting
+added later counts as its default for a run frozen without it, so a new setting never locks a
+run out; a setting whose default changed keeps the run's own value. The MCP tools that change
+a run need the server's configuration to match the run's, so change such a run with the
+command line, or through a server started with `--config` setting that value.
 
 ## Limits
 

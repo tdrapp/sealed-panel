@@ -705,6 +705,21 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        )\n"
         "    return entry",
     ),
+    "a run frozen before 0.4.0 written": (
+        SPEC,
+        '    if version is not None:\n        raise EvalError(\n            f"this run was frozen by',
+        '    if False:\n        raise EvalError(\n            f"this run was frozen by',
+    ),
+    "an older run's own settings hidden": (
+        SPEC,
+        '    return removed_overrides(load_json(run / "config.json"), version)\n',
+        "    return []\n",
+    ),
+    "an older run refused through MCP as a settings difference": (
+        MCP,
+        "        refuse_older_run(where)  # its own refusal, not a settings difference\n",
+        "",
+    ),
     "judges per persona unbounded (config)": (
         CFG,
         'if run["judges_per_persona"] > MAX_JUDGES_PER_PERSONA:',

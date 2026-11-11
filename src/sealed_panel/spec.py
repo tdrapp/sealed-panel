@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
 import re
 import secrets
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .config import (
     MAX_JUDGES_PER_PERSONA,
+    REMOVED_SECTIONS,
     RUN_BOUNDS,
     Config,
     fingerprint,
     library_dir,
+    removed_overrides,
     resolve,
     run_value_error,
     schema_errors,
@@ -440,6 +444,89 @@ def load_frozen(run: Path) -> dict[str, Any]:
             "Start a new run directory with the new spec."
         )
     return spec
+
+
+def frozen_before(run: Path) -> str | None:
+    """The version that froze a run before 0.4.0, or None for a run of this version. Every
+    earlier version froze the `[text]` and `[injection]` sections that 0.4.0 removed, so their
+    presence in config.json is the mark; the rest narrows the version: the env salt came with
+    0.3.1, `[judge]` with 0.3.0, `[library]` with 0.2.0.
+
+    Args:
+        run: The run directory.
+    """
+    if not (run / "config.json").is_file():
+        return None  # not a run: the step's own check says so
+    raw = load_json(run / "config.json")
+    if not isinstance(raw, dict) or not any(k in raw for k in REMOVED_SECTIONS):
+        return None
+    if (run / ENV_SALT).is_file():
+        return "0.3.1"
+    if "judge" in raw:
+        return "0.3.0"
+    return "0.2.x" if "library" in raw else "0.1.0"
+
+
+def refuse_older_run(run: Path) -> None:
+    """Refuse to write to a run frozen before 0.4.0: its frozen settings name sections this
+    version no longer applies, so a step written now would be graded by other rules than the
+    steps before it. `status` and `report` still read it.
+
+    Args:
+        run: The run directory.
+    """
+    version = frozen_before(run)
+    if version is not None:
+        raise EvalError(
+            f"this run was frozen by sealed-panel {version}, before 0.4.0: 0.4.0 reads it "
+            f"(status, report) but never writes to it. Finish it with sealed-panel {version}, "
+            "the version that started it, or start a new run"
+        )
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Path, P], R]:
+    """Run `fn(run, ...)` only for a run this version may write (see refuse_older_run), checked
+    before anything is created in it, the run's lock file included.
+
+    Args:
+        fn: A step whose first argument is the run directory.
+    """
+
+    @functools.wraps(fn)
+    def checked(run: Path, /, *args: P.args, **kwargs: P.kwargs) -> R:
+        refuse_older_run(run)
+        return fn(run, *args, **kwargs)
+
+    return checked
+
+
+def load_writable(run: Path) -> dict[str, Any]:
+    """The run's frozen spec, for a step that writes to the run: refused for a run frozen
+    before 0.4.0, then checked as load_frozen checks it.
+
+    Args:
+        run: The run directory.
+    """
+    refuse_older_run(run)
+    return load_frozen(run)
+
+
+def frozen_settings(run: Path) -> list[str]:
+    """The settings of a run frozen before 0.4.0 that this version no longer has and that
+    differ from their 0.3.1 default (see config.removed_overrides); empty for a run of this
+    version.
+
+    Args:
+        run: The run directory.
+    """
+    version = frozen_before(run)
+    if version is None:
+        return []
+    return removed_overrides(load_json(run / "config.json"), version)
 
 
 def run_config(run: Path) -> Config:

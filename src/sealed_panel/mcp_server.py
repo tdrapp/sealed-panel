@@ -41,7 +41,7 @@ from .record import record_from, record_measurement
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .runner import judge_seat, open_seats
-from .spec import TODO_MARKER, run_config
+from .spec import TODO_MARKER, refuse_older_run, run_config
 from .spec import init_run as init_any_run
 from .store import contained, locked, outside_runs, resolve_round
 
@@ -345,6 +345,7 @@ def build_server(
     def served(p: str) -> Path:
         """A run this server serves: frozen with the settings it was started with."""
         where = path(p)
+        refuse_older_run(where)  # its own refusal, not a settings difference
         differ = config_differences(run_config(where), server)
         if differ:
             raise EvalError(

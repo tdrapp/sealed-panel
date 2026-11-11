@@ -90,8 +90,12 @@ the candidate, whether the previous version or the baseline rides along, the one
 and the whole-brief check of a transcript.
 
 A configuration file that still sets a `[text]` key is refused with a message naming the key.
-A run frozen before 0.4.0 holds its `[text]` table in `config.json`: its lock is checked
-against the file as frozen, then the table is dropped, and the fixed normalisation applies.
+A run frozen before 0.4.0 holds its `[text]` table in `config.json`. Such a run is read only:
+its lock is checked against the file as frozen, `status` and the report list its own `[text]`,
+`[injection]` and `[library]` values that differ from their 0.3.1 default (labelled "frozen by"
+the version that froze it, which the run's files tell: `env.salt` came with 0.3.1, `[judge]`
+with 0.3.0, `[library]` with 0.2.0), and every command that writes to a run refuses it, naming
+that version. 0.4.0 never grades it under the constants.
 
 ## Injection patterns (fixed since 0.4.0)
 

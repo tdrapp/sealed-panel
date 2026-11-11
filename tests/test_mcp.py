@@ -7,6 +7,7 @@ import contextlib
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -888,6 +889,28 @@ class TestRoundThreeProbes:
             ):
                 msg = await error(c, tool, run="run", **args)
                 assert "unknown configuration key 'transcript.tool_block_type'" in msg
+
+    async def test_a_run_frozen_before_0_4_0_is_read_never_written(
+        self, h: Harness, mode: str
+    ) -> None:
+        fixture = Path(__file__).resolve().parent / "fixtures" / "run-0.1.0"
+        shutil.copytree(fixture, h.tmp / "old")
+        before = sorted(p.relative_to(h.tmp / "old") for p in (h.tmp / "old").rglob("*"))
+        async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
+            status = await call(c, "status", run="old")
+            assert status["decision"] == "CAP"
+            assert "frozen by sealed-panel 0.1.0" in status["details"]["read_only"]
+            await call(c, "report", run="old")
+            for tool, args in (
+                ("brief", {"sealed": True, "artefact": "cand.md", "control": "ctrl.md"}),
+                ("record", {"judge": 1, "agent_id": "a", "sealed": True, "reply": "{}"}),
+                ("judge", {"sealed": True}),
+                ("measure", {"id": "length", "value": "1", "sealed": True}),
+                ("aggregate", {"round": 1}),
+            ):
+                msg = await error(c, tool, run="old", **args)
+                assert "frozen by sealed-panel 0.1.0, before 0.4.0" in msg, tool
+        assert sorted(p.relative_to(h.tmp / "old") for p in (h.tmp / "old").rglob("*")) == before
 
     async def test_a_run_from_an_older_version_is_served(self, h: Harness, mode: str) -> None:
         write_spec(h)

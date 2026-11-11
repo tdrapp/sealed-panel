@@ -38,7 +38,7 @@ from .config import Config
 from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
 from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys, seat_lock
-from .spec import load_frozen, run_config, run_salt
+from .spec import load_writable, run_config, run_salt
 from .store import dump_json, load_json, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
@@ -124,7 +124,7 @@ def check_judge(cfg: Config, expected: Mapping[str, Any] | None) -> None:
 def _open_round(
     run: Path, rnd: int, sealed: bool, expected: Mapping[str, Any] | None = None
 ) -> tuple[Config, Path, dict[str, Any]]:
-    load_frozen(run)
+    load_writable(run)
     cfg = run_config(run)
     judge_command(cfg)
     check_judge(cfg, expected)

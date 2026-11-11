@@ -72,11 +72,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
-- `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended its round,
-  a second copy of each `result.json`. After: neither writes it; `ledger.view(run)` derives the
+- **Breaking:** writing to a run frozen before 0.4.0. Before: every command worked on any run.
+  After: `brief`, `record` (a void included), `judge`, `measure`, `aggregate`, `learning learn`
+  and `feedback`, on the command line and through MCP, refuse a run whose `config.json` holds a
+  section 0.4.0 removed, naming the version that froze it ("frozen by sealed-panel 0.3.1, before
+  0.4.0: ... Finish it with sealed-panel 0.3.1"); `status` and `report` read it, `status` says
+  so under `read_only`, and both list its own frozen `[text]`, `[injection]` and `[library]`
+  values that differ from their 0.3.1 default, labelled as frozen by that version.
+- `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended its round, a
+  second copy of each `result.json`. After: neither writes it; `ledger.view(run)` derives the
   rounds from the round files (loop rounds first, by number) and the rubric hash from
   `rubric.lock`. A run frozen before keeps its `ledger.json`, which agrees with its round files
-  and is no longer read.
+  (0.4.0 never writes to such a run) and is no longer read.
 - The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
   the judge's process group): the package declares POSIX only and never ran there. No change on
   macOS or Linux.

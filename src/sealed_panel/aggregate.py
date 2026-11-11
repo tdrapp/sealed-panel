@@ -13,7 +13,7 @@ from .ledger import results_by_judge
 from .record import round_keys, transcript_agent_id
 from .report import write_feedback
 from .runner import every_seat
-from .spec import dims_for, load_frozen, run_config
+from .spec import dims_for, load_writable, refuse_older_run, run_config
 from .store import dump_json, load_json, round_dir, run_lock
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
@@ -197,13 +197,14 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         rnd: The round number, from 1.
         sealed: Whether the round is the sealed panel's.
     """
+    refuse_older_run(run)  # before a seat is settled: that writes too
     with every_seat(run, rnd, sealed), run_lock(run):  # seats first, then the run
         return _aggregate(run, rnd, sealed)
 
 
 def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     """aggregate_round, with every seat held."""
-    spec = load_frozen(run)
+    spec = load_writable(run)
     cfg = run_config(run)
     rdir = round_dir(run, rnd, sealed)
     if (rdir / "result.json").is_file():

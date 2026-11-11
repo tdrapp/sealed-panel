@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import io
-import json
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
-from conftest import judge_json
 from sealed_panel import library
 from sealed_panel.cli import main
+from sealed_panel.errors import EvalError
 from sealed_panel.record import record_reply
-from sealed_panel.store import round_dir
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "run-0.1.0"
@@ -123,36 +121,43 @@ class TestRubricsCli:
 
 
 class TestRunFrozenByVersion010:
-    """A run initialised and aggregated by sealed-panel 0.1.0 keeps working."""
+    """A run initialised and aggregated by sealed-panel 0.1.0 is read by this version and never
+    written to: every write command refuses it, naming 0.1.0."""
 
-    def test_every_command(self, capsys: pytest.CaptureFixture[str], tmp_path: Path,
-                           private_library: Path) -> None:  # fmt: skip
+    def test_status_and_report_read_it(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
         r = tmp_path / "run"
         shutil.copytree(FIXTURE, r)
-        assert "library" not in json.loads((r / "config.json").read_text())
         rc, out = run(capsys, "status", r)
-        assert rc == 0 and '"CAP"' in out
+        assert rc == 0 and '"CAP"' in out and "frozen by sealed-panel 0.1.0" in out
         rc, out = run(capsys, "report", r)
         assert rc == 0 and "library" not in out.splitlines()[2]
-        args = ["--artefact", EXAMPLE / "draft_v1.md", "--control", EXAMPLE / "control.md"]
-        assert run(capsys, "brief", r, "--sealed", *args)[0] == 0
-        keys = json.loads((round_dir(r, 1, True) / "keys.json").read_text())
-        for meta in keys["judges"]:
-            texts = {
-                x: (round_dir(r, 1, True) / f"{x}.md").read_text() for x in meta["key"].values()
-            }
-            dims = {"ask": 4, "relevance": 4, "evidence": 5}
-            close = {"ask": 3, "relevance": 1, "evidence": 1}  # calibrated, but close on ask
-            sc = {x: (dims if x == "candidate" else close) for x in meta["key"].values()}
-            raw = judge_json(meta, texts, sc)
-            assert record_reply(r, 1, meta["judge"], f"new{meta['judge']}", raw, True)["ok"]
-        assert run(capsys, "measure", r, "--sealed", "--id", "length", "--value", "130")[0] == 0
-        rc, out = run(capsys, "aggregate", r, "--sealed")
-        assert rc == 0 and "inbox" not in out
-        rc, out = run(capsys, "learning", "learn", r)
-        assert rc == 0 and f"in {private_library / 'inbox'}" in out
-        assert run(capsys, "report", r)[0] == 0
-        assert run(capsys, "feedback", r, "--note", "too kind", "--dimension", "evidence")[0] == 0
-        rc, out = run(capsys, "rubrics", "list")
-        assert rc == 0 and f"library: {private_library}" in out
-        assert "control_too_close" in out and "user_disagreement" in out
+
+    def test_every_write_command_refuses_it(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, private_library: Path
+    ) -> None:
+        r = tmp_path / "run"
+        shutil.copytree(FIXTURE, r)
+        before = sorted(p.relative_to(r) for p in r.rglob("*"))
+        art = ["--artefact", EXAMPLE / "draft_v1.md", "--control", EXAMPLE / "control.md"]
+        reply = tmp_path / "reply.json"
+        reply.write_text("{}")
+        commands: list[tuple[object, ...]] = [
+            ("brief", r, "--sealed", *art),
+            ("brief", r, "--round", "2", *art),
+            ("record", r, "--sealed", "--judge", "1", "--agent-id", "x", "--output", reply),
+            ("judge", r, "--sealed"),
+            ("measure", r, "--sealed", "--id", "length", "--value", "130"),
+            ("aggregate", r, "--round", "1"),
+            ("learning", "learn", r),
+            ("feedback", r, "--note", "too kind"),
+        ]
+        for args in commands:
+            rc, out = run(capsys, *args)
+            assert rc == 2 and "frozen by sealed-panel 0.1.0, before 0.4.0" in out, args
+            assert "Finish it with sealed-panel 0.1.0" in out, args
+        with pytest.raises(EvalError, match=r"frozen by sealed-panel 0\.1\.0"):
+            record_reply(r, 1, 1, "x", "{}", True)
+        assert sorted(p.relative_to(r) for p in r.rglob("*")) == before
+        assert not private_library.exists()

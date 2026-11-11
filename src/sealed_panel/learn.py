@@ -28,7 +28,7 @@ from .decide import BLOCKED, decide
 from .errors import EvalError
 from .ledger import results_by_judge
 from .ledger import view as ledger_view
-from .spec import TODO_MARKER, load_frozen, run_config
+from .spec import TODO_MARKER, load_writable, run_config
 from .store import round_dir
 
 # A spread of scores across a dimension's valid sealed judges that shows they disagree.
@@ -201,7 +201,7 @@ def _control_too_close(
 
 def proposals_after_seal(run: Path) -> list[dict[str, Any]]:
     """Every candidate the sealed run supports, before de-duplication. Writes nothing."""
-    spec = load_frozen(run)
+    spec = load_writable(run)
     ledger = ledger_view(run)
     sealed = [r for r in ledger["rounds"] if r.get("sealed")]
     if not sealed:
@@ -232,7 +232,7 @@ def user_disagreement(
     """Record the user's own read disagreeing with the sealed grade, as a candidate."""
     if not note.strip():
         raise EvalError("--note is required: say where your read differs from the grade")
-    spec = load_frozen(run)
+    spec = load_writable(run)
     ledger = ledger_view(run)
     d = decide(spec, ledger)
     if d["decision"] == BLOCKED:
