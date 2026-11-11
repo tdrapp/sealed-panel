@@ -109,8 +109,8 @@ per run.
 ## Install
 
 sealed-panel needs Python 3.11 or later and has no runtime dependencies. The MCP server is an
-optional extra. It runs on macOS and Linux; Windows is not supported yet (the judge runner
-relies on POSIX process groups and directory descriptors, untested there).
+optional extra. It runs on macOS and Linux; Windows is not supported (the judge runner and the
+seat lock rely on POSIX process groups and `fcntl.flock`), and the code holds no Windows path.
 
 From GitHub, at a release tag:
 

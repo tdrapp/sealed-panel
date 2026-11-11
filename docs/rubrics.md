@@ -80,11 +80,10 @@ later promotion never changes a frozen run.
 
 The user library is a user-level directory, never relative to the current directory:
 `~/.local/share/sealed-panel/rubrics` on Linux (or `$XDG_DATA_HOME/sealed-panel/rubrics`),
-`~/Library/Application Support/sealed-panel/rubrics` on macOS, `%APPDATA%\sealed-panel\rubrics`
-on Windows. The `SEALED_PANEL_RUBRICS` environment variable replaces it, and `--library DIR`
-replaces it for one command. `~` is expanded everywhere. The environment variable must be
-absolute (or start with `~`); a flag may be relative to the current directory and is made
-absolute.
+`~/Library/Application Support/sealed-panel/rubrics` on macOS. The `SEALED_PANEL_RUBRICS`
+environment variable replaces it, and `--library DIR` replaces it for one command. `~` is
+expanded everywhere. The environment variable must be absolute (or start with `~`); a flag may
+be relative to the current directory and is made absolute.
 
 Wherever it comes from, a library is refused when it lies inside the installed package, inside
 a run, or inside a git working tree (any folder with a `.git` above it), ignored there or not:

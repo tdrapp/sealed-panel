@@ -258,15 +258,14 @@ def open_seats(
 
 
 def _stop(proc: subprocess.Popen[bytes]) -> None:
-    """Stop the process and everything it started (its own session on POSIX). macOS refuses
-    to signal a group whose members are all exited (EPERM): the process itself is then killed,
-    and a process that left the session is out of reach."""
-    if os.name == "posix":
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-            return
-        except OSError:
-            pass
+    """Stop the process and everything it started (its own session). macOS refuses to signal a
+    group whose members are all exited (EPERM): the process itself is then killed, and a process
+    that left the session is out of reach."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+        return
+    except OSError:
+        pass
     with contextlib.suppress(OSError):
         proc.kill()
 
@@ -310,7 +309,7 @@ def _launch(
                 stderr=subprocess.PIPE,
                 cwd=cwd,
                 env=env,
-                start_new_session=os.name == "posix",
+                start_new_session=True,
             )
         except OSError as exc:
             raise EvalError(f"cannot start the judge command {argv[0]!r}: {exc}") from exc

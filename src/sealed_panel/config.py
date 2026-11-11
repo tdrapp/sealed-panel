@@ -382,8 +382,6 @@ def default_library_dir() -> Path:
     home = Path.home()
     if sys.platform == "darwin":
         base = home / "Library" / "Application Support"
-    elif os.name == "nt":
-        base = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
     return base / "sealed-panel" / "rubrics"

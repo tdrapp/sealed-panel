@@ -829,8 +829,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "output cap ignored": (RUN, "if size > cap:", "if False:"),
     "a group refusing the signal crashes the runner": (
         RUN,
-        "            return\n        except OSError:\n            pass\n",
-        "            return\n        except ProcessLookupError:\n            pass\n",
+        "        return\n    except OSError:\n        pass\n",
+        "        return\n    except ProcessLookupError:\n        pass\n",
     ),
     "interrupted judge left unrecorded": (
         RUN,

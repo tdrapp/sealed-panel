@@ -60,6 +60,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
+  the judge's process group): the package declares POSIX only and never ran there. No change on
+  macOS or Linux.
 - Learning on every seal, and `[library]` (`path`, `learn`, `control_min_candidate`,
   `control_gap`). Before: every sealed `aggregate` wrote candidates to the inbox of a library
   frozen into the run at `init` (`library.path`), unless `library.learn` was false, and printed
