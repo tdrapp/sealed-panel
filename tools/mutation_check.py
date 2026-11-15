@@ -195,7 +195,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # Aggregation.
     "re-aggregate allowed": (
-        AGG,
+        STEPS,
         '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: a round',
         '    if False:\n        raise EvalError("this round is already aggregated: a round',
@@ -700,7 +700,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if False:\n",
     ),
     "learning called by aggregate": (
-        AGG,
+        STEPS,
         "        write_feedback(run, entry)\n    return entry",
         "        write_feedback(run, entry)\n"
         "    else:\n"

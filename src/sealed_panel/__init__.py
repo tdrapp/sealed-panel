@@ -6,7 +6,6 @@ judge command once per brief), aggregates per persona and dimension, applies the
 and reports the grade a sealed panel gave.
 """
 
-from .aggregate import aggregate_round
 from .brief import build_brief, write_briefs
 from .decide import decide
 from .errors import ConfigError, EvalError
@@ -18,7 +17,7 @@ from .rubric import validate_spec
 from .run import load_frozen
 from .runner import judge_round, judge_seat, open_seats
 from .settings import Config, default_config, load_config
-from .steps import init_run
+from .steps import aggregate_round, init_run
 from .text import normalise, quote_found
 from .transcript import last_reply
 

@@ -9,13 +9,12 @@ from pathlib import Path
 import pytest
 
 from conftest import BAD, FLAT, Harness, make_spec
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.errors import ConfigError
 from sealed_panel.measure import record_measurement
 from sealed_panel.report import render_report, status
 from sealed_panel.run import run_config
 from sealed_panel.settings import load_config
-from sealed_panel.steps import init_run
+from sealed_panel.steps import aggregate_round, init_run
 
 THREE = {"clarity": 3, "evidence": 3}
 FIVE = {"clarity": 5, "evidence": 5}

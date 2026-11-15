@@ -11,7 +11,6 @@ from typing import Any
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
 from sealed_panel.errors import EvalError, MalformedReply
 from sealed_panel.ledger import results_by_judge
@@ -20,7 +19,7 @@ from sealed_panel.reply import extract_json
 from sealed_panel.report import render_report, status
 from sealed_panel.seat import MAX_VOIDS
 from sealed_panel.settings import load_config
-from sealed_panel.steps import init_run
+from sealed_panel.steps import aggregate_round, init_run
 from sealed_panel.store import round_dir
 from sealed_panel.transcript import handback_messages, last_reply
 

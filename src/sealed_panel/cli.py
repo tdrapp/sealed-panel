@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, templates
-from .aggregate import aggregate_round
 from .brief import write_briefs
 from .errors import EvalError, user_message
 from .learning import cli as learning_cli
@@ -20,8 +19,7 @@ from .report import feedback_path, outcome_line, render_report, status
 from .rubric import TODO_MARKER
 from .runner import judge_round
 from .settings import load_config
-from .steps import init_run
-from .store import resolve_round
+from .steps import aggregate_round, init_run, resolve_round
 from .templates import LIBRARY_ENV, library_dir
 
 # The usual exit status of a command stopped by Ctrl-C.

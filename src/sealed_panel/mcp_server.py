@@ -32,7 +32,6 @@ from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from . import __version__, templates
-from .aggregate import aggregate_round
 from .brief import write_briefs
 from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .measure import record_measurement
@@ -43,8 +42,9 @@ from .rubric import TODO_MARKER
 from .run import run_config
 from .runner import judge_seat, open_seats
 from .settings import Config, config_differences, load_config
+from .steps import aggregate_round, resolve_round
 from .steps import init_run as init_any_run
-from .store import INIT_LOCK, contained, locked, resolve_round
+from .store import INIT_LOCK, contained, locked
 from .templates import library_dir
 
 # The longest a `judge` call may run. A judge process already started when it expires still

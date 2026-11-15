@@ -24,7 +24,6 @@ import pytest
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import brief as brief_module
 from sealed_panel import cli, record, runner, store, templates
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.errors import ConfigError, EvalError, SeatTaken
 from sealed_panel.learning import candidates, learn
 from sealed_panel.ledger import results_by_judge
@@ -43,7 +42,7 @@ from sealed_panel.settings import (
     load_config,
     merge,
 )
-from sealed_panel.steps import init_run
+from sealed_panel.steps import aggregate_round, init_run
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"

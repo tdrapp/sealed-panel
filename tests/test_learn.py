@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec, strip_fence
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
 from sealed_panel.errors import EvalError
 from sealed_panel.learning import candidates, learn
@@ -17,7 +16,7 @@ from sealed_panel.learning.learn import learn_after_seal, proposals_after_seal, 
 from sealed_panel.record import record_reply
 from sealed_panel.rubric import dims_for
 from sealed_panel.settings import load_config
-from sealed_panel.steps import init_run
+from sealed_panel.steps import aggregate_round, init_run
 from sealed_panel.templates import library_dir
 
 FIVE = {"clarity": 5, "evidence": 5}

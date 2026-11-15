@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, strip_fence
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.errors import EvalError
 from sealed_panel.measure import record_measurement
 from sealed_panel.record import record_reply
 from sealed_panel.reply import check_output
+from sealed_panel.steps import aggregate_round
 from sealed_panel.store import round_dir
 from sealed_panel.text import injection_flags, quote_found
 
