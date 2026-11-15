@@ -30,6 +30,7 @@ from sealed_panel.config import (
     config_differences,
     default_config,
     default_data,
+    fingerprint,
     load_config,
     merge,
 )
@@ -804,7 +805,7 @@ def stop_group(pid: int) -> None:
 def relock(run: Path, data: dict[str, Any]) -> None:
     """What someone editing the run's files by hand does: the config and its lock together."""
     (run / "config.json").write_text(json.dumps(data))
-    (run / "config.lock").write_text(Config(data).fingerprint + "\n")
+    (run / "config.lock").write_text(fingerprint(data) + "\n")
 
 
 class TestFrozenConfiguration:
@@ -817,6 +818,15 @@ class TestFrozenConfiguration:
         data["transcript.tool_block_type"] = "tool_use"
         relock(h.run, data)
         with pytest.raises(EvalError, match=r"unknown configuration key 'transcript\.tool_block"):
+            run_config(h.run)
+
+    def test_a_missing_key_is_refused(self, h: Harness) -> None:
+        """Every run of this version froze every key: one missing was edited out."""
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        del data["judge"]["max_stderr_bytes"]
+        relock(h.run, data)
+        with pytest.raises(EvalError, match=r"missing configuration key 'judge\.max_stderr_bytes'"):
             run_config(h.run)
 
     def test_an_unknown_key_is_refused(self, h: Harness) -> None:
@@ -837,14 +847,6 @@ class TestFrozenConfiguration:
             "judge.timeout_s",
             "limits.max_replacements",
         ]
-
-    def test_a_key_an_older_run_lacks_counts_as_its_default(self, h: Harness) -> None:
-        h.init()
-        data = json.loads((h.run / "config.json").read_text())
-        del data["judge"]["max_stderr_bytes"]
-        del data["mcp"]
-        relock(h.run, data)
-        assert config_differences(run_config(h.run), default_config()) == []
 
     def test_a_present_old_value_still_differs(self, h: Harness) -> None:
         h.init()

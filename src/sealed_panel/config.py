@@ -182,7 +182,7 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
         errors.append("quotes.max_bad_share must be a fraction such as 1/3")
     elif not 0 <= share <= MAX_BAD_SHARE_CEILING:
         errors.append(f"quotes.max_bad_share must be between 0 and {MAX_BAD_SHARE_CEILING}")
-    errors += _judge_errors(data.get("judge") or default_data()["judge"])
+    errors += _judge_errors(data["judge"])
     root = str((data.get("mcp") or {}).get("root", ""))
     if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
         errors.append(f"mcp.root must be an absolute path or start with ~, got {root!r}")
@@ -204,14 +204,14 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     if not low <= judge["timeout_s"] <= high:
         errors.append(f"judge.timeout_s must be between {low} and {high} seconds")
     low, high = REPLY_BYTES_BOUNDS
-    if not low <= judge.get("max_reply_bytes", low) <= high:
+    if not low <= judge["max_reply_bytes"] <= high:
         errors.append(f"judge.max_reply_bytes must be between {low} and {high}")
-    if not low <= judge.get("max_stderr_bytes", low) <= high:
+    if not low <= judge["max_stderr_bytes"] <= high:
         errors.append(f"judge.max_stderr_bytes must be between {low} and {high}")
     names = judge["env_allow"]
     if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
         errors.append("judge.env_allow must hold environment variable names only")
-    model_id = judge.get("model_id", "")
+    model_id = judge["model_id"]
     if not model_id.isprintable() or len(model_id) > MODEL_ID_MAX_CHARS:
         errors.append(
             f"judge.model_id must be one printable line of at most {MODEL_ID_MAX_CHARS} characters"
@@ -336,9 +336,8 @@ class Config:
 
     @property
     def judge(self) -> dict[str, Any]:
-        """The [judge] section; a run frozen before 0.3.0 has none, and gets host mode."""
-        value: dict[str, Any] = self.data.get("judge") or default_data()["judge"]
-        return value
+        """The [judge] section."""
+        return self.section("judge")
 
 
 @cache
@@ -503,10 +502,10 @@ def config_differences(run: Config, server: Config) -> list[str]:
 def schema_errors(
     data: Mapping[str, Any], shape: Mapping[str, Any] | None = None, path: tuple[str, ...] = ()
 ) -> list[str]:
-    """A frozen configuration holds only keys the defaults know (no default key holds a dot, so
-    a dotted key is unknown too). Keys may be missing (an older run)."""
+    """A frozen configuration holds exactly the keys the defaults know (no default key holds a
+    dot, so a dotted key is unknown too): every run of this version froze them all."""
     shape = default_data() if shape is None else shape
-    errors: list[str] = []
+    errors = [f"missing configuration key {'.'.join((*path, k))!r}" for k in shape if k not in data]
     for key, value in data.items():
         where = ".".join((*path, key))
         if key not in shape:

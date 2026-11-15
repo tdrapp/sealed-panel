@@ -54,8 +54,7 @@ def flagged_roles(entry: dict[str, Any]) -> dict[str, list[str]]:
     """The injection flags of a round, by the role of the item that matched.
 
     Every text placed in a brief is scanned: the candidate, the control, the previous version,
-    the round-1 baseline and the known-good. A round briefed before 0.3.1 holds the candidate's
-    flags only.
+    the round-1 baseline and the known-good.
 
     Args:
         entry: The round's ledger entry.
@@ -63,11 +62,8 @@ def flagged_roles(entry: dict[str, Any]) -> dict[str, list[str]]:
     Returns:
         The patterns that matched, by role; empty when no item addresses a judge.
     """
-    by_role = entry.get("injection_flags_by_role")
-    if isinstance(by_role, dict):
-        return {role: list(found) for role, found in by_role.items() if found}
-    flags = list(entry.get("injection_flags") or [])
-    return {"candidate": flags} if flags else {}
+    by_role = entry.get("injection_flags_by_role") or {}
+    return {role: list(found) for role, found in by_role.items() if found}
 
 
 def _gate(spec: dict[str, Any], entry: dict[str, Any], d: dict[str, Any]) -> dict[str, Any]:

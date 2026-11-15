@@ -749,6 +749,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '    writable_library(lib)\n    kind = proposal["kind"]',
         '    kind = proposal["kind"]',
     ),
+    "a frozen configuration missing a key accepted": (
+        CFG,
+        "    errors = [f\"missing configuration key {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
+        "    errors: list[str] = []\n",
+    ),
     "judges per persona unbounded (config)": (
         CFG,
         'if run["judges_per_persona"] > MAX_JUDGES_PER_PERSONA:',

@@ -164,8 +164,7 @@ three kinds of proof, and the report says which one each round used.
   and void ones included, the report names the variables whose value changed, and it names those
   whose value differs between the sealed panel and the loop rounds. The salt stops a lookup in a
   table made in advance and a match across runs; someone who holds the run directory holds the
-  salt and can still guess a short value, so credentials should be long. A run frozen before
-  0.3.1 has no salt: its attempts store no hash and nothing is compared. So the model belongs in
+  salt and can still guess a short value, so credentials should be long. So the model belongs in
   the argument list (`examples/runner/judge.toml`), and the environment carries credentials
   only. One process per brief, so every runner reply comes from a fresh context, and one process
   per seat at a time: a lock (`fcntl.flock`) held from the seat's check to its record, so

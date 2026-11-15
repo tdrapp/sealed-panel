@@ -49,8 +49,6 @@ AGENT_BYTES = 6
 STOP_GRACE_S = 5
 # Bytes read from a judge's stdout at a time.
 READ_CHUNK = 65536
-# A run frozen before the output caps existed gets the default.
-DEFAULT_MAX_BYTES = 1 << 20
 # A runner's attempt, beside its brief from before its process starts until it is recorded:
 # started_j<J>_<agent id>.json.
 STARTED_PREFIX = "started_j"
@@ -387,8 +385,8 @@ def _judge_held(
     agent_id = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
     argv = judge_command(cfg)
     timeout = int(cfg.judge["timeout_s"])
-    cap = int(cfg.judge.get("max_reply_bytes", DEFAULT_MAX_BYTES))
-    cap_err = int(cfg.judge.get("max_stderr_bytes", DEFAULT_MAX_BYTES))
+    cap = int(cfg.judge["max_reply_bytes"])
+    cap_err = int(cfg.judge["max_stderr_bytes"])
     env = child_env(cfg)
     log = rdir / f"runner_j{judge}_{agent_id}.log"
     proof: dict[str, Any] = {

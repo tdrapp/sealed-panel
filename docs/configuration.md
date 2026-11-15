@@ -24,9 +24,8 @@ injection patterns, are fixed in code.
 
 At `init`, the effective configuration is written to `config.json` in the run directory and its
 sha256 to `config.lock`. Every later command reads that frozen copy and refuses if it was
-edited, or if it holds a key the defaults do not know or a key with a dot; a key it lacks,
-from an older version, counts as its default, and a section 0.4.0 removed is dropped once the
-lock is checked. The report header and the output of `status` list every setting that differs
+edited, or if it lacks a key the defaults hold or holds one they do not know (a key with a dot
+included). The report header and the output of `status` list every setting that differs
 from the packaged defaults, including the per-run keys of the spec, so a loosened or tightened
 setting is always visible next to the grade.
 
@@ -196,13 +195,9 @@ sha256 of each allowed value salted with the run's own random salt (`env.salt`, 
 `init`); the values never are. A round whose attempts ran under different values of an allowed
 variable is flagged in the report, and so is a sealed panel that ran under other values than the
 loop rounds. The salt stops a lookup in a table made in advance; whoever holds the run directory
-holds the salt too and can guess a short value, so keep credentials long. A run frozen before
-0.3.1 has no salt, stores no hash and compares nothing. Put the model in `command` (the template
-takes it after `--`), where the run freezes it and the report shows it, and keep the environment
-for credentials; declare the same model in `model_id`.
-
-A run frozen before 0.3.0 has no `[judge]` section and is in host mode. A run frozen before
-0.3.1 has no `model_id` and reads as not declared.
+holds the salt too and can guess a short value, so keep credentials long. Put the model in
+`command` (the template takes it after `--`), where the run freezes it and the report shows it,
+and keep the environment for credentials; declare the same model in `model_id`.
 
 ## `[mcp]`
 

@@ -11,7 +11,7 @@ from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel import brief as brief_module
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.decide import BLOCKED, SEAL_NEXT, flagged_roles
+from sealed_panel.decide import BLOCKED, SEAL_NEXT
 from sealed_panel.errors import EvalError
 from sealed_panel.learn import user_disagreement
 from sealed_panel.record import record_measurement, record_reply
@@ -189,10 +189,6 @@ class TestInjectionGate:
 
         assert "baseline" in asyncio.run(seal())
         assert self.no_sealed_files(h)
-
-    def test_a_round_briefed_before_0_3_1_reads_the_candidate_flags(self) -> None:
-        assert flagged_roles({"injection_flags": ["x"]}) == {"candidate": ["x"]}
-        assert flagged_roles({"injection_flags": [], "injection_flags_by_role": None}) == {}
 
     def test_at_the_round_limit_a_blocked_run_says_to_start_again(self, h: Harness) -> None:
         h.init(max_rounds=1)

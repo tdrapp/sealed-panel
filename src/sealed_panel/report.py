@@ -112,7 +112,7 @@ def acknowledgement_line(spec: dict[str, Any]) -> str:
 
 def model_line(cfg: Config) -> str:
     """The judge model the run declared, printed next to the grade."""
-    model_id = str(cfg.judge.get("model_id", ""))
+    model_id = str(cfg.judge["model_id"])
     return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."
 
 

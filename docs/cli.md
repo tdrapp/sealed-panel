@@ -300,15 +300,13 @@ cannot write). Every tool refuses that file and any path under it, under any nam
 it: compared by inode, another case of the name on a case-insensitive filesystem, or a hard
 link, is refused as the lock.
 
-`--config` is the configuration of every run the server changes, and the only place a
-`[judge] command` comes from. It is read once at startup and must live outside the root, or the
-server does not start. The `init` tool freezes it and takes no configuration from the caller.
-The read-only tools (`status`, `report` and `rubrics_suggest`) read any run whose lock and
-shape hold; every tool that changes a run refuses one whose settings differ from the server's
-(a setting the run lacks counting as its default), and
-`status` says whether the run is `served`. A run from another configuration, or one whose
-setting changed default since it was frozen, is changed through the command line or a server
-started with that configuration.
+`--config` is the configuration of every run the server changes, and the only place a `[judge]
+command` comes from. It is read once at startup and must live outside the root, or the server
+does not start. The `init` tool freezes it and takes no configuration from the caller. The
+read-only tools (`status`, `report` and `rubrics_suggest`) read any run whose lock and shape
+hold; every tool that changes a run refuses one whose settings differ from the server's, and
+`status` says whether the run is `served`. A run from another configuration is changed through
+the command line or a server started with that configuration.
 
 `--transcript-root DIR`, repeatable, names a folder where the host writes judge transcripts. A
 leading `~`, `$HOME` or `${HOME}` is the user's home. It is read only, for the transcript of

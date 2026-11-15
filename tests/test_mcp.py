@@ -907,19 +907,6 @@ class TestRoundThreeProbes:
                 assert "created by an earlier version of sealed-panel" in msg, tool
         assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
 
-    async def test_a_run_from_an_older_version_is_served(self, h: Harness, mode: str) -> None:
-        write_spec(h)
-        async with Client(build_server(h.tmp), mode=mode) as c:
-            await call(c, "init", run="run", spec="spec.json")
-            data = json.loads((h.run / "config.json").read_text())
-            del data["judge"]["max_stderr_bytes"]
-            del data["mcp"]
-            (h.run / "config.json").write_text(json.dumps(data))
-            (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
-            status = await call(c, "status", run="run")
-            assert status["decision"] == "CONTINUE" and status["served"] is True
-            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
-
     @pytest.mark.slow
     async def test_a_started_record_of_a_dead_runner_never_fails_a_judge_call(
         self, h: Harness, mode: str
