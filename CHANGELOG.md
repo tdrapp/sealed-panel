@@ -133,6 +133,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`record_reply` an `Attempt`, `aggregate_round` a `RoundResult`, `status` a `Decision`).
   `RUNNER` moved from `record` to `model`, and the template reference check from `steps` to
   `templates.check_template_ref`.
+- The run format has a forward rule, written next to `SCHEMA_VERSION` (now in
+  `sealed_panel.model`) and in `docs/protocol.md` section 11: a later release that adds a
+  setting frozen into every run either raises the format or supplies the value that reproduces
+  how a run frozen without it behaved. A frozen configuration missing a key is refused as
+  before ("missing configuration key ..."), and the refusal now names the release to finish the
+  run with (run format 1, sealed-panel 0.4.0 or later, installed from its tag).
 
 ### Removed
 

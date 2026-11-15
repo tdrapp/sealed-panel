@@ -770,8 +770,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a frozen configuration missing a key accepted": (
         SETTINGS,
-        "    errors = [f\"missing configuration key {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
+        "    errors = [f\"{MISSING_KEY} {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
         "    errors: list[str] = []\n",
+    ),
+    "a missing configuration key names no release": (
+        FROZEN,
+        "    if any(e.startswith(MISSING_KEY) for e in shape):\n",
+        "    if False:\n",
     ),
     "a reserved name created by a caller": (
         f"{PKG}/store.py",

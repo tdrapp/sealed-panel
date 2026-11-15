@@ -235,3 +235,24 @@ three kinds of proof, and the report says which one each round used.
   between: a command that calls a model several times and prints the best answer is a re-roll
   the runner cannot see. The command is frozen into the run and listed next to the grade, so
   a reader can check what it does.
+
+## 11. The run format
+
+A run freezes its spec and its whole configuration, and `run.json` records the run format
+(`schema_version`, 1 since 0.4.0). Every command refuses a run of another format before it
+creates anything in it: an older run is finished with the release that created it, a newer one
+needs an upgrade.
+
+A later release that adds a setting frozen into every run (a key of `defaults.toml`) does one
+of two things, so that a run frozen before it keeps its grade:
+
+- it raises the run format: a run frozen without the key is then refused as older, with the
+  release to finish it with; or
+- it keeps the format and supplies, for a run frozen without the key, the value that
+  reproduces how that run behaved. It checks the run's `config.lock` against the file as
+  written first, so the fingerprint still proves the configuration was not changed.
+
+A frozen configuration that lacks a key this release has no value for is refused, and the
+refusal names the release to finish the run with: one of its format, from the first release
+that writes that format, installed from its tag. The rule is written next to `SCHEMA_VERSION`
+in `sealed_panel/model.py`.

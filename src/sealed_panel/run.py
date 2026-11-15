@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .errors import EvalError
-from .model import INJECTION_ACK, FrozenSpec
+from .model import FORMAT_SINCE, INJECTION_ACK, SCHEMA_VERSION, FrozenSpec
 from .rubric import rubric_hash, validate_spec
-from .settings import Config, schema_errors
+from .settings import MISSING_KEY, Config, schema_errors
 from .store import (
     contained,
     dump_json,
@@ -32,19 +32,27 @@ from .text import injection_flags
 HOME_OR_RELATIVE = ("~/", "./", "../")
 # The run's salt for the hashes of the judge environment's values, created at init.
 ENV_SALT = "env.salt"
-# The run format, written to run.json last at init (a marker, not hashed): a run without it
-# was created before 0.4.0, or its init was interrupted.
-SCHEMA_VERSION = 1
+# The run format (SCHEMA_VERSION, see model.py for the rule a later release follows) is written
+# to run.json last at init (a marker, not hashed): a run without it was created before 0.4.0,
+# or its init was interrupted.
 RUN_FILE = "run.json"
+_INSTALL_TAG = "pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
 _FROM_ITS_TAG = (
-    "finish or read it with the version that created it, installed from its tag: pip install "
-    "'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
+    f"finish or read it with the version that created it, installed from its tag: {_INSTALL_TAG}"
 )
 NO_MARKER = (
     f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it (0.4.0 "
     f"changed what a run freezes, so it neither reads nor writes such a run: {_FROM_ITS_TAG}), "
     f"or its init was interrupted before writing {RUN_FILE}, which it writes last (start again "
     "in a new run directory)"
+)
+# Added to the refusal of a frozen configuration that lacks a key: this release has no value
+# for it, so the run comes from another release of its format.
+MISSING_KEY_STEP = (
+    f"A run of format {SCHEMA_VERSION} holds every setting of the release that froze it, and a "
+    "later release of the same format supplies any setting it added. This release has no value "
+    f"for that key: finish the run with the release that created it (run format {SCHEMA_VERSION}, "
+    f"sealed-panel {FORMAT_SINCE[SCHEMA_VERSION]} or later), installed from its tag: {_INSTALL_TAG}"
 )
 OLDER_RUN = (
     "this run was created by an earlier version of sealed-panel: 0.4.0 changed what a run "
@@ -245,6 +253,19 @@ def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Pa
     return checked
 
 
+def frozen_config_refusal(shape: list[str]) -> str:
+    """Why a run's frozen configuration is refused; when it lacks a key, which release to finish
+    the run with.
+
+    Args:
+        shape: What schema_errors found.
+    """
+    refusal = f"the frozen configuration is damaged: {'; '.join(shape)}"
+    if any(e.startswith(MISSING_KEY) for e in shape):
+        refusal += f". {MISSING_KEY_STEP}"
+    return refusal
+
+
 def run_config(run: Path) -> Config:
     """The configuration frozen at init."""
     refuse_older_run(run)
@@ -254,7 +275,7 @@ def run_config(run: Path) -> Config:
     data = load_json(run / "config.json")
     shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
     if shape:
-        raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
+        raise EvalError(frozen_config_refusal(shape))
     frozen = Config(data)
     if frozen.fingerprint != read_text(lock).strip():
         raise EvalError(

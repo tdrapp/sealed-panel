@@ -892,6 +892,26 @@ class TestFrozenConfiguration:
         with pytest.raises(EvalError, match=r"missing configuration key 'judge\.max_stderr_bytes'"):
             run_config(h.run)
 
+    def test_a_missing_key_names_the_release_to_finish_the_run_with(self, h: Harness) -> None:
+        """The run format's forward rule: a later release of the same format supplies a setting
+        it added, so a key this release has no value for sends the user to the release that
+        froze the run. An unknown key is not that case and gets no such step."""
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        del data["judge"]["max_stderr_bytes"]
+        relock(h.run, data)
+        with pytest.raises(EvalError) as missing:
+            run_config(h.run)
+        step = "finish the run with the release that created it (run format 1, sealed-panel 0.4.0"
+        assert step in str(missing.value)
+        data["judge"]["max_stderr_bytes"] = 1048576
+        data["limits"]["extra"] = 1
+        relock(h.run, data)
+        with pytest.raises(EvalError) as unknown:
+            run_config(h.run)
+        assert "unknown configuration key" in str(unknown.value)
+        assert step not in str(unknown.value)
+
     def test_an_unknown_key_is_refused(self, h: Harness) -> None:
         h.init()
         data = json.loads((h.run / "config.json").read_text())

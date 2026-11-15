@@ -17,6 +17,21 @@ from typing import Final, NotRequired, Required, TypedDict
 # The spec key that acknowledges the injection flags, frozen and hashed with the rubric.
 INJECTION_ACK: Final = "injection_acknowledged"
 
+# The run format, written to run.json at init. The forward rule, for a later 0.4.x release that
+# adds a setting frozen into every run (a key of defaults.toml, so of config.json and of the
+# configuration's fingerprint), is one of two things:
+#   1. bump SCHEMA_VERSION and add its first release to FORMAT_SINCE: a run frozen without the
+#      key is then refused as older, with the release to finish it with; or
+#   2. keep the format, and have run.run_config give a run frozen without the key the value
+#      that reproduces how that run behaved, after checking config.lock against the file as
+#      written, never before.
+# Anything else makes a run of this format unreadable by that release (its frozen configuration
+# lacks a key), or changes the grade an earlier release would give it. docs/protocol.md
+# section 11 says the same for users.
+SCHEMA_VERSION: Final = 1
+# The first release that writes each run format.
+FORMAT_SINCE: Final = {1: "0.4.0"}
+
 # The source of a reply read by the judge runner: sealed-panel wrote the brief and read the reply.
 RUNNER: Final = "runner"
 
