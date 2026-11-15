@@ -775,6 +775,32 @@ class TestPaths:
         assert not (h.run / "rounds" / "r1" / "result.json").exists()
         assert not (h.run / "x.json").exists()
 
+    async def test_no_caller_name_passes_for_a_run(self, h: Harness, mode: str) -> None:
+        """The review's probe: a folder a tool created named rubric.lock made its parent (the
+        root even) pass for a run, refusing every later init under it. A name a run or the
+        server is recognised by is refused anywhere in a path a tool creates, in any case, and
+        a folder of that name made by hand is not taken for a run."""
+        write_spec(h)
+        (h.tmp / "x").mkdir()
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            for tool, args, name in (
+                ("init", {"run": "rubric.lock", "spec": "spec.json"}, "rubric.lock"),
+                ("init", {"run": "x/Rubric.Lock", "spec": "spec.json"}, "Rubric.Lock"),
+                ("init", {"run": "x/run.json/inner", "spec": "spec.json"}, "run.json"),
+                ("rubrics_use", {"id": "message", "out": "x/run.json"}, "run.json"),
+                ("rubrics_suggest", {"kind": "email", "library": "x/rubric.lock"}, "rubric.lock"),
+            ):
+                msg = await error(c, tool, **args)
+                assert f"{name!r} is a name reserved for a run's own files" in msg, args
+            assert sorted(p.name for p in (h.tmp / "x").iterdir()) == []
+            (h.tmp / "x" / "rubric.lock").mkdir()  # by hand: still no run
+            await call(c, "init", run="x/fresh", spec="spec.json")
+            await call(c, "init", run="fresh2", spec="spec.json")
+            await call(c, "rubrics_use", id="message", out="x/spec.json")
+            msg = await error(c, "status", run="x")
+        assert "not initialised" in msg
+
     async def test_a_foreign_directory_is_not_overwritten(self, h: Harness, mode: str) -> None:
         write_spec(h)
         victim = h.tmp / "someapp"

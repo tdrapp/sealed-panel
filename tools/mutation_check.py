@@ -352,7 +352,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if normalise(cand) == normalise(ctrl):",
         "if False:",
     ),
-    "init twice": (SPEC, 'if (run / "rubric.lock").exists():', "if False:"),
+    "init twice": (SPEC, "    if is_run(run):\n", "    if False:\n"),
     "measure twice": (REC, 'if any(r["id"] == mid for r in rows):', "if False:"),
     "baseline dropped": (BRIEF, 'roles.append(("baseline", read_text(first)))', "pass"),
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
@@ -762,6 +762,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         CFG,
         "    errors = [f\"missing configuration key {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
         "    errors: list[str] = []\n",
+    ),
+    "a reserved name created by a caller": (
+        f"{PKG}/store.py",
+        "    if taken is not None:\n        raise EvalError(",
+        "    if False:\n        raise EvalError(",
+    ),
+    "a folder named rubric.lock taken for a run": (
+        f"{PKG}/store.py",
+        '    return (folder / "rubric.lock").is_file()',
+        '    return (folder / "rubric.lock").exists()',
     ),
     "judges per persona unbounded (config)": (
         CFG,
@@ -1345,7 +1355,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # 0.4.0 review: nested runs, the run lock, leftover records.
     "a run created inside a run": (
         f"{PKG}/store.py",
-        '        if (folder / "rubric.lock").exists():\n',
+        "        if is_run(folder):\n",
         "        if False:\n",
     ),
     "init does not check for a run above": (

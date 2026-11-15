@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .store import load_json, read_text
+from .store import is_run, load_json, read_text
 
 REPLY_GLOB = "*/r*/out_j*.json"
 # A round's directory: rounds/rN for the loop, sealed/rN for the sealed panel.
@@ -79,8 +79,4 @@ def view(run: Path) -> dict[str, Any]:
 
 def other_runs(run: Path) -> list[str]:
     """Names of the other frozen runs beside this one."""
-    return sorted(
-        p.name
-        for p in run.parent.iterdir()
-        if p != run and p.is_dir() and (p / "rubric.lock").exists()
-    )
+    return sorted(p.name for p in run.parent.iterdir() if p != run and p.is_dir() and is_run(p))

@@ -38,10 +38,14 @@ sealed-panel init RUN --spec SPEC.json [--config CONFIG.toml] [--library DIR]
 
 Validates the spec's shape and values, fills the per-run defaults, reads `facts_file` by
 content, and refuses a spec whose own text addresses the judges. Writes `spec.json`,
-`rubric.lock` (sha256 of the rubric), `config.json`, `config.lock` and `env.salt` (the salt of
-the judge environment hashes). Refuses if `RUN` is already initialised (a new rubric is a new
-run), if it lies inside another run, or if it holds other files: `init` takes a new or empty
-directory, so it never writes over another program's files.
+`rubric.lock` (sha256 of the rubric), `config.json`, `config.lock`, `env.salt` (the salt of the
+judge environment hashes) and, last, `run.json`. Refuses if `RUN` is already initialised (a new
+rubric is a new run), if it lies inside another run, or if it holds other files: `init` takes a
+new or empty directory, so it never writes over another program's files. A path `init`, `rubrics
+use` or a `--library` would create may not hold a name a run or the server is recognised by
+(`rubric.lock`, `run.json`, `.sealed-panel-init.lock`), in any case: the refusal reads "'NAME'
+is a name reserved for a run's own files". A folder is a run only when its `rubric.lock` is a
+file.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,

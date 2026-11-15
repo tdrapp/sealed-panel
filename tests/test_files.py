@@ -101,6 +101,35 @@ class TestWrites:
             str(p): oct(0o700) for p in folders
         }
 
+    @pytest.mark.slow
+    def test_every_name_a_full_run_creates_is_in_the_inventory(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A run of the runner through every step: no file or folder outside store.RUN_NAMES,
+        so a new run file updates the inventory, and every name a run is recognised by is
+        reserved."""
+        measured = [{"id": "length", "description": "words", "max": 100}]
+        init_judge(h, [sys.executable, str(STUB), "--score", "5"], measured=measured)
+        r, art = h.run, ["--artefact", h.files["cand"], "--control", h.files["ctrl"]]
+        for args in (
+            ("brief", r, "--round", "1", *art),
+            ("judge", r, "--round", "1"),
+            ("measure", r, "--round", "1", "--id", "length", "--value", "10"),
+            ("aggregate", r, "--round", "1"),
+            ("brief", r, "--sealed", *art),
+            ("judge", r, "--sealed"),
+            ("measure", r, "--sealed", "--id", "length", "--value", "10"),
+            ("aggregate", r, "--sealed"),
+            ("report", r),
+        ):
+            assert cli.main([str(a) for a in args]) == 0, args
+        capsys.readouterr()
+        names = {p.name for p in r.rglob("*")}
+        assert {"after_r1.md", "result.json", "run.json"} <= names
+        assert any(n.startswith("runner_j") for n in names)
+        assert sorted(n for n in names if not store.run_name(n)) == []
+        assert all(store.run_name(n) for n in store.RESERVED_NAMES - {store.INIT_LOCK})
+
     def test_nothing_is_left_behind(self, tmp_path: Path) -> None:
         folder = tmp_path / "here"
         folder.mkdir()

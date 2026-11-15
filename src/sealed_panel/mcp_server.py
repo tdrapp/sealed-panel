@@ -43,7 +43,7 @@ from .report import status as run_status
 from .runner import judge_seat, open_seats
 from .spec import TODO_MARKER, run_config
 from .spec import init_run as init_any_run
-from .store import contained, locked, resolve_round
+from .store import INIT_LOCK, contained, locked, resolve_round
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -249,10 +249,6 @@ def init_run(
         facts_root: The server's root: a `facts_file` must resolve under it.
     """
     return init_any_run(run, spec_path, cfg, library, facts_root, acknowledge=False)
-
-
-# The lock the init tool holds, at the root: the one file the server owns there.
-INIT_LOCK = ".sealed-panel-init.lock"
 
 
 def _reserve(base: Path) -> Path:

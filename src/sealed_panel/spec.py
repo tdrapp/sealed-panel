@@ -23,7 +23,16 @@ from .config import (
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
-from .store import contained, dump_json, load_json, make_dir, outside_runs, read_text, write_file
+from .store import (
+    contained,
+    dump_json,
+    is_run,
+    load_json,
+    make_dir,
+    outside_runs,
+    read_text,
+    write_file,
+)
 from .text import injection_flags
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -392,7 +401,7 @@ def init_run(
             a person at the command line may, the MCP server's caller (the author) may not.
     """
     cfg = resolve(cfg)
-    if (run / "rubric.lock").exists():
+    if is_run(run):
         raise EvalError(f"{run} is already frozen; a new rubric needs a new run directory")
     outside_runs(run, "the run")
     if run.is_symlink() or (run.is_dir() and any(run.iterdir())):
@@ -452,7 +461,7 @@ def refuse_older_run(run: Path) -> None:
     Args:
         run: The run directory.
     """
-    if not (run / "rubric.lock").exists():
+    if not is_run(run):
         return  # not a run: the step's own check says so
     marker = run / RUN_FILE
     if not marker.exists() and not marker.is_symlink():
@@ -485,7 +494,7 @@ def load_frozen(run: Path) -> dict[str, Any]:
     """
     refuse_older_run(run)
     lock = run / "rubric.lock"
-    if not lock.exists():
+    if not is_run(run):
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
     spec: dict[str, Any] = load_json(run / "spec.json")
     if rubric_hash(spec) != read_text(lock).strip():

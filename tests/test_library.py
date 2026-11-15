@@ -730,6 +730,21 @@ class TestHistoryIsNeverOverwritten:
 class TestSkeletonTarget:
     """`rubrics use` owns where its skeleton goes, on the command line as through MCP."""
 
+    def test_a_reserved_name_is_refused_on_the_command_line(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        sp = h.tmp / "s.json"
+        sp.write_text(json.dumps(make_spec()))
+        for args, name in (
+            (["init", str(h.tmp / "RUBRIC.LOCK"), "--spec", str(sp)], "RUBRIC.LOCK"),
+            (["rubrics", "use", "message", "--out", str(h.tmp / "run.json")], "run.json"),
+            (["rubrics", "list", "--library", str(h.tmp / "rubric.lock" / "lib")], "rubric.lock"),
+        ):
+            assert main(args) == 2, args
+            assert f"{name!r} is a name reserved for a run's own files" in capsys.readouterr().err
+        assert not (h.tmp / "RUBRIC.LOCK").exists() and not (h.tmp / "run.json").exists()
+        assert main(["init", str(h.tmp / "r1"), "--spec", str(sp)]) == 0  # ordinary names
+
     def test_a_skeleton_goes_only_into_a_new_json_file_outside_any_run(
         self, h: Harness, capsys: pytest.CaptureFixture[str]
     ) -> None:

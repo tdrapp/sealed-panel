@@ -13,11 +13,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   existing folder outside any run: a skeleton named `rubric.lock` (or written under a folder of
   that name) would pass its folder off as a run, and the command line could write one inside a
   run. The rule lives where the file is written, so both interfaces share it.
-- Nothing a tool creates goes inside a run: one guard (`store.outside_runs`) refuses a new run,
-  the `rubrics_use` spec skeleton, and a rubric library at or under a folder holding
-  `rubric.lock`. A skeleton written to `run/rounds/r1/result.json` would have faked an
-  aggregated round, and one named `run/sealed` blocked the sealed panel; `init` uses the same
-  guard in place of its own check.
+- Nothing a caller names can create something inside a run, or something that passes for what
+  a run or the server owns. One guard (`store.outside_runs`) covers every path a caller asks to
+  create (the `init` run path, the `rubrics use` / `rubrics_use` skeleton, any rubric library):
+  it refuses a path that is a run or lies in one, and a path whose new or last component is a
+  name a run or the server is recognised by (`rubric.lock`, `run.json`, the server's init lock),
+  in any case, naming the component ("'rubric.lock' is a name reserved for a run's own files").
+  A run is recognised only by `rubric.lock` being a file. Before, a skeleton written to
+  `run/rounds/r1/result.json` faked an aggregated round, and an `init` or skeleton named
+  `rubric.lock` made its parent folder, the root even, pass for a run.
 - The MCP tools refuse the root's lock file under any name that reaches it: the check compares
   inodes, so another case of the name on a case-insensitive filesystem, or a hard link, gets the
   tool's own refusal instead of a later, less clear one. `docs/cli.md` now says the server

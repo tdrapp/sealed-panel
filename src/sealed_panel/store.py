@@ -11,6 +11,7 @@ import fcntl
 import functools
 import json
 import os
+import re
 import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -102,19 +103,80 @@ def contained(path: Path, root: Path, given: str | None = None) -> Path:
     return real
 
 
+# The MCP server's own file at its root, held by the init tool.
+INIT_LOCK = ".sealed-panel-init.lock"
+# Every name a run holds: its files and folders. Nothing is created inside a run but by
+# sealed-panel (see outside_runs); tests/test_files.py checks that a full run creates no other
+# name, so a new run file updates this inventory.
+RUN_NAMES = frozenset(
+    {
+        "rubric.lock", "run.json", "run.lock", "config.json", "config.lock", "spec.json",
+        "env.salt", "rounds", "sealed", "feedback", "keys.json", "result.json", "measured.json",
+        "candidate.md", "control.md", "previous.md", "baseline.md", "known_good.md",
+    }
+)  # fmt: skip
+RUN_NAME_PATTERN = re.compile(
+    r"r[0-9]+|seat_j[0-9]+\.lock|started_j[0-9]+_.*\.json|brief_j[0-9]+\.md"
+    r"|out_j[0-9]+_.*\.json|runner_j[0-9]+_.*\.log|after_r[0-9]+\.md"
+)
+# The names a run or the server is recognised by from outside: a folder holding rubric.lock is
+# a run, run.json is its format, the init lock is the server's. No caller creates a path with
+# one of them anywhere in it (see outside_runs), so nothing a caller made passes for a run's or
+# the server's own file. Every other run name is only read inside a run, where nothing is
+# created but by sealed-panel.
+RESERVED_NAMES = frozenset({"rubric.lock", "run.json", INIT_LOCK})
+
+
+def run_name(name: str) -> bool:
+    """Whether a file or folder name is one a run holds (see RUN_NAMES).
+
+    Args:
+        name: One path component.
+    """
+    return name in RUN_NAMES or RUN_NAME_PATTERN.fullmatch(name) is not None
+
+
+def reserved(name: str) -> bool:
+    """Whether a name is one a run or the server is recognised by, in any case.
+
+    Args:
+        name: One path component.
+    """
+    return name.casefold() in RESERVED_NAMES
+
+
+def is_run(folder: Path) -> bool:
+    """Whether a folder is a run: it holds the file `rubric.lock`, which every run writes as a
+    file (a folder of that name is not one).
+
+    Args:
+        folder: The folder.
+    """
+    return (folder / "rubric.lock").is_file()
+
+
 def outside_runs(path: Path, what: str) -> Path:
-    """The path with every link followed, refused when it is a run or lies inside one (a folder
-    holding `rubric.lock` at or above it): the one guard on a path that names something to
-    create outside a run (a new run, a spec skeleton, a rubric library). A file or folder put
-    in a run where a round's lock or result goes would block or fake that round.
+    """The path with every link followed, refused when it is a run or lies inside one, or when a
+    name it would create is one a run or the server is recognised by (RESERVED_NAMES, in any
+    case): the one guard on a path a caller names to create (a new run, a spec skeleton, a
+    rubric library). Every component that does not exist yet, and the last one, is checked, so
+    nothing a caller creates passes for a run or the server's lock, and nothing is put where a
+    round's lock or result goes.
 
     Args:
         path: The path to create, or to create things under.
         what: How the refusal names it, such as "the run" or "the spec".
     """
     real = path.resolve()
+    new = [p.name for p in (real, *real.parents) if p == real or not p.exists()]
+    taken = next((n for n in new if reserved(n)), None)
+    if taken is not None:
+        raise EvalError(
+            f"{what} {path}: {taken!r} is a name reserved for a run's own files (it marks a run "
+            "or the server's lock); choose another"
+        )
     for folder in (real, *real.parents):
-        if (folder / "rubric.lock").exists():
+        if is_run(folder):
             raise EvalError(
                 f"{what} {path} is inside the run {folder}: a run holds only the files "
                 "sealed-panel writes there"
