@@ -46,9 +46,10 @@ The first release, in this order:
 
 A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
 version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace
-file, `.mcp.json`, the README's version line and the install lines (`tests/test_packaging.py`
-checks they agree), merge, and push a tag `v<version>`. The workflow checks that the tag names
-the package version, builds the sdist and the wheel, and publishes them.
+file (its `version` and the `ref` of its plugin source, the tag), `.mcp.json`, the README's
+version line and the install lines (`tests/test_packaging.py` checks they agree), merge, and
+push a tag `v<version>`. The workflow checks that the tag names the package version, builds the
+sdist and the wheel, and publishes them.
 
 After the first publish, the docs' index lines apply: the hint `sealed-panel mcp` prints without
 the extra (`cli.py`) may then name the index. Until then it names the tag, because an agent
@@ -95,7 +96,11 @@ the record.
 - `record` or `aggregate` stopped half-way: run it again. A reply already recorded is refused
   as a duplicate, and a round already aggregated is refused, so a second run cannot count
   anything twice.
-- A machine that went away mid-run: `status` reads the ledger and says what comes next.
+- A machine that went away mid-run: `status` reads the run's rounds and says what comes next.
+- A run created before 0.4.0, refused by every command ("created by an earlier version"):
+  finish it with the version that created it, installed from its tag
+  (`pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'`), in
+  an environment of its own. Do not add a `run.json` by hand: 0.4.0 changed what a run freezes.
 
 Never edit, move or delete a run's files by hand to get past a refusal: the refusals are the
 protocol, and a hand edit is out of the threat model, not a way around it.

@@ -221,6 +221,8 @@ jobs:
           python-version: "3.12"
       # The dev group, so the MCP tests (and the lines they cover) are in the coverage map.
       - run: uv sync --locked
+      # Every anchor found once, in a second, before the shard's hour of tests.
+      - run: uv run --no-sync python tools/mutation_check.py --anchors-only
       - run: >-
           uv run --no-sync python tools/mutation_check.py --jobs 2 --shard ${{ matrix.shard }}/4
           --json mutation-${{ matrix.shard }}.json

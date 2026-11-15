@@ -80,20 +80,21 @@ later promotion never changes a frozen run.
 
 The user library is a user-level directory, never relative to the current directory:
 `~/.local/share/sealed-panel/rubrics` on Linux (or `$XDG_DATA_HOME/sealed-panel/rubrics`),
-`~/Library/Application Support/sealed-panel/rubrics` on macOS, `%APPDATA%\sealed-panel\rubrics`
-on Windows. The `SEALED_PANEL_RUBRICS` environment variable or the `[library] path` setting
-replaces it, and `--library DIR` replaces it for one command. `~` is expanded everywhere. The
-environment variable and the setting must be absolute (or start with `~`); a flag may be
-relative to the current directory and is made absolute.
+`~/Library/Application Support/sealed-panel/rubrics` on macOS. The `SEALED_PANEL_RUBRICS`
+environment variable replaces it, and `--library DIR` replaces it for one command. `~` is
+expanded everywhere. The environment variable must be absolute (or start with `~`); a flag may
+be relative to the current directory and is made absolute.
 
-Wherever it comes from, a library is refused when it lies inside the installed package, or
-inside a git working tree that does not ignore it: no candidate is ever written where it
-could be committed by accident.
+Wherever it comes from, a library is refused when it lies inside the installed package or
+inside a run. A library inside a git working tree (any folder with a `.git` at or above it) is
+read like any other, but refused for every write (`learning learn`, `feedback`, `rubrics
+promote`, `rubrics reject`), whether git ignores the folder or not: candidates quote the judged
+texts, so none is ever written where it could be committed by accident, and no git process runs
+to ask. Before 0.4.0 a folder git ignored was accepted; point `--library` or
+`$SEALED_PANEL_RUBRICS` at a folder outside any repository instead.
 
-`init` freezes the resolved library into the run. `aggregate` writes the run's candidates
-there and prints the path. `rubrics ... --run RUN` reads the library frozen into that run. A
-run frozen by 0.1.0 has no library in its configuration and uses the one resolved at the time
-of the command.
+No run holds a library: `init` reads it for a template the spec names and freezes nothing of
+it, and only `learning learn`, `feedback` and `rubrics promote` or `reject` write there.
 
 ```
 <library>/
@@ -108,28 +109,26 @@ repository. Learned candidates never go into the package.
 
 ## Candidates
 
-After a sealed panel aggregates, sealed-panel reads the run and writes candidates to the inbox,
-unless `[library] learn` is false. Learning never fails a seal: an error is reported as
-"learning skipped" in aggregate's output, and `sealed-panel learn RUN` tries again. Learning a
-run again adds nothing that is already recorded.
+`sealed-panel learning learn RUN [--library DIR]` reads a sealed run and writes candidates to
+the inbox. Nothing else does: `aggregate` writes nothing outside the run, and the skill runs the
+command after a sealed panel. Learning a run again adds nothing that is already recorded.
 
 | Kind | Written when |
 |---|---|
 | `judges_disagree` | In the sealed panel, a dimension's valid judges' scores spread by 2 or more, or a judge's severity contradicts its score before capping: a score above the run's cap for a blocking or material flaw (a 4 or 5 with blocking, a 5 with material by default), or a 1 with none. |
-| `control_too_close` | In the sealed panel, the candidate's mean raw score on a dimension is at least `[library] control_min_candidate` (4 by default) and the control's mean raw score is within `control_gap` (1) of it, both before severity caps. A weak text does not trigger it: a low text next to a low control says nothing about the dimension. Loop rounds do not count. See below for when it can fire. |
+| `control_too_close` | In the sealed panel, the candidate's mean raw score on a dimension is at least 4 and the control's mean raw score is within 1 of it, both before severity caps. A weak text does not trigger it: a low text next to a low control says nothing about the dimension. Loop rounds do not count. See below for when it can fire. |
 | `user_disagreement` | The user records their own read with `sealed-panel feedback RUN --note TEXT [--dimension ID]`, after the seal. |
 
-`control_too_close` depends on how many dimensions the persona scores: the rubric's
-dimensions, less those restricted to other personas. Calibration bounds each judge's control
-mean over the persona's dimensions at the run's `control_max` (2 by default), not its score on
-one dimension. With n such dimensions and every other score at the floor of 1, a calibrated
-judge can give the control at most `n * control_max - (n - 1)` on one dimension, and the signal
-needs the control's mean there to be at least `control_min_candidate - control_gap` (3 by
-default). With the defaults, a persona with 1 dimension allows at most 2, so the signal cannot
-fire. A persona with 2 dimensions allows at most 3, so it fires only when every valid judge of
-the persona scores the control 3 on that dimension and 1 on the other, and the candidate's
-mean on it is exactly 4. From 3 dimensions (at most 4) it has room. A persona limited to 2 of a
-rubric's 3 dimensions counts as 2.
+`control_too_close` depends on how many dimensions the persona scores: the rubric's dimensions,
+less those restricted to other personas. Calibration bounds each judge's control mean over the
+persona's dimensions at the run's `control_max` (2 by default), not its score on one dimension.
+With n such dimensions and every other score at the floor of 1, a calibrated judge can give the
+control at most `n * control_max - (n - 1)` on one dimension, and the signal needs the control's
+mean there to be at least 4 - 1 = 3. With the defaults, a persona with 1 dimension allows at
+most 2, so the signal cannot fire. A persona with 2 dimensions allows at most 3, so it fires
+only when every valid judge of the persona scores the control 3 on that dimension and 1 on the
+other, and the candidate's mean on it is exactly 4. From 3 dimensions (at most 4) it has room. A
+persona limited to 2 of a rubric's 3 dimensions counts as 2.
 
 Each candidate is a JSON file named by its id, with `kind`, `status` (`open`), `template` (the
 run's template reference), `dimension`, `run` (rubric hash, template, run directory), `runs`

@@ -49,8 +49,6 @@ AGENT_BYTES = 6
 STOP_GRACE_S = 5
 # Bytes read from a judge's stdout at a time.
 READ_CHUNK = 65536
-# A run frozen before the output caps existed gets the default.
-DEFAULT_MAX_BYTES = 1 << 20
 # A runner's attempt, beside its brief from before its process starts until it is recorded:
 # started_j<J>_<agent id>.json.
 STARTED_PREFIX = "started_j"
@@ -258,15 +256,14 @@ def open_seats(
 
 
 def _stop(proc: subprocess.Popen[bytes]) -> None:
-    """Stop the process and everything it started (its own session on POSIX). macOS refuses
-    to signal a group whose members are all exited (EPERM): the process itself is then killed,
-    and a process that left the session is out of reach."""
-    if os.name == "posix":
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-            return
-        except OSError:
-            pass
+    """Stop the process and everything it started (its own session). macOS refuses to signal a
+    group whose members are all exited (EPERM): the process itself is then killed, and a process
+    that left the session is out of reach."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+        return
+    except OSError:
+        pass
     with contextlib.suppress(OSError):
         proc.kill()
 
@@ -310,7 +307,7 @@ def _launch(
                 stderr=subprocess.PIPE,
                 cwd=cwd,
                 env=env,
-                start_new_session=os.name == "posix",
+                start_new_session=True,
             )
         except OSError as exc:
             raise EvalError(f"cannot start the judge command {argv[0]!r}: {exc}") from exc
@@ -388,8 +385,8 @@ def _judge_held(
     agent_id = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
     argv = judge_command(cfg)
     timeout = int(cfg.judge["timeout_s"])
-    cap = int(cfg.judge.get("max_reply_bytes", DEFAULT_MAX_BYTES))
-    cap_err = int(cfg.judge.get("max_stderr_bytes", DEFAULT_MAX_BYTES))
+    cap = int(cfg.judge["max_reply_bytes"])
+    cap_err = int(cfg.judge["max_stderr_bytes"])
     env = child_env(cfg)
     log = rdir / f"runner_j{judge}_{agent_id}.log"
     proof: dict[str, Any] = {
@@ -461,6 +458,7 @@ def judge_round(
     sealed: bool,
     only: list[int] | None = None,
     expected: Mapping[str, Any] | None = None,
+    on_seat: Callable[[int, dict[str, Any] | None, str], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run the judge command once for every open seat of a round, one after the other, and
     return each recorded result. A seat another call takes meanwhile is skipped; any other
@@ -473,11 +471,18 @@ def judge_round(
         only: The judge slots to run, or None for every open one.
         expected: The judge section the caller must match (the MCP server's own), or None to take
             the run's.
+        on_seat: Called after each seat with the seat, its result (None when skipped) and why
+            it was skipped, so a caller can report as it goes.
     """
     results = []
     for seat in open_seats(run, rnd, sealed, only, expected):
         try:
-            results.append(judge_seat(run, rnd, seat, sealed, expected))
-        except SeatTaken:
+            r = judge_seat(run, rnd, seat, sealed, expected)
+        except SeatTaken as exc:
+            if on_seat:
+                on_seat(seat, None, str(exc))
             continue
+        results.append(r)
+        if on_seat:
+            on_seat(seat, r, "")
     return results

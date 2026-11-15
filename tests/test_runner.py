@@ -19,7 +19,7 @@ from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import runner
 from sealed_panel.aggregate import aggregate_round, env_changes
 from sealed_panel.cli import main
-from sealed_panel.config import Config, ConfigError, default_data, load_config, merge, overrides
+from sealed_panel.config import Config, ConfigError, default_data, load_config, merge
 from sealed_panel.errors import EvalError, SeatTaken
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import MAX_VOIDS, _record_reply, record_from, record_reply, seat_lock
@@ -204,16 +204,6 @@ class TestRefusals:
             open_seats(h.run, 1, False)
         with pytest.raises(EvalError, match="no judge command"):
             judge_seat(h.run, 1, 1, False)
-
-    def test_a_run_frozen_without_a_judge_section_is_in_host_mode(self, h: Harness) -> None:
-        h.init()
-        data = json.loads((h.run / "config.json").read_text())
-        del data["judge"]
-        cfg = Config(data)
-        (h.run / "config.json").write_text(json.dumps(data))
-        (h.run / "config.lock").write_text(cfg.fingerprint + "\n")
-        assert run_config(h.run).judge["command"] == []
-        assert not [o for o in overrides(run_config(h.run)) if o.startswith("judge.")]
 
     def test_a_run_with_a_judge_command_takes_only_runner_replies(self, h: Harness) -> None:
         init_runner(h, "--exit", "3")

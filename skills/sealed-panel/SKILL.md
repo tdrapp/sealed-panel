@@ -18,11 +18,12 @@ Set `RUN` to a new directory per evaluation (for example `runs/<slug>`). Give th
 title: judges see it.
 
 **Tools or commands.** When the sealed-panel MCP tools are available, use them: each carries
-the name of the command below (`init`, `brief`, `record`, `measure`, `aggregate`, `status`,
-`report`, `feedback`, `rubrics_list`, `rubrics_suggest`, `rubrics_show`), with `seal` for
-`brief --sealed`, `void` for `record --void`, and `judge` for `sealed-panel judge`. Otherwise
-run the `sealed-panel` command. Never promote or reject a rubric candidate yourself, through
-any tool or command: show the user the command and let them run it.
+the name of the command below (`init`, `brief`, `record`, `judge`, `measure`, `aggregate`,
+`status`, `report`), with `sealed=true` for `--sealed`, `void=true` for `record --void`, and
+`rubrics_suggest` and `rubrics_use` for `rubrics suggest` and `rubrics use`. Otherwise run the
+`sealed-panel` command. The learning commands (`sealed-panel learning ...`, `feedback`) have no
+tool: run them at the command line. Never promote or reject a rubric candidate yourself,
+through any tool or command: show the user the command and let them run it.
 
 ## 0. Scope
 
@@ -202,10 +203,11 @@ differs from the defaults, and how many judge contexts ran. Say whether replies 
 transcripts or were pasted. A text changed after the seal
 is unjudged: say so, or start a new run.
 
-Then point the user to the library inbox (`sealed-panel rubrics list --run RUN`): after the
-seal, rubric-level candidates are written there (a dimension the sealed judges disagree on, a
-dimension where the sealed panel scores the bad control close to a strong text). If aggregate
-printed "learning skipped", run `sealed-panel learn RUN`. If the user's own read disagrees with
+Then run `sealed-panel learning learn RUN` (a command, not a tool): it reads the sealed run and
+writes rubric-level candidates to the user library's inbox (a dimension the sealed judges
+disagree on, a dimension where the sealed panel scores the bad control close to a strong text).
+Nothing learns unless you run it. Point the user to the inbox (`sealed-panel rubrics list`).
+If the user's own read disagrees with
 the grade, record it with `sealed-panel feedback RUN --note "..." [--dimension ID]`. Never
 promote a candidate: draft a `proposed_change` only when the user asks for one, and let the user
 run `sealed-panel rubrics promote ID` themselves (it shows the change side by side and asks them

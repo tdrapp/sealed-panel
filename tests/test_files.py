@@ -8,6 +8,7 @@ import contextlib
 import errno
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -30,6 +31,7 @@ from sealed_panel.config import (
     config_differences,
     default_config,
     default_data,
+    fingerprint,
     load_config,
     merge,
 )
@@ -38,10 +40,33 @@ from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import extract_json, record_from, record_reply, seat_lock
 from sealed_panel.report import render_report
 from sealed_panel.runner import judge_round, judge_seat, open_seats
-from sealed_panel.spec import init_run, run_config, run_library
+from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
+
+# Every name a run holds: its files and folders. Nothing is created inside a run but by
+# sealed-panel (see store.outside_runs); the full-run test below checks that a run creates no
+# other name, so a new run file updates this inventory, and that every name a run is
+# recognised by (store.RESERVED_NAMES) is one of them.
+RUN_NAMES = frozenset(
+    {
+        "rubric.lock", "run.json", "run.lock", "config.json", "config.lock", "spec.json",
+        "env.salt", "rounds", "sealed", "feedback", "keys.json", "result.json", "measured.json",
+        "candidate.md", "control.md", "previous.md", "baseline.md", "known_good.md",
+    }
+)  # fmt: skip
+RUN_NAME_PATTERN = re.compile(
+    r"r[0-9]+|seat_j[0-9]+\.lock|started_j[0-9]+_.*\.json|brief_j[0-9]+\.md"
+    r"|out_j[0-9]+_.*\.json|runner_j[0-9]+_.*\.log|after_r[0-9]+\.md"
+)
+
+
+def run_name(name: str) -> bool:
+    """Whether a file or folder name is one a run holds (see RUN_NAMES)."""
+    return name in RUN_NAMES or RUN_NAME_PATTERN.fullmatch(name) is not None
+
+
 SRC = Path(__file__).resolve().parent.parent / "src" / "sealed_panel"
 
 
@@ -99,6 +124,35 @@ class TestWrites:
         assert {str(p): oct(stat.S_IMODE(p.stat().st_mode)) for p in folders} == {
             str(p): oct(0o700) for p in folders
         }
+
+    @pytest.mark.slow
+    def test_every_name_a_full_run_creates_is_in_the_inventory(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A run of the runner through every step: no file or folder outside RUN_NAMES,
+        so a new run file updates the inventory, and every name a run is recognised by is
+        reserved."""
+        measured = [{"id": "length", "description": "words", "max": 100}]
+        init_judge(h, [sys.executable, str(STUB), "--score", "5"], measured=measured)
+        r, art = h.run, ["--artefact", h.files["cand"], "--control", h.files["ctrl"]]
+        for args in (
+            ("brief", r, "--round", "1", *art),
+            ("judge", r, "--round", "1"),
+            ("measure", r, "--round", "1", "--id", "length", "--value", "10"),
+            ("aggregate", r, "--round", "1"),
+            ("brief", r, "--sealed", *art),
+            ("judge", r, "--sealed"),
+            ("measure", r, "--sealed", "--id", "length", "--value", "10"),
+            ("aggregate", r, "--sealed"),
+            ("report", r),
+        ):
+            assert cli.main([str(a) for a in args]) == 0, args
+        capsys.readouterr()
+        names = {p.name for p in r.rglob("*")}
+        assert {"after_r1.md", "result.json", "run.json"} <= names
+        assert any(n.startswith("runner_j") for n in names)
+        assert sorted(n for n in names if not run_name(n)) == []
+        assert all(run_name(n) for n in store.RESERVED_NAMES - {store.INIT_LOCK})
 
     def test_nothing_is_left_behind(self, tmp_path: Path) -> None:
         folder = tmp_path / "here"
@@ -732,7 +786,7 @@ class TestCommandLineEdges:
         def interrupted(*args: Any) -> None:
             raise KeyboardInterrupt
 
-        monkeypatch.setattr(cli, "judge_seat", interrupted)
+        monkeypatch.setattr(runner, "judge_seat", interrupted)
         assert cli.main(["judge", str(h.run), "--round", "1"]) == cli.INTERRUPTED
         assert "interrupted" in capsys.readouterr().out
 
@@ -742,10 +796,10 @@ class TestCommandLineEdges:
         init_judge(h, [sys.executable, str(STUB)])
         h.brief(1, "cand")
 
-        def taken(run: Path, rnd: int, seat: int, sealed: bool) -> dict[str, Any]:
+        def taken(run: Path, rnd: int, seat: int, sealed: bool, *_: Any) -> dict[str, Any]:
             raise SeatTaken(f"judge {seat} is being judged by another call")
 
-        monkeypatch.setattr(cli, "judge_seat", taken)
+        monkeypatch.setattr(runner, "judge_seat", taken)
         assert cli.main(["judge", str(h.run), "--round", "1"]) == 0
         out = capsys.readouterr().out
         assert out.startswith("SKIPPED judge 1: judge 1 is being judged")
@@ -804,7 +858,7 @@ def stop_group(pid: int) -> None:
 def relock(run: Path, data: dict[str, Any]) -> None:
     """What someone editing the run's files by hand does: the config and its lock together."""
     (run / "config.json").write_text(json.dumps(data))
-    (run / "config.lock").write_text(Config(data).fingerprint + "\n")
+    (run / "config.lock").write_text(fingerprint(data) + "\n")
 
 
 class TestFrozenConfiguration:
@@ -819,6 +873,15 @@ class TestFrozenConfiguration:
         with pytest.raises(EvalError, match=r"unknown configuration key 'transcript\.tool_block"):
             run_config(h.run)
 
+    def test_a_missing_key_is_refused(self, h: Harness) -> None:
+        """Every run of this version froze every key: one missing was edited out."""
+        h.init()
+        data = json.loads((h.run / "config.json").read_text())
+        del data["judge"]["max_stderr_bytes"]
+        relock(h.run, data)
+        with pytest.raises(EvalError, match=r"missing configuration key 'judge\.max_stderr_bytes'"):
+            run_config(h.run)
+
     def test_an_unknown_key_is_refused(self, h: Harness) -> None:
         h.init()
         data = json.loads((h.run / "config.json").read_text())
@@ -826,14 +889,6 @@ class TestFrozenConfiguration:
         relock(h.run, data)
         with pytest.raises(EvalError, match=r"unknown configuration key 'limits\.extra'"):
             run_config(h.run)
-
-    def test_punctuation_keeps_its_open_table(self, h: Harness) -> None:
-        cfg = h.tmp / "p.toml"
-        cfg.write_text('[text.punctuation]\n"\\u2032" = "\'"\n')
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        assert run_config(h.run).punctuation[chr(0x2032)] == "'"
 
     def test_differences_are_read_section_by_section(self, h: Harness) -> None:
         h.init()
@@ -845,14 +900,6 @@ class TestFrozenConfiguration:
             "judge.timeout_s",
             "limits.max_replacements",
         ]
-
-    def test_a_key_an_older_run_lacks_counts_as_its_default(self, h: Harness) -> None:
-        h.init()
-        data = json.loads((h.run / "config.json").read_text())
-        del data["judge"]["max_stderr_bytes"]
-        del data["mcp"]
-        relock(h.run, data)
-        assert config_differences(run_config(h.run), default_config()) == []
 
     def test_a_present_old_value_still_differs(self, h: Harness) -> None:
         h.init()
@@ -915,20 +962,6 @@ class TestStartedRecords:
 
 
 class TestLibraryMoved:
-    def test_a_library_replaced_by_a_link_is_refused(self, h: Harness) -> None:
-        lib = h.tmp / "lib"
-        lib.mkdir()
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, None, lib)
-        outside = h.tmp / "outside"
-        outside.mkdir()
-        lib.rename(h.tmp / "lib.real")
-        lib.symlink_to(outside)
-        with pytest.raises(EvalError, match="a link was put in its place"):
-            run_library(h.run)
-        assert list(outside.iterdir()) == []
-
     def test_a_linked_library_folder_writes_nothing(self, tmp_path: Path) -> None:
         outside = tmp_path / "outside"
         outside.mkdir()

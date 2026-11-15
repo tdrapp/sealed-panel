@@ -112,19 +112,6 @@ class TestSeats:
         with pytest.raises(EvalError, match="rejected 3 times"):
             record_reply(h.run, 1, 1, "bad-last", "no json last", False)
 
-    def test_a_run_without_brief_ids_cannot_void(self, h: Harness) -> None:
-        h.init()
-        h.brief(1, "cand")
-        kpath = round_dir(h.run, 1) / "keys.json"
-        keys = json.loads(kpath.read_text())
-        for j in keys["judges"]:
-            j.pop("nonce")
-        kpath.write_text(json.dumps(keys))
-        with pytest.raises(EvalError, match="no brief id"):
-            void(h, "old", transcript(h, "old", "anything"))
-
-
-class TestWhoCanBeVoided:
     def test_a_pasted_judge_with_json_then_prose_cannot_be_voided(self, h: Harness) -> None:
         h.init()
         h.brief(1, "cand")

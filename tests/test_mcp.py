@@ -18,34 +18,30 @@ pytest.importorskip("fastmcp")
 
 from fastmcp import Client
 
-from conftest import BAD, FLAT, Harness, judge_json, make_spec
+from conftest import BAD, FLAT, MARKERS, Harness, judge_json, make_spec, mark
 from sealed_panel import mcp_server
 from sealed_panel.config import Config, load_config
 from sealed_panel.errors import ConfigError, EvalError
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
 from sealed_panel.report import status as run_status_of
-from sealed_panel.spec import init_run
+from sealed_panel.spec import TODO_MARKER, init_run
 from sealed_panel.spec import run_config as run_config_of
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
 TOOLS = [
     "init",
     "brief",
-    "seal",
     "record",
-    "void",
     "judge",
     "measure",
     "aggregate",
     "status",
     "report",
-    "rubrics_list",
     "rubrics_suggest",
-    "rubrics_show",
-    "feedback",
+    "rubrics_use",
 ]
-READ_ONLY = {"status", "report", "rubrics_list", "rubrics_suggest", "rubrics_show"}
+READ_ONLY = {"status", "report", "rubrics_suggest"}
 
 
 @pytest.fixture(params=["auto", "legacy"])
@@ -103,7 +99,8 @@ class TestTools:
             else:
                 assert a.read_only_hint is False and a.destructive_hint is False, t.name
                 assert a.open_world_hint is (t.name == "judge"), t.name
-        assert not {"promote", "reject", "rubrics_promote", "rubrics_reject"} & set(TOOLS)
+        learning = {"feedback", "learn", "promote", "reject", "rubrics_promote", "rubrics_reject"}
+        assert not learning & set(TOOLS)
 
     async def test_the_server_names_itself_and_the_protocol(self, h: Harness) -> None:
         async with Client(build_server(h.tmp), mode="legacy") as c:
@@ -141,8 +138,8 @@ class TestEndToEnd:
             s = await call(c, "status", run="run")
             assert s["decision"] in {"CONVERGED", "CAP"}
             assert any(o.startswith("judge.command") for o in s["overrides"])
-            assert s["details"]["next"] == "seal"
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            assert s["details"]["next"] == "brief the sealed panel"
+            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
             sealed = await call(c, "judge", run="run", sealed=True)
             assert all(x["status"] == "VALID" for x in sealed["seats"])
             agg = await call(c, "aggregate", run="run", sealed=True)
@@ -150,13 +147,6 @@ class TestEndToEnd:
             report = (await call(c, "report", run="run"))["markdown"]
             assert "Grade (sealed panel): clarity 5 (5/5); evidence 5 (5/5)" in report
             assert "read by sealed-panel from the judge command" in report
-            fb = await call(c, "feedback", run="run", note="my read differs on clarity")
-            assert fb["commands"][0].startswith(
-                f"sealed-panel rubrics promote {fb['candidate_id']}"
-            )
-            assert Path(fb["path"]).exists()
-            listed = await call(c, "rubrics_list", run="run")
-            assert fb["candidate_id"] in [x["id"] for x in listed["candidates"]]
 
     async def test_host_mode_record_void_and_measure(self, h: Harness, mode: str) -> None:
         spec = make_spec(
@@ -181,7 +171,16 @@ class TestEndToEnd:
             brief = (h.run / "rounds" / "r1" / "brief_j2.md").read_text()
             row = {"type": "user", "agentId": "a3", "message": {"content": brief}}
             t.write_text(json.dumps(row) + "\n")
-            v = await call(c, "void", run="run", round=1, judge=2, agent_id="a3", transcript=str(t))
+            v = await call(
+                c,
+                "record",
+                run="run",
+                round=1,
+                judge=2,
+                agent_id="a3",
+                transcript=str(t),
+                void=True,
+            )
             assert v["status"] == "VOID"
             meta = keys[1]
             sc = {r: BAD for r in meta["key"].values()} | {"candidate": FLAT}
@@ -198,15 +197,18 @@ class TestEndToEnd:
     async def test_rubrics_tools(self, h: Harness, mode: str) -> None:
         (h.tmp / "draft.md").write_text("Hi team, a short email about the build cache.")
         async with Client(build_server(h.tmp), mode=mode) as c:
-            listed = await call(c, "rubrics_list")
-            assert "message" in [t["id"] for t in listed["templates"]]
             s = await call(c, "rubrics_suggest", kind="email", text="draft.md")
             assert s["suggestions"][0]["id"] == "message" and s["all_templates"] == {}
             none = await call(c, "rubrics_suggest", kind="limerick")
             assert none["suggestions"] == [] and "message" in none["all_templates"]
-            shown = await call(c, "rubrics_show", id="message")
-            assert shown["template"]["dimensions"] and shown["candidates"] == []
-            assert "no template 'nope'" in await error(c, "rubrics_show", id="nope")
+            used = await call(c, "rubrics_use", id="message", out="spec.json")
+            assert used["path"] == str((h.tmp / "spec.json").resolve())
+            assert used["todo_marker"] == TODO_MARKER
+            assert TODO_MARKER in (h.tmp / "spec.json").read_text()
+            assert "already exists" in await error(c, "rubrics_use", id="message", out="spec.json")
+            assert "no template 'nope'" in await error(c, "rubrics_use", id="nope", out="n.json")
+            # init refuses the skeleton until a person fills it.
+            assert TODO_MARKER in await error(c, "init", run="run", spec="spec.json")
 
 
 class TestErrors:
@@ -226,7 +228,7 @@ class TestErrors:
             assert "not initialised" in msg
             assert "rounds start at 1" not in msg
             msg = await error(c, "aggregate", run="run")
-            assert "--round is required" in msg
+            assert "the round number is required" in msg
             write_spec(h)
             await call(c, "init", run="run", spec="spec.json")
             assert "already frozen" in await error(c, "init", run="run", spec="spec.json")
@@ -240,7 +242,8 @@ class TestErrors:
             assert "No such file" in await error(c, "init", run="r", spec="absent.json")
             write_spec(h)
             await call(c, "init", run="run", spec="spec.json")
-            (h.run / "ledger.json").write_text("[]")
+            (h.run / "rounds" / "r1").mkdir(parents=True)
+            (h.run / "rounds" / "r1" / "result.json").write_text("{}")
             assert "unusable input" in await error(c, "status", run="run")
 
     async def test_an_internal_error_is_masked(
@@ -338,24 +341,17 @@ class TestJudgeAuthority:
         init_run(h.run, write_spec(h), load_config(evil))  # by hand, outside the server
         async with Client(build_server(h.tmp, runner_config(h)), mode=mode) as c:
             for tool, args in (
-                ("seal", {"artefact": "cand.md", "control": "ctrl.md"}),
+                ("brief", {"artefact": "cand.md", "control": "ctrl.md", "sealed": True}),
                 ("judge", {"sealed": True}),
                 ("record", {"judge": 1, "agent_id": "a", "sealed": True, "reply": "{}"}),
                 ("measure", {"id": "x", "value": "1", "sealed": True}),
                 ("aggregate", {"sealed": True}),
-                ("feedback", {"note": "a note"}),
             ):
                 msg = await error(c, tool, run="run", **args)
                 assert "differ from the configuration the server was started with" in msg, tool
             # Reading changes nothing: the read-only tools read it, and status says it is
             # not served.
-            for tool, args in (
-                ("rubrics_list", {}),
-                ("rubrics_suggest", {"kind": "email"}),
-                ("rubrics_show", {"id": "message"}),
-                ("report", {}),
-            ):
-                await call(c, tool, run="run", **args)
+            await call(c, "report", run="run")
             assert (await call(c, "status", run="run"))["served"] is False
         assert not (h.tmp / "pwned.txt").exists()
 
@@ -364,7 +360,9 @@ class TestJudgeAuthority:
     ) -> None:
         init_run(h.run, write_spec(h), load_config(runner_config(h)))
         async with Client(build_server(h.tmp), mode=mode) as c:
-            msg = await error(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            msg = await error(
+                c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md"
+            )
         assert "differ from the configuration" in msg
 
     async def test_a_runner_server_serves_no_host_mode_run(self, h: Harness, mode: str) -> None:
@@ -384,7 +382,9 @@ class TestJudgeAuthority:
         (h.run / "config.json").write_text(json.dumps(data))
         (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
         async with Client(build_server(h.tmp), mode=mode) as c:
-            msg = await error(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            msg = await error(
+                c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md"
+            )
             status = await call(c, "status", run="run")
         assert "limits.max_replacements" in msg
         assert status["served"] is False
@@ -474,7 +474,14 @@ class TestTranscriptRoots:
                 )
                 assert "outside every transcript root" in msg, given
                 msg = await error(
-                    c, "void", run="run", round=1, judge=1, agent_id="forged", transcript=given
+                    c,
+                    "record",
+                    run="run",
+                    round=1,
+                    judge=1,
+                    agent_id="forged",
+                    transcript=given,
+                    void=True,
                 )
                 assert "outside every transcript root" in msg, given
         assert results_by_judge(h.run / "rounds" / "r1") == {}
@@ -548,10 +555,6 @@ class TestTranscriptRoots:
         assert mcp_server.usable_roots(["~"], home="/home/u") == [Path("/home/u")]
         assert mcp_server.usable_roots(["$HOMEX/p"], home="/home/u") == []
 
-    def test_a_candidate_id_is_quoted_in_the_commands(self) -> None:
-        [promote, _] = mcp_server._decide_commands(Path("/lib"), "x; touch pwned #")
-        assert promote.startswith("sealed-panel rubrics promote 'x; touch pwned #' ")
-
 
 class TestConcurrentJudges:
     @pytest.mark.slow
@@ -562,7 +565,7 @@ class TestConcurrentJudges:
         write_spec(h, judges_per_persona=3)
         async with Client(build_server(h.tmp, cfg), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
             calls = [c.call_tool_mcp("judge", {"run": "run", "sealed": True}) for _ in range(3)]
             await asyncio.gather(*calls)
         by = results_by_judge(h.run / "sealed" / "r1")
@@ -637,8 +640,13 @@ class TestPaths:
             assert "outside the root" in await error(c, "init", run="r2", spec=str(secret))
             msg = await error(c, "rubrics_suggest", kind="email", text=str(secret))
             assert "outside the root" in msg
-            msg = await error(c, "rubrics_list", library=str(outside))
+            msg = await error(c, "rubrics_suggest", kind="email", library=str(outside))
             assert "outside the root" in msg
+            for out in (str(outside / "spec.json"), "../spec.json", "link/spec.json"):
+                msg = await error(c, "rubrics_use", id="message", out=out)
+                assert "outside the root" in msg, out
+            assert list(outside.iterdir()) == [secret]
+            assert not (h.tmp.parent / "spec.json").exists()
             await call(c, "status", run=str(h.run))  # an absolute path inside the root is fine
 
     @pytest.mark.slow
@@ -670,8 +678,8 @@ class TestPaths:
             assert "the server's own lock file" in msg
 
     async def test_the_lock_file_is_the_servers_from_startup(self, h: Harness, mode: str) -> None:
-        """No tool can occupy the lock's name before the first init (a feedback library made a
-        directory there, and every later init failed)."""
+        """No tool can occupy the lock's name before the first init (a library a tool wrote
+        made a directory there, and every later init failed)."""
         write_spec(h)
         lock = h.tmp / mcp_server.INIT_LOCK
         async with Client(build_server(h.tmp), mode=mode) as c:
@@ -691,17 +699,36 @@ class TestPaths:
                 ("aggregate", {"run": lk, "round": 1}),
                 ("status", {"run": lk}),
                 ("report", {"run": lk}),
-                ("rubrics_list", {"library": f"{lk}/x"}),
+                ("rubrics_suggest", {"kind": "email", "library": f"{lk}/x"}),
                 ("rubrics_suggest", {"kind": "email", "text": lk}),
-                ("rubrics_show", {"id": "message", "run": lk}),
-                ("feedback", {"run": "r0", "note": "too low", "library": lk}),
-                ("feedback", {"run": "r0", "note": "too low", "library": f"{lk}/x"}),
+                ("rubrics_use", {"id": "message", "out": lk}),
+                ("rubrics_use", {"id": "message", "out": f"{lk}/x"}),
+                ("rubrics_use", {"id": "message", "out": "s.json", "library": lk}),
             ]
             for tool, args in cases:
                 msg = await error(c, tool, **args)
                 assert "the server's own lock file" in msg, (tool, args)
             assert lock.is_file()
             await call(c, "init", run="r1", spec="spec.json")
+
+    async def test_the_lock_file_under_another_name_is_refused(self, h: Harness, mode: str) -> None:
+        """The check compares inodes: another case of the name (on a case-insensitive
+        filesystem) or a hard link to the lock is the lock, and the tool says so."""
+        write_spec(h)
+        lock = h.tmp / mcp_server.INIT_LOCK
+        upper = mcp_server.INIT_LOCK.upper()
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            os.link(lock, h.tmp / "alias.lock")
+            names = ["alias.lock", "alias.lock/x"]
+            if (h.tmp / upper).exists():  # a case-insensitive filesystem
+                names += [upper, f"{upper}/x"]
+            for name in names:
+                msg = await error(c, "init", run=name, spec="spec.json")
+                assert "the server's own lock file" in msg, name
+            assert "own lock file" in await error(c, "init", run="r", spec="alias.lock")
+        assert lock.is_file() and not (h.tmp / "r").exists()
+        assert not mcp_server.names_lock(h.tmp, h.tmp, lock)
+        assert not mcp_server.names_lock(h.tmp / "absent", h.tmp, lock)
 
     def test_a_server_whose_lock_path_is_taken_does_not_start(self, h: Harness) -> None:
         (h.tmp / mcp_server.INIT_LOCK).mkdir()
@@ -713,12 +740,66 @@ class TestPaths:
         write_spec(h)
         async with Client(build_server(h.tmp), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
             for inner in ("seat_j1.lock", "result.json"):
                 msg = await error(c, "init", run=f"run/sealed/r1/{inner}", spec="spec.json")
                 assert "inside the run" in msg, inner
         assert not (h.run / "sealed" / "r1" / "seat_j1.lock").exists()
         assert not (h.run / "sealed" / "r1" / "result.json").exists()
+
+    async def test_nothing_is_created_inside_a_run(self, h: Harness, mode: str) -> None:
+        """A spec skeleton written into a run would fake a round's result or block the sealed
+        panel (the review's probe): every tool argument that creates something is refused
+        inside a run, by the one guard init uses too."""
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
+            for out in ("run/rounds/r1/result.json", "run/config.json", "run/x.json"):
+                msg = await error(c, "rubrics_use", id="message", out=out)
+                assert "inside the run" in msg, out
+            # Nothing a run is told by, and no new folder: neither `run/sealed` nor a file or
+            # folder named rubric.lock that would pass the root's folders off as runs.
+            for out in ("run/sealed", "rubric.lock", "x/rubric.lock"):
+                assert "a .json file" in await error(c, "rubrics_use", id="message", out=out)
+            for out in ("x/rubric.lock/s.json", "run/sealed/s.json"):
+                assert "is not a folder" in await error(c, "rubrics_use", id="message", out=out)
+            assert not (h.tmp / "rubric.lock").exists() and not (h.tmp / "x").exists()
+            await call(c, "init", run="second", spec="spec.json")
+            msg = await error(c, "rubrics_suggest", kind="email", library="run/lib")
+            assert "inside the run" in msg
+            msg = await error(c, "init", run="run/rounds/r1/inner", spec="spec.json")
+            assert "inside the run" in msg
+            assert (await call(c, "status", run="run"))["decision"] == "CONTINUE"
+            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
+        assert not (h.run / "rounds" / "r1" / "result.json").exists()
+        assert not (h.run / "x.json").exists()
+
+    async def test_no_caller_name_passes_for_a_run(self, h: Harness, mode: str) -> None:
+        """The review's probe: a folder a tool created named rubric.lock made its parent (the
+        root even) pass for a run, refusing every later init under it. A name a run or the
+        server is recognised by is refused anywhere in a path a tool creates, in any case, and
+        a folder of that name made by hand is not taken for a run."""
+        write_spec(h)
+        (h.tmp / "x").mkdir()
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            for tool, args, name in (
+                ("init", {"run": "rubric.lock", "spec": "spec.json"}, "rubric.lock"),
+                ("init", {"run": "x/Rubric.Lock", "spec": "spec.json"}, "Rubric.Lock"),
+                ("init", {"run": "x/run.json/inner", "spec": "spec.json"}, "run.json"),
+                ("rubrics_use", {"id": "message", "out": "x/run.json"}, "run.json"),
+                ("rubrics_suggest", {"kind": "email", "library": "x/rubric.lock"}, "rubric.lock"),
+            ):
+                msg = await error(c, tool, **args)
+                assert f"{name!r} is a name reserved for a run's own files" in msg, args
+            assert sorted(p.name for p in (h.tmp / "x").iterdir()) == []
+            (h.tmp / "x" / "rubric.lock").mkdir()  # by hand: still no run
+            await call(c, "init", run="x/fresh", spec="spec.json")
+            await call(c, "init", run="fresh2", spec="spec.json")
+            await call(c, "rubrics_use", id="message", out="x/spec.json")
+            msg = await error(c, "status", run="x")
+        assert "not initialised" in msg
 
     async def test_a_foreign_directory_is_not_overwritten(self, h: Harness, mode: str) -> None:
         write_spec(h)
@@ -747,7 +828,7 @@ class TestPaths:
         async with Client(build_server(h.tmp), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
             await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
-            msg = await error(c, "rubrics_list", library="run/rounds/r1")
+            msg = await error(c, "rubrics_suggest", kind="email", library="run/rounds/r1")
         assert "inside the run" in msg
 
     async def test_the_root_comes_from_the_flag_or_the_configuration(self, h: Harness) -> None:
@@ -788,9 +869,16 @@ class TestRunnerRefusalsThroughTools:
             assert "every reply comes from the runner" in msg
             t = h.tmp / "t.jsonl"
             t.write_text('{"type": "user", "agentId": "y", "message": {"content": "brief"}}\n')
-            for tool in ("record", "void"):
+            for void in (False, True):
                 msg = await error(
-                    c, tool, run="run", round=1, judge=1, agent_id="y", transcript="t.jsonl"
+                    c,
+                    "record",
+                    run="run",
+                    round=1,
+                    judge=1,
+                    agent_id="y",
+                    transcript="t.jsonl",
+                    void=void,
                 )
                 assert "--transcript-root" in msg
             assert "never fills a seat" in await error(c, "aggregate", run="run", round=1)
@@ -830,43 +918,38 @@ class TestRoundThreeProbes:
             for tool, args in (
                 ("status", {}),
                 ("report", {}),
-                ("seal", {"artefact": "cand.md", "control": "ctrl.md"}),
+                ("brief", {"artefact": "cand.md", "control": "ctrl.md", "sealed": True}),
             ):
                 msg = await error(c, tool, run="run", **args)
                 assert "unknown configuration key 'transcript.tool_block_type'" in msg
 
-    async def test_a_run_from_an_older_version_is_served(self, h: Harness, mode: str) -> None:
-        write_spec(h)
-        async with Client(build_server(h.tmp), mode=mode) as c:
-            await call(c, "init", run="run", spec="spec.json")
-            data = json.loads((h.run / "config.json").read_text())
-            del data["judge"]["max_stderr_bytes"]
-            del data["mcp"]
-            (h.run / "config.json").write_text(json.dumps(data))
-            (h.run / "config.lock").write_text(Config(data).fingerprint + "\n")
-            status = await call(c, "status", run="run")
-            assert status["decision"] == "CONTINUE" and status["served"] is True
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
-
-    @pytest.mark.slow
-    async def test_a_library_replaced_by_a_link_takes_no_feedback(
-        self, h: Harness, mode: str
+    @pytest.mark.parametrize("how", list(MARKERS))
+    async def test_a_run_of_another_format_is_refused(
+        self, h: Harness, mode: str, how: str
     ) -> None:
-        cfg = runner_config(h, "--score", "5")
         write_spec(h)
-        (h.tmp / "lib").mkdir()
-        outside = h.tmp.parent / f"{h.tmp.name}-outside"
-        outside.mkdir()
-        async with Client(build_server(h.tmp, cfg), mode=mode) as c:
-            await call(c, "init", run="run", spec="spec.json", library="lib")
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
-            await call(c, "judge", run="run", sealed=True)
-            await call(c, "aggregate", run="run", sealed=True)
-            (h.tmp / "lib").rename(h.tmp / "lib.real")
-            (h.tmp / "lib").symlink_to(outside)
-            msg = await error(c, "feedback", run="run", note="the evidence reads too low")
-        assert "a link was put in its place" in msg
-        assert list(outside.iterdir()) == []
+        host = transcripts_of(h)
+        t = host / "t.jsonl"
+        t.write_text('{"type": "user", "agentId": "a", "message": {"content": "x"}}\n')
+        async with Client(build_server(h.tmp, None, [host]), mode=mode) as c:
+            await call(c, "init", run="run", spec="spec.json")
+            mark(h.run, how)
+            before = sorted(p.relative_to(h.run) for p in h.run.rglob("*"))
+            rec = {"judge": 1, "agent_id": "a", "round": 1}
+            for tool, args in (
+                ("status", {}),
+                ("report", {}),
+                ("brief", {"sealed": True, "artefact": "cand.md", "control": "ctrl.md"}),
+                ("record", {**rec, "reply": "{}"}),
+                ("record", {**rec, "transcript": str(t)}),
+                ("record", {**rec, "transcript": str(t), "void": True}),
+                ("judge", {"round": 1}),
+                ("measure", {"id": "length", "value": "1", "sealed": True}),
+                ("aggregate", {"round": 1}),
+            ):
+                msg = await error(c, tool, run="run", **args)
+                assert MARKERS[how] in msg, (how, tool)
+        assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
 
     @pytest.mark.slow
     async def test_a_started_record_of_a_dead_runner_never_fails_a_judge_call(
@@ -876,7 +959,7 @@ class TestRoundThreeProbes:
         write_spec(h)
         async with Client(build_server(h.tmp, cfg), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
-            await call(c, "seal", run="run", artefact="cand.md", control="ctrl.md")
+            await call(c, "brief", run="run", sealed=True, artefact="cand.md", control="ctrl.md")
             rdir = h.run / "sealed" / "r1"
             (rdir / "started_j1_runner-gone.json").write_text('{"argv": ["x"]}')
             seats = (await call(c, "judge", run="run", sealed=True, judges=[2]))["seats"]

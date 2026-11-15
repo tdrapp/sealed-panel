@@ -102,6 +102,64 @@ def contained(path: Path, root: Path, given: str | None = None) -> Path:
     return real
 
 
+# The MCP server's own file at its root, held by the init tool.
+INIT_LOCK = ".sealed-panel-init.lock"
+# The names a run or the server is recognised by from outside: a folder holding rubric.lock is
+# a run, run.json is its format, the init lock is the server's. No caller creates a path with
+# one of them anywhere in it (see outside_runs), so nothing a caller made passes for a run's or
+# the server's own file. Every other run name is only read inside a run, where nothing is
+# created but by sealed-panel.
+RESERVED_NAMES = frozenset({"rubric.lock", "run.json", INIT_LOCK})
+
+
+def reserved(name: str) -> bool:
+    """Whether a name is one a run or the server is recognised by, in any case.
+
+    Args:
+        name: One path component.
+    """
+    return name.casefold() in RESERVED_NAMES
+
+
+def is_run(folder: Path) -> bool:
+    """Whether a folder is a run: it holds the file `rubric.lock`, which every run writes as a
+    file (a folder of that name is not one).
+
+    Args:
+        folder: The folder.
+    """
+    return (folder / "rubric.lock").is_file()
+
+
+def outside_runs(path: Path, what: str) -> Path:
+    """The path with every link followed, refused when it is a run or lies inside one, or when a
+    name it would create is one a run or the server is recognised by (RESERVED_NAMES, in any
+    case): the one guard on a path a caller names to create (a new run, a spec skeleton, a
+    rubric library). Every component that does not exist yet, and the last one, is checked, so
+    nothing a caller creates passes for a run or the server's lock, and nothing is put where a
+    round's lock or result goes.
+
+    Args:
+        path: The path to create, or to create things under.
+        what: How the refusal names it, such as "the run" or "the spec".
+    """
+    real = path.resolve()
+    new = [p.name for p in (real, *real.parents) if p == real or not p.exists()]
+    taken = next((n for n in new if reserved(n)), None)
+    if taken is not None:
+        raise EvalError(
+            f"{what} {path}: {taken!r} is a name reserved for a run's own files (it marks a run "
+            "or the server's lock); choose another"
+        )
+    for folder in (real, *real.parents):
+        if is_run(folder):
+            raise EvalError(
+                f"{what} {path} is inside the run {folder}: a run holds only the files "
+                "sealed-panel writes there"
+            )
+    return real
+
+
 @contextlib.contextmanager
 def locked(path: Path, busy: str, wait: bool = False) -> Iterator[None]:
     """Hold an exclusive lock on `path` (fcntl.flock) while the block runs. Without `wait`,
@@ -176,7 +234,9 @@ def resolve_round(rnd: int | None, sealed: bool) -> int:
         return int(rnd)
     if sealed:
         return 1
-    raise EvalError("--round is required for a loop round (it defaults to 1 only with --sealed)")
+    raise EvalError(
+        "the round number is required for a loop round (it defaults to 1 only for the sealed panel)"
+    )
 
 
 def round_dir(run: Path, rnd: int, sealed: bool = False) -> Path:

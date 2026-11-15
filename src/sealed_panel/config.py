@@ -1,18 +1,17 @@
 """Load defaults.toml, merge an optional override file, check bounds, expose typed values.
 
 The defaults define the shape: an override may only set keys that exist there, with a value
-of the same type. One table is open (new keys allowed): `text.punctuation`. Settings that
-guard the protocol have hard bounds, so an override can tighten a guard but never switch it
-off.
+of the same type. Settings that guard the protocol have hard bounds, so an override can
+tighten a guard but never switch it off. A section 0.4.0 fixed in code is refused, by name.
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 import tomllib
 from collections.abc import Mapping
@@ -23,8 +22,18 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ConfigError
+from .store import outside_runs
 
-OPEN_TABLES = frozenset({("text", "punctuation")})
+# Sections a version before 0.4.0 froze into every run, and 0.4.0 fixed in code: a file that
+# sets one is refused, naming the key.
+REMOVED_SECTIONS = {
+    "text": "the normalisation of texts",
+    "injection": "the injection patterns",
+    "library": (
+        "learning runs only through `sealed-panel learning learn`, and the library comes from "
+        "--library or $SEALED_PANEL_RUBRICS"
+    ),
+}
 SEVERITY_NAMES = ("blocking", "material", "cosmetic", "none")
 
 # Hard bounds. A value outside them is refused, in a configuration file or in a spec.
@@ -71,13 +80,9 @@ def merge(
     out = dict(base)
     for key, value in override.items():
         where = ".".join((*path, key))
+        if not path and key in REMOVED_SECTIONS:
+            raise ConfigError(removed_message(key, value))
         if key not in base:
-            sample = next(iter(base.values()), None)
-            if path in OPEN_TABLES and sample is not None and _type_ok(sample, value):
-                out[key] = value
-                continue
-            if path in OPEN_TABLES:
-                raise ConfigError(f"{where} must be of type {type(sample).__name__}")
             raise ConfigError(f"unknown configuration key {where}")
         current = base[key]
         if isinstance(current, dict):
@@ -89,6 +94,20 @@ def merge(
         else:
             out[key] = value
     return out
+
+
+def removed_message(section: str, value: Any) -> str:
+    """The refusal of a section 0.4.0 removed, naming the keys the file sets in it.
+
+    Args:
+        section: The section's name.
+        value: What the file sets there.
+    """
+    keys = [f"{section}.{k}" for k in value] if isinstance(value, dict) and value else [section]
+    return (
+        f"{', '.join(keys)}: no longer a setting, fixed in code since 0.4.0 "
+        f"({REMOVED_SECTIONS[section]}); remove [{section}] from the configuration file"
+    )
 
 
 def run_value_error(key: str, value: Any) -> str | None:
@@ -163,14 +182,7 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
         errors.append("quotes.max_bad_share must be a fraction such as 1/3")
     elif not 0 <= share <= MAX_BAD_SHARE_CEILING:
         errors.append(f"quotes.max_bad_share must be between 0 and {MAX_BAD_SHARE_CEILING}")
-    errors += _text_errors(data["text"])
-    library = data.get("library") or {}
-    if "control_min_candidate" in library and not 1 <= library["control_min_candidate"] <= 5:
-        errors.append("library.control_min_candidate must be between 1 and 5")
-    if "control_gap" in library and not 0 <= library["control_gap"] <= 4:
-        errors.append("library.control_gap must be between 0 and 4")
-    errors += _injection_errors(data["injection"])
-    errors += _judge_errors(data.get("judge") or default_data()["judge"])
+    errors += _judge_errors(data["judge"])
     root = str((data.get("mcp") or {}).get("root", ""))
     if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
         errors.append(f"mcp.root must be an absolute path or start with ~, got {root!r}")
@@ -178,99 +190,6 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     for key, value in transcript.items():
         if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
             errors.append(f"transcript.{key} must not be empty")
-    return errors
-
-
-# The one value that is not a single character: the built-in entry for the ellipsis character.
-# NFKC already turns it into "..." before the map runs, so the entry has no effect; it stays so
-# that runs frozen with it remain valid. No other key may map to "...".
-ELLIPSIS = "\u2026"
-
-
-def _letter_or_digit(s: str) -> bool:
-    """A letter or digit in `s` or in its case folding: U+0345 is neither, but folds to iota."""
-    return any(c.isalnum() for c in s + s.casefold())
-
-
-def _text_errors(text: Mapping[str, Any]) -> list[str]:
-    """The quote check's normalisation. A key is one character, not a letter, digit or
-    whitespace. A value is exactly one character: not whitespace, not a letter or digit (after
-    case folding too) and not stripped; the only exception is the built-in ELLIPSIS entry. So a
-    mapping can turn one punctuation character into another, never delete one, split a word or
-    join two words. A run of mapped and literal dots that normalises to an ellipsis reads as
-    one, which a judge could write as "..." anyway, so no reach is gained. No other check
-    uses these settings."""
-    errors = []
-    if any(c.isalnum() or c.isspace() for c in text["strip_chars"]):
-        errors.append("text.strip_chars may hold punctuation only, no letter, digit or space")
-    allowed = default_data()["text"]["strip_chars"]
-    added = sorted(set(text["strip_chars"]) - set(allowed))
-    if added:
-        errors.append(
-            f"text.strip_chars may not add to the default {allowed!r}: stripping more would "
-            f"loosen the quote check (added {''.join(added)!r})"
-        )
-    dropped = sorted(set(allowed) - set(text["strip_chars"]))
-    if dropped:
-        errors.append(
-            f"text.strip_chars may not drop from the default {allowed!r}: quotes of "
-            f"markdown-emphasised text would fail (dropped {''.join(dropped)!r})"
-        )
-    for key, value in text["punctuation"].items():
-        if len(key) != 1 or _letter_or_digit(key) or key.isspace():
-            errors.append(
-                f"text.punctuation: {key!r} must be one character, not a letter, digit or space"
-            )
-        if not (key == ELLIPSIS and value == "..."):
-            if len(value) != 1 or value.isspace():
-                errors.append(
-                    f"text.punctuation: the value for {key!r} must be one character, not "
-                    f"whitespace (only {ELLIPSIS!r} keeps its built-in '...')"
-                )
-            if _letter_or_digit(value):
-                errors.append(
-                    f"text.punctuation: the value for {key!r} may not hold a letter or digit"
-                )
-        # The map runs before stripping. A stripped character as a key would escape stripping;
-        # as a value, it would make another character vanish: either changes the stripped set
-        # by another name.
-        stripped = set(text["strip_chars"])
-        if key in stripped:
-            errors.append(
-                f"text.punctuation: {key!r} is a stripped character and may not be mapped"
-            )
-        if stripped & set(value):
-            errors.append(
-                f"text.punctuation: the value for {key!r} may not hold a stripped character"
-            )
-    return errors
-
-
-def _injection_errors(injection: Mapping[str, Any]) -> list[str]:
-    """Patterns may be added, never dropped, and each must match its sample line once the
-    sample goes through the scan's own normalisation, the built-in one."""
-    from .text import fixed_normalise  # here, not at the top: text.py imports this module
-
-    errors = []
-    patterns, samples = injection["patterns"], injection["samples"]
-    default = default_data()["injection"]["patterns"]
-    missing = [p for p in default if p not in patterns]
-    if missing:
-        errors.append(
-            "injection.patterns may be extended, but every default pattern must stay: "
-            f"missing {missing}"
-        )
-    if len(samples) != len(patterns):
-        errors.append("injection.samples needs one sample line per pattern, in the same order")
-        return errors
-    for p, sample in zip(patterns, samples, strict=True):
-        try:
-            hit = re.search(p, fixed_normalise(sample))
-        except re.error as exc:
-            errors.append(f"injection.patterns: {p!r} is not a valid expression ({exc})")
-            continue
-        if not hit:
-            errors.append(f"injection.patterns: {p!r} does not match its sample {sample!r}")
     return errors
 
 
@@ -285,14 +204,14 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     if not low <= judge["timeout_s"] <= high:
         errors.append(f"judge.timeout_s must be between {low} and {high} seconds")
     low, high = REPLY_BYTES_BOUNDS
-    if not low <= judge.get("max_reply_bytes", low) <= high:
+    if not low <= judge["max_reply_bytes"] <= high:
         errors.append(f"judge.max_reply_bytes must be between {low} and {high}")
-    if not low <= judge.get("max_stderr_bytes", low) <= high:
+    if not low <= judge["max_stderr_bytes"] <= high:
         errors.append(f"judge.max_stderr_bytes must be between {low} and {high}")
     names = judge["env_allow"]
     if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):
         errors.append("judge.env_allow must hold environment variable names only")
-    model_id = judge.get("model_id", "")
+    model_id = judge["model_id"]
     if not model_id.isprintable() or len(model_id) > MODEL_ID_MAX_CHARS:
         errors.append(
             f"judge.model_id must be one printable line of at most {MODEL_ID_MAX_CHARS} characters"
@@ -300,10 +219,26 @@ def _judge_errors(judge: Mapping[str, Any]) -> list[str]:
     return errors
 
 
-def default_data() -> dict[str, Any]:
-    """The packaged defaults, read from defaults.toml."""
+@cache
+def _parsed_defaults() -> dict[str, Any]:
     text = resources.files("sealed_panel").joinpath("defaults.toml").read_text("utf-8")
     return tomllib.loads(text)
+
+
+def default_data() -> dict[str, Any]:
+    """The packaged defaults, read from defaults.toml once per process; each call returns its
+    own copy, which the caller may change."""
+    return copy.deepcopy(_parsed_defaults())
+
+
+def fingerprint(data: Any) -> str:
+    """The sha256 of settings as frozen: the canonical JSON of the data, whatever its shape.
+
+    Args:
+        data: The settings, as read from a run's config.json.
+    """
+    canon = json.dumps(data, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 
 class Config:
@@ -323,8 +258,7 @@ class Config:
     @property
     def fingerprint(self) -> str:
         """The sha256 of the settings, frozen into a run."""
-        canon = json.dumps(self.data, sort_keys=True, ensure_ascii=False)
-        return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+        return fingerprint(self.data)
 
     def section(self, name: str) -> dict[str, Any]:
         """One table of the settings.
@@ -396,36 +330,14 @@ class Config:
         return Fraction(self.section("quotes")["max_bad_share"])
 
     @property
-    def strip_chars(self) -> str:
-        """The characters quote matching removes."""
-        return str(self.section("text")["strip_chars"])
-
-    @property
-    def punctuation(self) -> dict[str, str]:
-        """The punctuation map quote matching applies."""
-        return dict(self.section("text")["punctuation"])
-
-    @property
-    def injection_patterns(self) -> list[str]:
-        """The patterns of text addressed to a judge."""
-        return list(self.section("injection")["patterns"])
-
-    @property
     def transcript(self) -> dict[str, Any]:
         """The field names read in a judge's transcript."""
         return self.section("transcript")
 
     @property
     def judge(self) -> dict[str, Any]:
-        """The [judge] section; a run frozen before 0.3.0 has none, and gets host mode."""
-        value: dict[str, Any] = self.data.get("judge") or default_data()["judge"]
-        return value
-
-    @property
-    def library(self) -> dict[str, Any]:
-        """The [library] section; a run frozen by 0.1.0 has none, and gets the defaults."""
-        value: dict[str, Any] = self.data.get("library") or default_data()["library"]
-        return value
+        """The [judge] section."""
+        return self.section("judge")
 
 
 @cache
@@ -466,8 +378,6 @@ def default_library_dir() -> Path:
     home = Path.home()
     if sys.platform == "darwin":
         base = home / "Library" / "Application Support"
-    elif os.name == "nt":
-        base = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
     return base / "sealed-panel" / "rubrics"
@@ -480,84 +390,56 @@ def _git_top(path: Path) -> Path | None:
     return None
 
 
-@cache
-def _git_local_env_vars() -> frozenset[str]:
-    """The repository-local variables, as git lists them: the ones git itself clears when it
-    moves to another repository (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and the like)."""
-    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    done = subprocess.run(
-        ["git", "rev-parse", "--local-env-vars"],  # noqa: S607 (the user's own git, from PATH)
-        capture_output=True,
-        text=True,
-        check=True,
-        env=clean,
-    )
-    return frozenset(done.stdout.split())
-
-
-def _git_ignored(top: Path, path: Path) -> bool:
-    """Whether the user's git ignores `path` in the repository at `top`. An inherited
-    repository-local variable (a git hook, a wrapper) would make git answer for another
-    repository, so those are dropped; the user's configuration (GIT_CONFIG_GLOBAL and the like)
-    is kept, so the answer is the one their own git gives. Git classes `-c` settings
-    (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT) as local too, so a wrapper's one-off
-    `-c core.excludesFile` is dropped with them: the user's durable configuration decides."""
-    try:
-        local = _git_local_env_vars()
-        done = subprocess.run(  # noqa: S603 (a fixed argument list, no shell)
-            # A trailing slash: the library is a directory, even before it exists.
-            ["git", "-C", str(top), "check-ignore", "-q", "--no-index", str(path) + "/"],  # noqa: S607
-            capture_output=True,
-            check=False,
-            env={k: v for k, v in os.environ.items() if k not in local},
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return False  # no usable git: the library cannot be shown to be ignored
-    return done.returncode == 0
-
-
 def guard_library(path: Path) -> Path:
-    """Refuse a library inside the installed package, or inside a git working tree that does
-    not ignore it: candidates quote the judged texts and must never be committed by accident.
-    The path is resolved first (symlinks and `..` followed), so the checks see where candidates
-    would really be written; the resolved path is returned."""
+    """Refuse a library inside the installed package or a run, for any use: its files would be
+    read as templates and candidates. The path is resolved first (symlinks and `..` followed),
+    so the checks see where candidates would really be written; the resolved path is
+    returned."""
     real = path.expanduser().resolve(strict=False)
     package = Path(__file__).resolve().parent
     if real == package or package in real.parents:
         raise ConfigError(f"the rubric library may not live inside the package: {real}")
-    run = next((p for p in (real, *real.parents) if (p / "rubric.lock").is_file()), None)
-    if run is not None:
-        raise ConfigError(
-            f"the rubric library may not live inside the run {run}: its files would be read "
-            "as templates and candidates"
-        )
-    top = _git_top(real)
-    if top is not None and not _git_ignored(top, real):
-        raise ConfigError(
-            f"the rubric library {real} is inside the git working tree {top} and not ignored "
-            "there: candidates quote the judged texts. Choose a path outside it, or ignore it."
-        )
+    outside_runs(real, "the rubric library")
     return real
 
 
-def library_dir(flag: str | Path | None = None, cfg: Config | None = None) -> Path:
-    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the library.path setting,
-    else the user-level default. `~` is expanded; a flag may be relative to the current
-    directory, the environment variable and the setting may not. The result is absolute and
-    checked by guard_library."""
+def writable_library(lib: Path) -> Path:
+    """The library, refused for a write when it lies in a git working tree (a folder with a
+    `.git` at or above it, ignored by git or not: no git process runs to ask). Candidates and
+    their history quote the judged texts, so they are never written where a commit could take
+    them. Reads never refuse.
+
+    Args:
+        lib: The library, as library_dir resolved it.
+    """
+    top = _git_top(lib.resolve())
+    if top is not None:
+        raise ConfigError(
+            f"the rubric library {lib} is inside the git working tree {top}: candidates quote "
+            "the judged texts, so they are never written there. Point --library or "
+            f"${LIBRARY_ENV} at a folder outside any repository"
+        )
+    return lib
+
+
+def library_dir(flag: str | Path | None = None) -> Path:
+    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the user-level default.
+    `~` is expanded; a flag may be relative to the current directory, the environment variable
+    may not. The result is absolute and checked by guard_library.
+
+    Args:
+        flag: The --library value, or None.
+    """
     if flag is not None and str(flag).strip():
         return guard_library(Path(flag).expanduser().absolute())
-    for source, value in (
-        (f"${LIBRARY_ENV}", os.environ.get(LIBRARY_ENV, "")),
-        ("library.path", str(resolve(cfg).library["path"])),
-    ):
-        if value.strip():
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                raise ConfigError(
-                    f"{source} must be an absolute path or start with ~, got {value!r}"
-                )
-            return guard_library(path)
+    value = os.environ.get(LIBRARY_ENV, "")
+    if value.strip():
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            raise ConfigError(
+                f"${LIBRARY_ENV} must be an absolute path or start with ~, got {value!r}"
+            )
+        return guard_library(path)
     return guard_library(default_library_dir())
 
 
@@ -574,7 +456,7 @@ def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
 
 SHOW_LIMIT = 80
 # Settings that place files and do not change a grade: never listed as overrides.
-NOT_GRADING = frozenset({"library.path", "mcp.root"})
+NOT_GRADING = frozenset({"mcp.root"})
 
 
 # Settings always shown in full: what runs as the judge is never reduced to a hash.
@@ -593,18 +475,15 @@ def _show(value: Any, where: str, key: str = "") -> str:
 _ABSENT = object()
 
 
-def _differences(
-    left: Mapping[str, Any], right: Mapping[str, Any], default: Mapping[str, Any], prefix: str
-) -> list[str]:
+def _differences(left: Mapping[str, Any], right: Mapping[str, Any], prefix: str) -> list[str]:
     found = []
     for key in sorted(set(left) | set(right)):
         name = f"{prefix}{key}"
         if name in NOT_GRADING:
             continue
-        here = default.get(key, _ABSENT) if isinstance(default, Mapping) else _ABSENT
-        lv, rv = left.get(key, here), right.get(key, here)
+        lv, rv = left.get(key, _ABSENT), right.get(key, _ABSENT)
         if isinstance(lv, Mapping) and isinstance(rv, Mapping):
-            found += _differences(lv, rv, here if isinstance(here, Mapping) else {}, name + ".")
+            found += _differences(lv, rv, name + ".")
         elif lv != rv:
             found.append(name)
     return found
@@ -612,21 +491,18 @@ def _differences(
 
 def config_differences(run: Config, server: Config) -> list[str]:
     """The settings of a run that differ from a server's, section by section (never through a
-    flattened view a dotted key could shadow). A key the run lacks, frozen by an older version,
-    counts as its default; the settings that only place files are left aside."""
-    return _differences(run.data, server.data, default_data(), "")
+    flattened view a dotted key could shadow); the settings that only place files are left
+    aside. Both hold every key: a run's frozen configuration is refused when it lacks one."""
+    return _differences(run.data, server.data, "")
 
 
 def schema_errors(
     data: Mapping[str, Any], shape: Mapping[str, Any] | None = None, path: tuple[str, ...] = ()
 ) -> list[str]:
-    """A frozen configuration holds only keys the defaults know (no default key holds a dot, so
-    a dotted key is unknown too). Keys may be missing (an older run); the open table
-    (text.punctuation) takes any key, its bounds check the rest."""
+    """A frozen configuration holds exactly the keys the defaults know (no default key holds a
+    dot, so a dotted key is unknown too): every run of this version froze them all."""
     shape = default_data() if shape is None else shape
-    errors: list[str] = []
-    if path in OPEN_TABLES:
-        return errors
+    errors = [f"missing configuration key {'.'.join((*path, k))!r}" for k in shape if k not in data]
     for key, value in data.items():
         where = ".".join((*path, key))
         if key not in shape:
@@ -654,8 +530,6 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
             continue
         if key in NOT_GRADING:
             continue  # where files are, not how a text is graded
-        if key not in current:
-            continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):
             now = _show(current.get(key), "config.json", key)
             was = _show(defaults.get(key), "defaults", key)

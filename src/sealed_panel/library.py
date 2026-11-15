@@ -22,9 +22,10 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from .config import writable_library
 from .errors import EvalError
 from .spec import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
-from .store import dump_json, load_json, refuse_links
+from .store import dump_json, load_json, outside_runs, refuse_links
 
 TEMPLATE_KEYS = frozenset(
     {
@@ -288,17 +289,29 @@ def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None)
     }
 
 
+def _skeleton_target(out: Path) -> None:
+    """The one owner of where a skeleton goes, for the command line and MCP alike: never a file
+    a run could be told by (`rubric.lock`), never a new folder, never inside a run, never over
+    a file."""
+    if out.suffix != ".json":
+        raise EvalError(f"{out}: a spec is a .json file; name one")
+    if not out.parent.is_dir():
+        raise EvalError(f"{out.parent} is not a folder: the spec goes into an existing one")
+    outside_runs(out, "the spec")
+    if out.exists():
+        raise EvalError(f"{out} already exists: choose another path or remove it first")
+
+
 def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = None) -> Path:
     """Write a spec skeleton from a template; its TODO markers stop `init` until filled.
 
     Args:
         lib: The user rubric library.
         tid: The template id.
-        out: Where to write the spec; refused when it exists.
+        out: Where to write the spec: a new `.json` file in an existing folder outside any run.
         persona_file: A JSON list of personas to put in the skeleton, or None.
     """
-    if out.exists():
-        raise EvalError(f"{out} already exists: choose another path or remove it first")
+    _skeleton_target(out)
     t = get_template(lib, tid)["template"]
     personas = None
     if persona_file is not None:
@@ -418,6 +431,7 @@ def add_candidate(lib: Path, proposal: dict[str, Any]) -> Path | None:
     same key. A key already closed (rejected, or promoted into a newer version) is not
     reopened: None is returned. Evidence already recorded is not added twice, so learning a
     run again changes nothing; every run that showed the signal is listed under `runs`."""
+    writable_library(lib)
     kind = proposal["kind"]
     if kind not in CANDIDATE_KINDS:
         raise EvalError(f"unknown candidate kind {kind!r}")
@@ -591,6 +605,7 @@ def side_by_side(current: dict[str, Any], updated: dict[str, Any]) -> list[str]:
 def plan_promotion(lib: Path, cid: str, into: str | None = None) -> dict[str, Any]:
     """Everything promote would write, without writing it. Every refusal comes from here, so
     it comes before the confirmation prompt."""
+    writable_library(lib)
     c = _open_candidate(lib, cid)
     _history_file(lib, c["id"])  # a closed id is refused before the person is asked
     tid = into or (c.get("template") or {}).get("id")
@@ -632,6 +647,7 @@ def apply_promotion(lib: Path, plan: dict[str, Any]) -> Path:
     """Write the template and close the candidate, all or nothing: both files are staged
     first, then moved into place; if the second move fails, the first is rolled back, and no
     staged file is left behind."""
+    writable_library(lib)
     c, target = plan["candidate"], Path(plan["target"])
     c.update(
         {
@@ -684,6 +700,7 @@ def reject(lib: Path, cid: str, reason: str) -> Path:
     """
     if not reason.strip():
         raise EvalError("--reason is required: say why the candidate is rejected")
+    writable_library(lib)
     c = _open_candidate(lib, cid)
     c.update({"status": "rejected", "closed": _now(), "reason": reason})
     dest = _history_file(lib, c["id"])

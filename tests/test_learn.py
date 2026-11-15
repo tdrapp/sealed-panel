@@ -1,4 +1,4 @@
-"""Learning: rubric-level candidates written to the inbox after a sealed panel."""
+"""Learning: rubric-level candidates written to the inbox, when asked, after a sealed panel."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from conftest import BAD, FLAT, Harness, judge_json, make_spec, strip_fence
 from sealed_panel import learn, library
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.config import load_config
+from sealed_panel.config import library_dir, load_config
 from sealed_panel.errors import EvalError
-from sealed_panel.learn import proposals_after_seal, user_disagreement
+from sealed_panel.learn import learn_after_seal, proposals_after_seal, user_disagreement
 from sealed_panel.record import record_reply
 from sealed_panel.spec import dims_for, init_run
 
@@ -23,10 +23,18 @@ FIVE = {"clarity": 5, "evidence": 5}
 CLOSE = {"clarity": 3, "evidence": 1}
 
 
+def learned(h: Harness) -> list[Path]:
+    """What `sealed-panel learning learn RUN` writes, into the test's own library."""
+    return learn_after_seal(h.run, library_dir())
+
+
 def close_seal(h: Harness) -> dict[str, Any]:
-    """A sealed panel where the strong candidate (4) and the control (3) sit close on clarity."""
+    """A sealed panel where the strong candidate (4) and the control (3) sit close on clarity,
+    then learning on it."""
     h.play(1, "cand", {"candidate": FLAT, "control": CLOSE}, sealed=True)
-    return aggregate_round(h.run, 1, True)
+    entry = aggregate_round(h.run, 1, True)
+    learned(h)
+    return entry
 
 
 def kinds(lib: Path) -> list[tuple[str, str, int]]:
@@ -45,7 +53,9 @@ def seal_with(
         sc = {r: (cand if r == "candidate" else control or BAD) for r in meta["key"].values()}
         raw = judge_json(meta, h.texts(1, meta, True), sc, **kw)
         record_reply(h.run, 1, meta["judge"], f"s{meta['judge']}", raw, True)
-    return aggregate_round(h.run, 1, True)
+    entry = aggregate_round(h.run, 1, True)
+    learned(h)
+    return entry
 
 
 class TestJudgesDisagree:
@@ -107,7 +117,7 @@ class TestJudgesDisagree:
             record_reply(h.run, 1, meta["judge"], f"l{n}", raw, False)
         aggregate_round(h.run, 1, False)
         h.full(1, "cand", FLAT, sealed=True)
-        assert kinds(private_library) == []
+        assert learned(h) == [] and kinds(private_library) == []
 
 
 class TestControlTooClose:
@@ -153,25 +163,10 @@ class TestControlTooClose:
         h.play(1, "cand", {"candidate": {"clarity": 3, "evidence": 5},
                            "control": {"clarity": 2, "evidence": 1}}, sealed=True)  # fmt: skip
         aggregate_round(h.run, 1, True)
-        assert kinds(private_library) == []
+        assert learned(h) == [] and kinds(private_library) == []
 
-    def test_the_threshold_is_a_setting(self, h: Harness, private_library: Path) -> None:
-        cfg = h.tmp / "c.toml"
-        cfg.write_text("[library]\ncontrol_min_candidate = 4.5\n")
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        close_seal(h)
-        assert kinds(private_library) == []
-
-    def test_the_gap_is_a_setting(self, h: Harness, private_library: Path) -> None:
-        cfg = h.tmp / "c.toml"
-        cfg.write_text("[library]\ncontrol_gap = 0.5\n")  # 4 vs 3 is a gap of 1: not close
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        close_seal(h)
-        assert kinds(private_library) == []
+    def test_the_thresholds_are_the_last_configurable_defaults(self) -> None:
+        assert (learn.CONTROL_MIN_CANDIDATE, learn.CONTROL_GAP) == (4.0, 1.0)
 
     def test_weak_loop_drafts_do_not_count(self, h: Harness, private_library: Path) -> None:
         h.init(max_rounds=2)
@@ -179,7 +174,7 @@ class TestControlTooClose:
         h.full(1, "cand", drafts)
         h.full(2, "v2", drafts, drafts)
         h.full(1, "v2", FIVE, sealed=True)
-        assert kinds(private_library) == []
+        assert learned(h) == [] and kinds(private_library) == []
 
     def test_raw_scores_are_compared_with_raw_scores(
         self, h: Harness, private_library: Path
@@ -191,6 +186,7 @@ class TestControlTooClose:
             raw = judge_json(meta, h.texts(1, meta, True), sc, severity={"clarity": "blocking"})
             record_reply(h.run, 1, meta["judge"], f"b{meta['judge']}", raw, True)
         e = aggregate_round(h.run, 1, True)
+        learned(h)
         assert e["personas"]["coo"]["dimensions"]["clarity"]["median"] == 3  # capped
         # Raw against raw: 4 against 3 is close; the capped 3 would fall under the 4 floor.
         assert sorted(k for k, _, _ in kinds(private_library)) == [
@@ -202,12 +198,12 @@ class TestControlTooClose:
         h.init(max_rounds=1)
         h.full(1, "cand", {"clarity": 2, "evidence": 4})
         h.full(1, "cand", FLAT, sealed=True)
-        assert kinds(private_library) == []
+        assert learned(h) == [] and kinds(private_library) == []
 
     def test_a_gap_of_two_is_fine(self, h: Harness, private_library: Path) -> None:
         h.init()
         h.full(1, "cand", {"clarity": 3, "evidence": 4}, sealed=True)
-        assert kinds(private_library) == []
+        assert learned(h) == [] and kinds(private_library) == []
 
 
 class TestUserDisagreement:
@@ -297,53 +293,42 @@ class TestGuards:
         assert {k for k, _, _ in kinds(private_library)} == {"judges_disagree", "control_too_close"}
         assert sorted(p.name for p in private_library.iterdir()) == ["inbox"]
 
-    def test_learning_can_be_switched_off(self, h: Harness, private_library: Path) -> None:
-        cfg = h.tmp / "c.toml"
-        cfg.write_text("[library]\nlearn = false\n")
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        e = close_seal(h)
-        assert (e["inbox"], e["learning"]) == ([], "learning off")
-        assert not private_library.exists()
-
-    def test_learning_never_fails_a_seal(
-        self, h: Harness, private_library: Path, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:  # fmt: skip
+    def test_aggregate_never_learns(
+        self, h: Harness, private_library: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Nothing is written outside the run until a person or the skill asks for learning."""
         h.init()
-
-        def broken(run: Path) -> list[dict[str, Any]]:
-            raise OSError("disk full")
-
-        monkeypatch.setattr(learn, "proposals_after_seal", broken)
-        e = close_seal(h)
-        assert e["learning"].startswith("learning skipped: disk full")
-        assert main(["learn", str(h.run)]) == 2
-        monkeypatch.undo()
-        assert main(["learn", str(h.run)]) == 0
-        assert "1 rubric candidate(s) in" in capsys.readouterr().out
+        h.play(1, "cand", {"candidate": FLAT, "control": CLOSE}, sealed=True)
+        assert main(["aggregate", str(h.run), "--sealed"]) == 0
+        assert "candidate" not in capsys.readouterr().out
+        assert not private_library.exists()
+        assert main(["learning", "learn", str(h.run)]) == 0
+        assert f"1 rubric candidate(s) in {private_library / 'inbox'}" in capsys.readouterr().out
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
 
     def test_learning_twice_adds_nothing(self, h: Harness, private_library: Path) -> None:
         h.init()
         close_seal(h)
-        assert main(["learn", str(h.run)]) == 0
+        assert main(["learning", "learn", str(h.run)]) == 0
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
+
+    def test_learning_takes_a_library_flag(
+        self, h: Harness, private_library: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        h.init()
+        h.play(1, "cand", {"candidate": FLAT, "control": CLOSE}, sealed=True)
+        aggregate_round(h.run, 1, True)
+        other = h.tmp.parent / f"{h.tmp.name}-lib"
+        assert main(["learning", "learn", str(h.run), "--library", str(other)]) == 0
+        assert kinds(other) == [("control_too_close", "clarity", 1)]
+        assert not private_library.exists()
 
     def test_learn_needs_a_seal(self, h: Harness) -> None:
         h.init()
         h.full(1, "cand", {"clarity": 3, "evidence": 3})
-        assert main(["learn", str(h.run)]) == 2
+        assert main(["learning", "learn", str(h.run)]) == 2
         with pytest.raises(EvalError, match="seal the run first"):
             proposals_after_seal(h.run)
-
-    def test_aggregate_prints_the_library(self, h: Harness, private_library: Path,
-                                          capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
-        h.init()
-        h.play(1, "cand", {"candidate": FLAT, "control": CLOSE}, sealed=True)
-        assert main(["aggregate", str(h.run), "--sealed"]) == 0
-        assert f"1 rubric candidate(s) in {private_library / 'inbox'}" in capsys.readouterr().out
 
 
 class TestRunSettings:

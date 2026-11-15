@@ -13,6 +13,8 @@ PLATEAU_ROUNDS = 2
 SUSPECT_JUMP = 2
 # The decision that replaces CONVERGED or SEALED when the candidate addresses a judge.
 BLOCKED = "BLOCKED BY FLAG"
+# The step after a stop decision, worded for the command line and the tools alike.
+SEAL_NEXT = "brief the sealed panel"
 # The spec key that acknowledges the injection flags, frozen and hashed with the rubric.
 INJECTION_ACK = "injection_acknowledged"
 
@@ -52,8 +54,7 @@ def flagged_roles(entry: dict[str, Any]) -> dict[str, list[str]]:
     """The injection flags of a round, by the role of the item that matched.
 
     Every text placed in a brief is scanned: the candidate, the control, the previous version,
-    the round-1 baseline and the known-good. A round briefed before 0.3.1 holds the candidate's
-    flags only.
+    the round-1 baseline and the known-good.
 
     Args:
         entry: The round's ledger entry.
@@ -61,11 +62,8 @@ def flagged_roles(entry: dict[str, Any]) -> dict[str, list[str]]:
     Returns:
         The patterns that matched, by role; empty when no item addresses a judge.
     """
-    by_role = entry.get("injection_flags_by_role")
-    if isinstance(by_role, dict):
-        return {role: list(found) for role, found in by_role.items() if found}
-    flags = list(entry.get("injection_flags") or [])
-    return {"candidate": flags} if flags else {}
+    by_role = entry.get("injection_flags_by_role") or {}
+    return {role: list(found) for role, found in by_role.items() if found}
 
 
 def _gate(spec: dict[str, Any], entry: dict[str, Any], d: dict[str, Any]) -> dict[str, Any]:
@@ -103,10 +101,11 @@ NEW_RUN = (
 def _baseline_gate(
     spec: dict[str, Any], loop: list[dict[str, Any]], d: dict[str, Any]
 ) -> dict[str, Any]:
-    """A stop decision says "seal" only when a sealed panel could stand. The sealed panel
-    scores the round-1 text as its baseline, so when that text addressed a judge and the spec
-    does not acknowledge it, no sealed grade of this run can stand: the decision is BLOCKED BY
-    FLAG on `baseline`, and the next step is a new run, before a sealed panel is spent."""
+    """A stop decision points to the sealed panel only when a sealed panel could stand. The
+    sealed panel scores the round-1 text as its baseline, so when that text addressed a judge
+    and the spec does not acknowledge it, no sealed grade of this run can stand: the decision is
+    BLOCKED BY FLAG on `baseline`, and the next step is a new run, before a sealed panel is
+    spent."""
     first = next((r for r in loop if r["round"] == 1), {})
     flags = flagged_roles(first).get("candidate")
     if not flags or spec.get(INJECTION_ACK) or d["decision"] not in STOP_DECISIONS:
@@ -142,19 +141,19 @@ def decide(spec: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
     last = loop[-1]
     instruments_ok = measured_ok(spec, last)
     if all_top(last) and instruments_ok:
-        converged = {"decision": "CONVERGED", "round": last["round"], "next": "seal"}
+        converged = {"decision": "CONVERGED", "round": last["round"], "next": SEAL_NEXT}
         return _baseline_gate(spec, loop, _gate(spec, last, converged))
     gains = [r["best_gain"] for r in loop if r["round"] >= 2 and r["best_gain"] is not None]
     if len(gains) >= n and all(g < last["noise"] for g in gains[-n:]):
         plateau = {
             "decision": "PLATEAU",
             "round": last["round"],
-            "next": "seal",
+            "next": SEAL_NEXT,
             "why": f"best paired gain {gains[-n:]} below noise {last['noise']} {n} rounds running",
         }
         return _baseline_gate(spec, loop, plateau)
     if last["round"] >= spec["max_rounds"]:
-        cap = {"decision": "CAP", "round": last["round"], "next": "seal"}
+        cap = {"decision": "CAP", "round": last["round"], "next": SEAL_NEXT}
         return _baseline_gate(spec, loop, cap)
     why = [] if instruments_ok else ["a measured criterion has not passed this round"]
     return {"decision": "CONTINUE", "next_round": last["round"] + 1, "why": why}

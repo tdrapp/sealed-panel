@@ -14,6 +14,7 @@ import pytest
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.brief import write_briefs
 from sealed_panel.decide import decide
+from sealed_panel.ledger import view as ledger_view
 from sealed_panel.record import record_reply
 from sealed_panel.spec import init_run
 from sealed_panel.store import round_dir
@@ -191,7 +192,7 @@ class Harness:
     def decision(self) -> dict[str, Any]:
         return decide(
             json.loads((self.run / "spec.json").read_text()),
-            json.loads((self.run / "ledger.json").read_text()),
+            ledger_view(self.run),
         )
 
 
@@ -247,3 +248,31 @@ def slow_tier(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -
 @pytest.fixture
 def h(tmp_path: Path) -> Harness:
     return Harness(tmp_path)
+
+
+MARKERS = {
+    "missing": "this run has no run.json",
+    "older": "created by an earlier version of sealed-panel",
+    "newer": "created by a newer version of sealed-panel",
+    "not json": "is damaged",
+    "a list": "is damaged",
+    "a string version": "is damaged",
+    "a folder": "is damaged",
+}
+
+
+def mark(run: Path, how: str) -> None:
+    """Leave the run's run.json as a run of another version, or a damaged run, would."""
+    marker = run / "run.json"
+    marker.unlink()
+    body = {
+        "older": '{"schema_version": 0}',
+        "newer": '{"schema_version": 2}',
+        "not json": "{not json",
+        "a list": "[1]",
+        "a string version": '{"schema_version": "1"}',
+    }.get(how)
+    if body is not None:
+        marker.write_text(body)
+    elif how == "a folder":
+        marker.mkdir()
