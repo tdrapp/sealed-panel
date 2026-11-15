@@ -138,7 +138,10 @@ ignore_missing_imports = true
 root_package = "sealed_panel"
 
 [[tool.importlinter.contracts]]
-name = "cli and mcp_server above the core, store and errors at the bottom"
+# Each line is a layer that may import only the layers below it. Modules joined by `|` are
+# independent: they may not import each other (`:` would let them). learning sits above the
+# core, so no core module imports it.
+name = "interfaces > learning > steps > domain > foundations, siblings independent"
 type = "layers"
 containers = ["sealed_panel"]
 exhaustive = true
@@ -146,8 +149,16 @@ layers = [
     "__main__",
     "cli",
     "mcp_server",
-    "aggregate : brief : decide : learning : ledger : measure : model : record : reply : report : rubric : run : runner : seat : settings : steps : templates : text : transcript",
-    "store",
+    "learning",
+    "steps",
+    "runner | report",
+    "aggregate",
+    "record | measure",
+    "reply | seat | brief",
+    "run | templates | transcript",
+    "rubric | decide | ledger",
+    "model | text",
+    "settings | store",
     "errors",
 ]
 
