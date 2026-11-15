@@ -18,7 +18,16 @@ from typing import Any, NotRequired, TypedDict
 
 from .errors import ConfigError, EvalError
 from .model import Dimension, FrozenSpec, Measured, Persona
-from .rubric import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
+from .rubric import (
+    DIMENSION_FIELDS,
+    PERSONA_FIELDS,
+    TODO_MARKER,
+    dimensions_sha,
+    keys_of,
+    missing_anchors,
+    todo_paths,
+    validate_spec,
+)
 from .store import dump_json, load_json, outside_runs
 
 LIBRARY_ENV = "SEALED_PANEL_RUBRICS"
@@ -83,7 +92,9 @@ TEMPLATE_KEYS = frozenset(
     }
 )
 OPTIONAL_TEMPLATE_KEYS = frozenset({"aliases", "facts_hint", "based_on"})
-DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors"})
+# A template's persona and dimension hold exactly the keys the shared table marks for one.
+PERSONA_KEYS = keys_of(PERSONA_FIELDS, template=True)
+DIMENSION_KEYS = keys_of(DIMENSION_FIELDS, template=True)
 PROVENANCE_KEYS = frozenset({"date", "source", "change"})
 MIN_DIMENSIONS, MAX_DIMENSIONS = 3, 6
 
@@ -138,14 +149,9 @@ def _strs(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(x, str) and x.strip() for x in value)
 
 
-def template_errors(t: Any) -> list[str]:
-    """Every way a template breaks the format. An empty list means it is valid."""
-    if not isinstance(t, dict):
-        return ["a template must be a JSON object"]
-    errors = [f"unknown key {k!r}" for k in sorted(set(t) - TEMPLATE_KEYS - OPTIONAL_TEMPLATE_KEYS)]
-    errors += [f"missing key {k!r}" for k in sorted(TEMPLATE_KEYS - set(t))]
-    if errors:
-        return errors
+def _meta_errors(t: dict[str, Any]) -> list[str]:
+    """The template's own keys: id, version, texts, kinds, keywords, aliases, base."""
+    errors = []
     if not isinstance(t["id"], str) or not ID_PATTERN.match(t["id"]):
         errors.append("id must be lowercase letters, digits and dashes")
     if isinstance(t["version"], bool) or not isinstance(t["version"], int) or t["version"] < 1:
@@ -153,12 +159,22 @@ def template_errors(t: Any) -> list[str]:
     for key in ("title", "when_to_use"):
         if not isinstance(t[key], str) or not t[key].strip():
             errors.append(f"{key} must be a non-empty string")
+    return errors + _list_errors(t) + _optional_errors(t)
+
+
+def _list_errors(t: dict[str, Any]) -> list[str]:
+    errors = []
     if not _strs(t["kinds"]) or not t["kinds"]:
         errors.append("kinds must be a non-empty list of strings")
     if not _strs(t["keywords"]):
         errors.append("keywords must be a list of strings")
     if "aliases" in t and not _strs(t["aliases"]):
         errors.append("aliases must be a list of strings")
+    return errors
+
+
+def _optional_errors(t: dict[str, Any]) -> list[str]:
+    errors = []
     if "facts_hint" in t and (not isinstance(t["facts_hint"], str) or not t["facts_hint"].strip()):
         errors.append("facts_hint must be a non-empty string")
     based = t.get("based_on")
@@ -169,40 +185,60 @@ def template_errors(t: Any) -> list[str]:
         or not isinstance(based["version"], int)
     ):
         errors.append("based_on must be an object with an integer version")
-    personas = t["personas"]
+    return errors
+
+
+def _persona_errors(personas: Any) -> list[str]:
+    """A template's personas: a non-empty list, each with exactly the shared table's keys."""
     if not isinstance(personas, list) or not personas:
-        errors.append("personas must be a non-empty list")
-    else:
-        for p in personas:
-            if not isinstance(p, dict) or set(p) != {"id", "description"}:
-                errors.append("each persona needs exactly an id and a description")
-    dims = t["dimensions"]
+        return ["personas must be a non-empty list"]
+    return [
+        "each persona needs exactly an id and a description"
+        for p in personas
+        if not isinstance(p, dict) or set(p) != PERSONA_KEYS
+    ]
+
+
+def _dimension_errors(dims: Any) -> list[str]:
+    """A template's dimensions: 3 to 6 (a template's own rule), each with exactly the shared
+    table's template keys and the required anchors, ids unique."""
     if not isinstance(dims, list) or not MIN_DIMENSIONS <= len(dims) <= MAX_DIMENSIONS:
-        errors.append(f"dimensions must be a list of {MIN_DIMENSIONS} to {MAX_DIMENSIONS}")
-    else:
-        ids = []
-        for d in dims:
-            if not isinstance(d, dict) or set(d) != DIMENSION_KEYS:
-                errors.append("each dimension needs exactly id, name, question and anchors")
-                continue
-            ids.append(d["id"])
-            anchors = d["anchors"]
-            if not isinstance(anchors, dict) or not all(
-                isinstance(anchors.get(lvl), str) and anchors[lvl].strip()
-                for lvl in REQUIRED_ANCHORS
-            ):
-                errors.append(f"dimension {d['id']}: anchors 1, 3 and 5 must be non-empty")
-        if len(set(ids)) != len(ids):
-            errors.append("dimension ids must be unique")
+        return [f"dimensions must be a list of {MIN_DIMENSIONS} to {MAX_DIMENSIONS}"]
+    errors, ids = [], []
+    for d in dims:
+        if not isinstance(d, dict) or set(d) != DIMENSION_KEYS:
+            errors.append("each dimension needs exactly id, name, question and anchors")
+            continue
+        ids.append(d["id"])
+        if missing_anchors(d["anchors"]):
+            errors.append(f"dimension {d['id']}: anchors 1, 3 and 5 must be non-empty")
+    if len(set(ids)) != len(ids):
+        errors.append("dimension ids must be unique")
+    return errors
+
+
+def _provenance_errors(prov: Any) -> list[str]:
+    if not isinstance(prov, list) or not prov:
+        return ["provenance must be a non-empty list"]
+    return [
+        "each provenance entry needs exactly date, source and change"
+        for entry in prov
+        if not isinstance(entry, dict) or set(entry) != PROVENANCE_KEYS
+    ]
+
+
+def template_errors(t: Any) -> list[str]:
+    """Every way a template breaks the format. An empty list means it is valid."""
+    if not isinstance(t, dict):
+        return ["a template must be a JSON object"]
+    errors = [f"unknown key {k!r}" for k in sorted(set(t) - TEMPLATE_KEYS - OPTIONAL_TEMPLATE_KEYS)]
+    errors += [f"missing key {k!r}" for k in sorted(TEMPLATE_KEYS - set(t))]
+    if errors:
+        return errors
+    errors = _meta_errors(t) + _persona_errors(t["personas"]) + _dimension_errors(t["dimensions"])
     if not isinstance(t["measured"], list):
         errors.append("measured must be a list")
-    prov = t["provenance"]
-    if not isinstance(prov, list) or not prov:
-        errors.append("provenance must be a non-empty list")
-    else:
-        for entry in prov:
-            if not isinstance(entry, dict) or set(entry) != PROVENANCE_KEYS:
-                errors.append("each provenance entry needs exactly date, source and change")
+    errors += _provenance_errors(t["provenance"])
     if not errors and todo_paths(t, "template"):
         errors.append(f"a template must not hold {TODO_MARKER} markers")
     return errors

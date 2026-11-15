@@ -265,8 +265,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "unknown dimension key accepted": (
         RUBRIC,
-        "errors += _unknown(d, DIMENSION_KEYS, where)",
-        "errors += []",
+        "errors += _fields(d, DIMENSION_FIELDS, DIMENSION_KEYS, f\"dimension {d.get('id')}\")",
+        "errors += _fields(d, DIMENSION_FIELDS, frozenset(d), f\"dimension {d.get('id')}\")",
     ),
     "facts and facts_file together": (
         RUBRIC,
@@ -293,13 +293,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "duplicate measured ids accepted": (RUBRIC, "if len(set(mids)) != len(mids):", "if False:"),
     "measured field types unchecked": (
         RUBRIC,
-        "                errors.append(f\"measured {m.get('id')}: {key} must be a string\")",
-        "                pass",
+        'MEASURED_FIELDS = (Field("id", _string), Field("description", _string), Field("max"), Field("min"))',
+        'MEASURED_FIELDS = (Field("id"), Field("description"), Field("max"), Field("min"))',
     ),
     "declared choice types unchecked": (
         RUBRIC,
-        '                errors.append(f"declared choice: {key} must be a string")',
-        "                pass",
+        'CHOICE_FIELDS = (Field("choice", _string), Field("user_said", _string))',
+        'CHOICE_FIELDS = (Field("choice"), Field("user_said"))',
     ),
     "judges per persona unbounded (spec)": (
         RUBRIC,

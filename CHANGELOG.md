@@ -139,6 +139,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   how a run frozen without it behaved. A frozen configuration missing a key is refused as
   before ("missing configuration key ..."), and the refusal now names the release to finish the
   run with (run format 1, sealed-panel 0.4.0 or later, installed from its tag).
+- A spec and a template check their personas and dimensions against one field table
+  (`rubric.PERSONA_FIELDS`, `rubric.DIMENSION_FIELDS`, and `rubric.missing_anchors` for the
+  required anchors), each keeping its own rules explicit: a template holds exactly the keys
+  the table marks for one and 3 to 6 dimensions, a spec may add `weight` and `personas` and
+  has no count bound. What each accepts and every error it gives are unchanged, checked on
+  20,000 generated specs and templates against the previous validators.
 
 ### Removed
 
