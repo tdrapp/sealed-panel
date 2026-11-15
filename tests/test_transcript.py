@@ -14,15 +14,10 @@ from sealed_panel.cli import main
 from sealed_panel.config import load_config
 from sealed_panel.errors import EvalError, MalformedReply
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import (
-    judge_tools,
-    last_reply,
-    record_from,
-    record_reply,
-    unreadable_lines,
-)
+from sealed_panel.record import record_from, record_reply
 from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import round_dir
+from sealed_panel.transcript import judge_tools, last_reply, unreadable_lines
 
 
 def entry(role: str, text: str, agent: str | None = None) -> dict[str, Any]:

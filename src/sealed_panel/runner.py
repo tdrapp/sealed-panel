@@ -37,7 +37,8 @@ from typing import Any
 from .config import Config
 from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
-from .record import RUNNER, _record_reply, check_seat, check_void_cap, round_keys, seat_lock
+from .record import RUNNER, record_attempt, round_keys
+from .seat import check_seat, check_void_cap, seat_lock
 from .spec import load_frozen, run_config, run_salt
 from .store import dump_json, load_json, round_dir
 
@@ -176,7 +177,7 @@ def _record_stale(
     kept = {k: held[k] for k in STARTED_KEYS if k in held}
     proof = {**kept, "stale": True, "failure": failure}
     try:
-        _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
+        record_attempt(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
     except EvalError:
         # At the void cap, or a round closed: the seat already says why; another seat's
         # judge must not fail for it.
@@ -412,7 +413,7 @@ def _judge_held(
         # Interrupted while the judge ran: record the attempt, then stop. If even that fails,
         # the started record stays, and the next call records it as a void.
         proof["failure"] = f"the runner was interrupted ({type(exc).__name__})"
-        _record_reply(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)
+        record_attempt(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)
         started.unlink(missing_ok=True)
         raise
     reply = out.decode("utf-8", errors="replace")
@@ -437,7 +438,7 @@ def _judge_held(
     if failure:
         proof["failure"] = failure
     try:
-        result = _record_reply(
+        result = record_attempt(
             run, rnd, judge, agent_id, reply, sealed, RUNNER, void=bool(failure), runner=proof
         )
     except (EvalError, ValueError, RecursionError) as exc:
@@ -445,7 +446,7 @@ def _judge_held(
             raise
         # A reply the record refuses (one already recorded) still ends recorded, as a void.
         proof["failure"] = f"the reply was refused: {exc}"
-        result = _record_reply(
+        result = record_attempt(
             run, rnd, judge, agent_id, reply, sealed, RUNNER, void=True, runner=proof
         )
     started.unlink(missing_ok=True)

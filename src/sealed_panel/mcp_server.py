@@ -37,7 +37,8 @@ from .aggregate import aggregate_round
 from .brief import write_briefs
 from .config import Config, config_differences, library_dir, load_config
 from .errors import ConfigError, EvalError, SeatTaken, user_message
-from .record import record_from, record_measurement
+from .measure import record_measurement
+from .record import record_from
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .runner import judge_seat, open_seats

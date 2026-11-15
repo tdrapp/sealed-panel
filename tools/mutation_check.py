@@ -43,19 +43,21 @@ DEFAULTS = f"{PKG}/defaults.toml"
 LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
 RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 TEXT = f"{PKG}/text.py"
+TRANSCRIPT, REPLY, SEAT = (f"{PKG}/{m}.py" for m in ("transcript", "reply", "seat"))
+MEASURE = f"{PKG}/measure.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Calibration of each judge.
-    "control check off": (REC, 'if mean_ctrl > spec["control_max"]:', "if False:"),
+    "control check off": (SEAT, 'if mean_ctrl > spec["control_max"]:', "if False:"),
     "control bound inclusive": (
-        REC,
+        SEAT,
         'if mean_ctrl > spec["control_max"]:',
         'if mean_ctrl >= spec["control_max"]:',
     ),
-    "known-good check off": (REC, 'statistics.mean(good.values()) < spec["good_min"]', "False"),
+    "known-good check off": (SEAT, 'statistics.mean(good.values()) < spec["good_min"]', "False"),
     "known-good bound inclusive": (
-        REC,
+        SEAT,
         'statistics.mean(good.values()) < spec["good_min"]',
         'statistics.mean(good.values()) <= spec["good_min"]',
     ),
@@ -66,7 +68,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "round zero allowed": (BRIEF, "if rnd < 1:", "if False:"),
     "brief twice": (BRIEF, 'if rdir.exists() and any(rdir.glob("brief_*.md")):', "if False:"),
     # Quotes and reply cells.
-    "quote check off": (REC, "if not quote_found(", "if False and not quote_found("),
+    "quote check off": (REPLY, "if not quote_found(", "if False and not quote_found("),
     "tiny fragments allowed": (
         f"{PKG}/text.py",
         "if any(len(p) < cfg.min_fragment_chars for p in parts):",
@@ -75,18 +77,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "fragment order ignored": (f"{PKG}/text.py", "pos = i + len(p)", "pos = 0"),
     "smart quotes not normalised": (TEXT, """    "\\u201c": '"',\n""", ""),
     "boolean score accepted": (
-        REC,
+        REPLY,
         "if isinstance(s, bool) or not isinstance(s, int) or",
         "if not isinstance(s, int) or",
     ),
-    "unknown severity accepted": (REC, "if sev not in cfg.severities:", "if False:"),
-    "empty reasoning accepted": (REC, 'if not str(d.get("reasoning", "")).strip():', "if False:"),
-    "severity cap off": (REC, "if s > caps[sev]:", "if False:"),
+    "unknown severity accepted": (REPLY, "if sev not in cfg.severities:", "if False:"),
+    "empty reasoning accepted": (REPLY, 'if not str(d.get("reasoning", "")).strip():', "if False:"),
+    "severity cap off": (REPLY, "if s > caps[sev]:", "if False:"),
     "blocking cap 4": (DEFAULTS, "blocking = 3,", "blocking = 4,"),
     "bad-quote share loosened": (DEFAULTS, 'max_bad_share = "1/3"', 'max_bad_share = "1/2"'),
     "short quotes accepted": (DEFAULTS, "min_chars = 12", "min_chars = 8"),
     "one-quote flag off": (
-        REC,
+        REPLY,
         '"one_quote": len(quotes) >= 2 and len(set(quotes)) == 1,',
         '"one_quote": False,',
     ),
@@ -95,9 +97,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "agent reuse allowed": (REC, "if agent_id in used_agent_ids(run):", "if False:"),
     "empty agent id accepted": (REC, "if not agent_id.strip():", "if False:"),
     "reply reuse allowed": (REC, "if digest in used_reply_hashes(run):", "if False:"),
-    "second valid reply allowed": (REC, 'if any(r["ok"] for r in prior):', "if False:"),
+    "second valid reply allowed": (SEAT, 'if any(r["ok"] for r in prior):', "if False:"),
     "replacements uncapped": (
-        REC,
+        SEAT,
         "    if len(real) > cfg.max_replacements:\n        raise EvalError(\n",
         "    if False:\n        raise EvalError(\n",
     ),
@@ -124,65 +126,65 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '"replied": replied,',
         '"replied": False,',
     ),
-    "voids uncapped": (REC, "if len(voids) >= MAX_VOIDS:", "if False:"),
+    "voids uncapped": (SEAT, "if len(voids) >= MAX_VOIDS:", "if False:"),
     "voids count as real attempts": (
-        REC,
+        SEAT,
         'real = [r for r in prior if not r.get("void")]',
         "real = list(prior)",
     ),
     "handback ignored": (
-        REC,
+        TRANSCRIPT,
         "    if handed:\n        last = handed[-1]",
         "    if False:\n        last = handed[-1]",
     ),
     "refused handback read as delivered": (
-        REC,
+        TRANSCRIPT,
         "            if not include_refused and call_id is not None and call_id in refused:",
         "            if False:",
     ),
     "refused error without an id skips id-less calls": (
-        REC,
+        TRANSCRIPT,
         "if not include_refused and call_id is not None and call_id in refused:",
         "if not include_refused and call_id in refused:",
     ),
-    "void cap boundary": (REC, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
+    "void cap boundary": (SEAT, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
     "refused verdict not read when nothing was delivered": (
-        REC,
+        TRANSCRIPT,
         "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if refused:",
         "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if False:",
     ),
     "an earlier malformed refusal hides the last": (
-        REC,
+        TRANSCRIPT,
         "        if refused[-1] is None:\n            raise MalformedReply(",
         "        if None in refused:\n            raise MalformedReply(",
     ),
     "malformed refused verdict read as text": (
-        REC,
+        TRANSCRIPT,
         "        if refused[-1] is None:\n            raise MalformedReply(",
         "        if False:\n            raise MalformedReply(",
     ),
     "empty handback tool not skipped": (
-        REC,
+        TRANSCRIPT,
         "    if not tool:\n        return []",
         "    if False:\n        return []",
     ),
     "pasted reply on a peeked seat": (
-        REC,
+        SEAT,
         'if source == "output" and any(r.get("void") and r.get("replied") for r in prior):',
         "if False:",
     ),
     "malformed handback read as text": (
-        REC,
+        TRANSCRIPT,
         "        if last is None:\n            raise MalformedReply(",
         "        if False:\n            raise MalformedReply(",
     ),
     "measure flag overrides threshold": (
-        REC,
+        MEASURE,
         "        if passed is not None:\n            raise EvalError(",
         "        if False:\n            raise EvalError(",
     ),
     "measure after aggregate": (
-        REC,
+        MEASURE,
         '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: measure',
         '    if False:\n        raise EvalError("this round is already aggregated: measure',
@@ -353,7 +355,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "init twice": (SPEC, "    if is_run(run):\n", "    if False:\n"),
-    "measure twice": (REC, 'if any(r["id"] == mid for r in rows):', "if False:"),
+    "measure twice": (MEASURE, 'if any(r["id"] == mid for r in rows):', "if False:"),
     "baseline dropped": (BRIEF, 'roles.append(("baseline", read_text(first)))', "pass"),
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
     "max_rounds exceeded": (BRIEF, 'if rnd > spec["max_rounds"]:', "if False:"),
@@ -744,7 +746,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    pasted = brief in transcript_prompt(transcript, cfg)\n",
     ),
     "one quote for all compared raw": (
-        REC,
+        REPLY,
         "quotes.append(normalise(quote))",
         "quotes.append(quote)",
     ),
@@ -886,7 +888,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "stale marker reused without a void": (
         RUN,
-        '    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
+        '    record_attempt(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
         "    pass\n",
     ),
     "running seat aggregated": (
@@ -902,7 +904,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "interrupted judge left unrecorded": (
         RUN,
-        '        _record_reply(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)\n',
+        '        record_attempt(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)\n',
         "        pass\n",
     ),
     "refused reply leaves its process unrecorded": (
@@ -1086,7 +1088,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n",
     ),
     "a server tool call not seen": (
-        REC,
+        TRANSCRIPT,
         """str(b.get(t["block_type_key"])).endswith(""",
         """str(b.get(t["block_type_key"])).__eq__(""",
     ),
@@ -1101,12 +1103,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        except ZeroDivisionError as exc:\n            if on_seat:",
     ),
     "the handback tool counted as a tool use": (
-        REC,
+        TRANSCRIPT,
         "if (kind, name) != exempt})",
         "if True})",
     ),
     "the handback exempt by name only": (
-        REC,
+        TRANSCRIPT,
         "if (kind, name) != exempt})",
         "if name != exempt[1]})",
     ),
@@ -1200,12 +1202,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # A transcript cut off on its last line.
     "a cut-off last line read as the earlier reply": (
-        REC,
+        TRANSCRIPT,
         "if lines and lines[-1][1] is None:",
         "if False:",
     ),
     "a line separator inside a string splits the line": (
-        REC,
+        TRANSCRIPT,
         'read_text(transcript).split("\\n")',
         "read_text(transcript).splitlines()",
     ),
@@ -1309,8 +1311,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # 0.4.0: the seat lock (flock) and the one containment guard.
     "host record without the seat lock": (
         REC,
-        "    with seat_lock(rdir, judge):\n        return _record_reply(",
-        "    with contextlib.nullcontext():\n        return _record_reply(",
+        "    with seat_lock(rdir, judge):\n        return record_attempt(",
+        "    with contextlib.nullcontext():\n        return record_attempt(",
     ),
     "runner judge without the seat lock": (
         RUN,
@@ -1370,8 +1372,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "run-wide checks without the run lock": (
         REC,
-        "@under_run_lock\ndef _record_reply(",
-        "def _record_reply(",
+        "@under_run_lock\ndef record_attempt(",
+        "def record_attempt(",
     ),
     "a round briefed twice at once": (
         BRIEF,
@@ -1394,7 +1396,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n        return {}\n",
     ),
     "concurrent readings lose one": (
-        REC,
+        MEASURE,
         "@under_run_lock\ndef record_measurement(",
         "def record_measurement(",
     ),

@@ -12,7 +12,7 @@ from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.config import load_config
 from sealed_panel.errors import ConfigError
-from sealed_panel.record import record_measurement
+from sealed_panel.measure import record_measurement
 from sealed_panel.report import render_report, status
 from sealed_panel.spec import init_run, run_config
 

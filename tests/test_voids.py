@@ -16,17 +16,13 @@ from sealed_panel.cli import main
 from sealed_panel.config import load_config
 from sealed_panel.errors import EvalError, MalformedReply
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import (
-    MAX_VOIDS,
-    extract_json,
-    handback_messages,
-    last_reply,
-    record_from,
-    record_reply,
-)
+from sealed_panel.record import record_from, record_reply
+from sealed_panel.reply import extract_json
 from sealed_panel.report import render_report, status
+from sealed_panel.seat import MAX_VOIDS
 from sealed_panel.spec import init_run
 from sealed_panel.store import round_dir
+from sealed_panel.transcript import handback_messages, last_reply
 
 TOOL = "ReturnToCaller"
 

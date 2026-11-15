@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 
 from conftest import Harness
-from sealed_panel import record
+from sealed_panel import measure
 from sealed_panel.errors import EvalError
-from sealed_panel.record import record_measurement
+from sealed_panel.measure import record_measurement
 from sealed_panel.store import load_json, round_dir
 
 TIMING = [{"id": "timing", "description": "75 s or less", "max": 75}]
@@ -50,7 +50,7 @@ class TestMeasure:
         h.init(measured=[*TIMING, {"id": "length", "description": "200 words or less", "max": 200}])
         h.brief(1, "cand")
         entered, second_in, go = threading.Event(), threading.Event(), threading.Event()
-        real = record.dump_json
+        real = measure.dump_json
 
         def slow_first(path: Any, data: Any) -> None:
             if not entered.is_set():
@@ -60,7 +60,7 @@ class TestMeasure:
                 second_in.set()  # only reachable without the run lock
             real(path, data)
 
-        monkeypatch.setattr(record, "dump_json", slow_first)
+        monkeypatch.setattr(measure, "dump_json", slow_first)
         first = threading.Thread(
             target=record_measurement, args=(h.run, 1, "timing", "60", None, False)
         )

@@ -10,11 +10,12 @@ from .config import Config
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
 from .ledger import results_by_judge
-from .record import round_keys, transcript_agent_id
+from .record import round_keys
 from .report import write_feedback
 from .runner import every_seat
 from .spec import dims_for, load_frozen, run_config
 from .store import dump_json, load_json, round_dir, run_lock
+from .transcript import transcript_agent_id
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
 MAX_SCAN_BYTES = 20_000_000

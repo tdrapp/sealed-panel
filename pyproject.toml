@@ -145,7 +145,7 @@ layers = [
     "__main__",
     "cli",
     "mcp_server",
-    "aggregate : brief : config : decide : learn : ledger : library : record : report : runner : spec : text",
+    "aggregate : brief : config : decide : learn : ledger : library : measure : record : reply : report : runner : seat : spec : text : transcript",
     "store",
     "errors",
 ]

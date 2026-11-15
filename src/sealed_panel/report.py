@@ -348,3 +348,18 @@ def render_report(run: Path) -> str:
     out += _round_table(spec, ledger)
     out += _notes(run, ledger, d)
     return "\n".join(out) + "\n"
+
+
+def outcome_line(r: dict[str, Any]) -> str:
+    """What `record` and `judge` print for one recorded attempt."""
+    if r.get("void"):
+        return f"VOID judge {r['judge']}: " + (
+            "; ".join(r["errors"][:1])
+            if r.get("source") == RUNNER
+            else "recorded as an attempt without a reply"
+        )
+    return (
+        ("VALID" if r["ok"] else "REJECTED")
+        + f" judge {r['judge']}"
+        + ("" if r["ok"] else ": " + "; ".join(r["errors"][:3]))
+    )

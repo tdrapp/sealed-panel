@@ -17,7 +17,8 @@ from sealed_panel.config import (
     merge,
 )
 from sealed_panel.errors import ConfigError, EvalError
-from sealed_panel.record import check_output, record_reply
+from sealed_panel.record import record_reply
+from sealed_panel.reply import check_output
 from sealed_panel.report import render_report, status
 from sealed_panel.spec import init_run, run_config, validate_spec
 from sealed_panel.store import round_dir

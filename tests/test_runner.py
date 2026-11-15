@@ -22,7 +22,7 @@ from sealed_panel.cli import main
 from sealed_panel.config import Config, ConfigError, default_data, load_config, merge
 from sealed_panel.errors import EvalError, SeatTaken
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import MAX_VOIDS, _record_reply, record_from, record_reply, seat_lock
+from sealed_panel.record import record_attempt, record_from, record_reply
 from sealed_panel.report import render_report, status
 from sealed_panel.runner import (
     child_env,
@@ -31,6 +31,7 @@ from sealed_panel.runner import (
     judge_seat,
     open_seats,
 )
+from sealed_panel.seat import MAX_VOIDS, seat_lock
 from sealed_panel.spec import init_run, run_config, run_salt
 from sealed_panel.store import round_dir
 
@@ -235,9 +236,9 @@ class TestRefusals:
         init_runner(h)
         h.brief(1, "cand")
         with pytest.raises(EvalError, match="runner's proof"):
-            _record_reply(h.run, 1, 1, "x1", "{}", False, "runner")
+            record_attempt(h.run, 1, 1, "x1", "{}", False, "runner")
         with pytest.raises(EvalError, match="runner's proof"):
-            _record_reply(h.run, 1, 1, "x2", "{}", False, "output", runner={"argv": []})
+            record_attempt(h.run, 1, 1, "x2", "{}", False, "output", runner={"argv": []})
 
     def test_the_public_api_cannot_forge_a_runner_reply(self, h: Harness) -> None:
         init_runner(h, command=["/bin/false"])

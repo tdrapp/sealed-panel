@@ -14,8 +14,9 @@ from .brief import write_briefs
 from .config import LIBRARY_ENV, library_dir, load_config
 from .errors import EvalError, user_message
 from .learn import learn_after_seal, user_disagreement
-from .record import outcome_line, record_from, record_measurement
-from .report import feedback_path, render_report, status
+from .measure import record_measurement
+from .record import record_from
+from .report import feedback_path, outcome_line, render_report, status
 from .runner import judge_round
 from .spec import TODO_MARKER, init_run
 from .store import load_json, resolve_round

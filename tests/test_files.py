@@ -37,9 +37,11 @@ from sealed_panel.config import (
 )
 from sealed_panel.errors import EvalError, SeatTaken
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import extract_json, record_from, record_reply, seat_lock
+from sealed_panel.record import record_from, record_reply
+from sealed_panel.reply import extract_json
 from sealed_panel.report import render_report
 from sealed_panel.runner import judge_round, judge_seat, open_seats
+from sealed_panel.seat import seat_lock
 from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
