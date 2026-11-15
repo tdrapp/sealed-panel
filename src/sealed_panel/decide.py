@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .model import INJECTION_ACK
+
 STOP_DECISIONS = ("CONVERGED", "PLATEAU", "CAP")
 TOP_SCORE = 5
 # PLATEAU when the best paired gain stays below the noise this many rounds running.
@@ -15,8 +17,6 @@ SUSPECT_JUMP = 2
 BLOCKED = "BLOCKED BY FLAG"
 # The step after a stop decision, worded for the command line and the tools alike.
 SEAL_NEXT = "brief the sealed panel"
-# The spec key that acknowledges the injection flags, frozen and hashed with the rubric.
-INJECTION_ACK = "injection_acknowledged"
 
 
 def measured_ok(spec: dict[str, Any], entry: dict[str, Any]) -> bool:

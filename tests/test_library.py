@@ -12,21 +12,17 @@ from typing import Any
 import pytest
 
 from conftest import FLAT, Harness, make_spec
-from sealed_panel import library
+from sealed_panel import rubric, templates
 from sealed_panel.brief import write_briefs
 from sealed_panel.cli import main
-from sealed_panel.config import default_library_dir, library_dir
 from sealed_panel.errors import EvalError
+from sealed_panel.learning import candidates
 from sealed_panel.report import render_report
-from sealed_panel.spec import (
-    OPTIONAL_HASH_KEYS,
-    RUBRIC_KEYS,
-    TODO_MARKER,
-    init_run,
-    load_frozen,
-    rubric_hash,
-)
-from sealed_panel.spec import validate_spec as validate
+from sealed_panel.rubric import OPTIONAL_HASH_KEYS, RUBRIC_KEYS, TODO_MARKER, rubric_hash
+from sealed_panel.rubric import validate_spec as validate
+from sealed_panel.run import load_frozen
+from sealed_panel.steps import init_run
+from sealed_panel.templates import default_library_dir, library_dir
 
 BUILTINS = ("cv", "cover-letter", "pitch", "message", "essay", "interview-answer", "plan-doc",
             "prompt-output")  # fmt: skip
@@ -63,7 +59,7 @@ def proposal(change: dict[str, Any], template: dict[str, Any] | None = None,
 
 
 def candidate(lib: Path, change: dict[str, Any], **kw: Any) -> str:
-    path = library.add_candidate(lib, proposal(change, **kw))
+    path = candidates.add_candidate(lib, proposal(change, **kw))
     assert path is not None
     return path.stem
 
@@ -74,16 +70,16 @@ def rewrite(did: str = "ask", **anchors: str) -> dict[str, Any]:
 
 class TestTemplates:
     def test_every_builtin_is_valid(self) -> None:
-        found = library.builtin_templates()
+        found = templates.builtin_templates()
         assert sorted(found) == sorted(BUILTINS)
         for t in found.values():
-            assert library.template_errors(t) == [], t["id"]
+            assert templates.template_errors(t) == [], t["id"]
             assert t["facts_hint"] and t["aliases"]
 
     @pytest.mark.parametrize("tid", BUILTINS)
     def test_every_builtin_instantiates_into_a_valid_spec(self, tid: str, tmp_path: Path) -> None:
-        t = library.builtin_templates()[tid]
-        skeleton = library.instantiate(t)
+        t = templates.builtin_templates()[tid]
+        skeleton = templates.instantiate(t)
         assert any(TODO_MARKER in e for e in validate(skeleton))
         assert t["facts_hint"] in skeleton["facts"]
         for m in skeleton["measured"]:
@@ -115,13 +111,13 @@ class TestTemplates:
         ],
     )
     def test_format_errors_are_named(self, change: dict[str, Any], message: str) -> None:
-        t = {**library.builtin_templates()["message"], **change}
-        assert any(message in e for e in library.template_errors(t))
+        t = {**templates.builtin_templates()["message"], **change}
+        assert any(message in e for e in templates.template_errors(t))
 
     def test_dimension_rules(self) -> None:
-        t = library.builtin_templates()["message"]
+        t = templates.builtin_templates()["message"]
         dims = t["dimensions"]
-        errs = library.template_errors
+        errs = templates.template_errors
         assert any("dimensions must be" in e for e in errs({**t, "dimensions": dims[:2]}))
         many = [{**dims[0], "id": f"d{i}"} for i in range(7)]
         assert any("dimensions must be" in e for e in errs({**t, "dimensions": many}))
@@ -140,11 +136,11 @@ class TestTemplates:
     def test_user_template_overrides_and_newer_builtin_is_flagged(
         self, private_library: Path
     ) -> None:
-        t = {**library.builtin_templates()["message"], "version": 3, "title": "Team messages",
+        t = {**templates.builtin_templates()["message"], "version": 3, "title": "Team messages",
              "based_on": {"version": 0}}  # fmt: skip
         private_library.mkdir(parents=True)
         (private_library / "team.json").write_text(json.dumps(t))
-        served = library.get_template(private_library, "message")
+        served = templates.get_template(private_library, "message")
         assert served["template"]["title"] == "Team messages"
         assert served["path"] == private_library / "team.json"
         assert "user (overrides built-in v1)" in served["source"]
@@ -154,13 +150,13 @@ class TestTemplates:
         private_library.mkdir(parents=True)
         (private_library / "broken.json").write_text('{"id": "broken"}')
         (private_library / "garbage.json").write_text("{not json")
-        served, warnings = library.all_templates(private_library)
+        served, warnings = templates.all_templates(private_library)
         assert "message" in served and "broken" not in served
         assert len(warnings) == 2 and all(w.startswith("skipped") for w in warnings)
 
     def test_unknown_template_refused(self, private_library: Path) -> None:
         with pytest.raises(EvalError, match="no template"):
-            library.get_template(private_library, "nope")
+            templates.get_template(private_library, "nope")
 
 
 class TestLibraryPath:
@@ -186,38 +182,38 @@ class TestLibraryPath:
 class TestSuggest:
     @pytest.mark.parametrize("tid", BUILTINS)
     def test_each_kind_and_alias_finds_its_template(self, tid: str, private_library: Path) -> None:
-        t = library.builtin_templates()[tid]
+        t = templates.builtin_templates()[tid]
         for kind in [*t["kinds"], *t["aliases"]]:
             for variant in (kind, kind.upper(), kind.replace("-", " "), kind.replace("-", "_")):
-                rows = library.suggest(private_library, variant)
+                rows = templates.suggest(private_library, variant)
                 assert rows and rows[0]["id"] == tid, variant
 
     def test_no_match_is_empty(self, private_library: Path) -> None:
-        assert library.suggest(private_library, "limerick") == []
+        assert templates.suggest(private_library, "limerick") == []
 
     def test_keywords_break_ties_by_whole_word(self, private_library: Path) -> None:
-        t = {**library.builtin_templates()["message"], "id": "message-b", "keywords": ["ship"]}
+        t = {**templates.builtin_templates()["message"], "id": "message-b", "keywords": ["ship"]}
         private_library.mkdir(parents=True)
         (private_library / "b.json").write_text(json.dumps(t))
-        assert [r["id"] for r in library.suggest(private_library, "email", "")] == [
+        assert [r["id"] for r in templates.suggest(private_library, "email", "")] == [
             "message",
             "message-b",
         ]
-        rows = library.suggest(private_library, "email", "We ship today.")
+        rows = templates.suggest(private_library, "email", "We ship today.")
         assert rows[0]["id"] == "message-b" and rows[0]["keywords"] == ["ship"]
-        rows = library.suggest(private_library, "email", "Our shipping notice.")
+        rows = templates.suggest(private_library, "email", "Our shipping notice.")
         assert rows[0]["id"] == "message", "a keyword inside another word does not count"
 
     def test_top_must_be_positive(self, private_library: Path) -> None:
         with pytest.raises(EvalError, match="--top"):
-            library.suggest(private_library, "essay", top=0)
+            templates.suggest(private_library, "essay", top=0)
 
 
 class TestUse:
     def test_skeleton_freezes_the_template(self, tmp_path: Path, private_library: Path) -> None:
-        out = library.write_skeleton(private_library, "message", tmp_path / "spec.json")
+        out = templates.write_skeleton(private_library, "message", tmp_path / "spec.json")
         skeleton = json.loads(out.read_text())
-        assert skeleton["template"]["sha256"] == library.dimensions_sha(skeleton["dimensions"])
+        assert skeleton["template"]["sha256"] == rubric.dimensions_sha(skeleton["dimensions"])
         with pytest.raises(EvalError, match="TODO"):
             init_run(tmp_path / "run", out)
         out.write_text(json.dumps(filled(skeleton)))
@@ -232,7 +228,7 @@ class TestUse:
         self, h: Harness, private_library: Path
     ) -> None:
         sp = h.tmp / "spec.json"
-        skeleton = filled(library.instantiate(library.builtin_templates()["message"]))
+        skeleton = filled(templates.instantiate(templates.builtin_templates()["message"]))
         skeleton["dimensions"][0]["anchors"]["5"] = "my own five"
         sp.write_text(json.dumps(skeleton))
         init_run(h.run, sp)
@@ -243,16 +239,16 @@ class TestUse:
     def test_persona_file_and_refusals(self, tmp_path: Path, private_library: Path) -> None:
         pf = tmp_path / "personas.json"
         pf.write_text(json.dumps([{"id": "lead", "description": "Team lead who decides"}]))
-        out = library.write_skeleton(private_library, "message", tmp_path / "a.json", pf)
+        out = templates.write_skeleton(private_library, "message", tmp_path / "a.json", pf)
         assert json.loads(out.read_text())["personas"][0]["id"] == "lead"
         with pytest.raises(EvalError, match="already exists"):
-            library.write_skeleton(private_library, "message", out)
+            templates.write_skeleton(private_library, "message", out)
         pf.write_text('{"id": "lead"}')
         with pytest.raises(EvalError, match="list of personas"):
-            library.write_skeleton(private_library, "message", tmp_path / "b.json", pf)
+            templates.write_skeleton(private_library, "message", tmp_path / "b.json", pf)
         pf.write_text('[{"id": "lead", "role": "x"}]')
         with pytest.raises(EvalError, match="would not be a valid spec"):
-            library.write_skeleton(private_library, "message", tmp_path / "c.json", pf)
+            templates.write_skeleton(private_library, "message", tmp_path / "c.json", pf)
 
     def test_a_spec_without_template_keeps_its_old_hash(self) -> None:
         spec = make_spec()
@@ -274,23 +270,23 @@ class TestCandidates:
     def test_ids_are_checked_before_paths(self, private_library: Path) -> None:
         for bad in ("../../etc/passwd", "c-123", "C-0123456789ab", "c-0123456789ab/x"):
             with pytest.raises(EvalError, match="not a candidate id"):
-                library.promote(private_library, bad)
+                candidates.promote(private_library, bad)
 
     def test_the_id_inside_a_file_is_never_trusted(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
         path = private_library / "inbox" / f"{cid}.json"
         data = json.loads(path.read_text())
         path.write_text(json.dumps({**data, "id": "../../evil"}))
-        rows, _ = library.open_candidates(private_library)
+        rows, _ = candidates.open_candidates(private_library)
         assert rows[0]["id"] == cid
-        library.reject(private_library, cid, "no")
+        candidates.reject(private_library, cid, "no")
         assert (private_library / "history" / f"{cid}.json").exists()
 
     def test_unreadable_inbox_files_are_skipped(self, private_library: Path) -> None:
         candidate(private_library, rewrite())
         (private_library / "inbox" / "c-ffffffffffff.json").write_text("{broken")
         (private_library / "inbox" / "notes.json").write_text("{}")
-        rows, warnings = library.open_candidates(private_library)
+        rows, warnings = candidates.open_candidates(private_library)
         assert len(rows) == 1 and len(warnings) == 2
 
     def test_dedup_by_template_version_and_case(self, private_library: Path) -> None:
@@ -309,22 +305,22 @@ class TestCandidates:
     def test_evidence_is_not_added_twice(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
         candidate(private_library, rewrite())
-        rows, _ = library.open_candidates(private_library)
+        rows, _ = candidates.open_candidates(private_library)
         assert (rows[0]["id"], rows[0]["count"]) == (cid, 1)
 
     def test_a_rejected_key_is_not_reopened(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
-        library.reject(private_library, cid, "the anchor is right")
-        assert library.add_candidate(private_library, proposal(rewrite())) is None
+        candidates.reject(private_library, cid, "the anchor is right")
+        assert candidates.add_candidate(private_library, proposal(rewrite())) is None
         new = candidate(private_library, rewrite(), template={"id": "message", "version": 2})
         c = json.loads((private_library / "inbox" / f"{new}.json").read_text())
         assert c["rejected_before"][0]["reason"] == "the anchor is right"
 
     def test_a_promoted_key_is_not_reopened(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
-        library.promote(private_library, cid)
-        assert library.add_candidate(private_library, proposal(rewrite())) is None
-        assert library.open_candidates(private_library)[0] == []
+        candidates.promote(private_library, cid)
+        assert candidates.add_candidate(private_library, proposal(rewrite())) is None
+        assert candidates.open_candidates(private_library)[0] == []
 
     def test_a_modified_template_never_merges_with_the_original(
         self, private_library: Path
@@ -340,8 +336,8 @@ class TestCandidates:
         second = proposal(rewrite())
         second["run"] = {**second["run"], "run_dir": "/runs/y"}
         second["evidence"] = [{**second["evidence"][0], "run_dir": "/runs/y"}]
-        library.add_candidate(private_library, first)
-        path = library.add_candidate(private_library, second)
+        candidates.add_candidate(private_library, first)
+        path = candidates.add_candidate(private_library, second)
         assert path is not None
         c = json.loads(path.read_text())
         assert [r["run_dir"] for r in c["runs"]] == ["/runs/x", "/runs/y"]
@@ -352,56 +348,56 @@ class TestCandidates:
         path = private_library / "inbox" / f"{cid}.json"
         path.write_text(json.dumps({**json.loads(path.read_text()), "status": "rejected"}))
         with pytest.raises(EvalError, match="is rejected, not open"):
-            library.promote(private_library, cid)
+            candidates.promote(private_library, cid)
 
     def test_unknown_candidate_kind_refused(self, private_library: Path) -> None:
         with pytest.raises(EvalError, match="unknown candidate kind"):
-            library.add_candidate(private_library, proposal(rewrite(), kind="guess"))
+            candidates.add_candidate(private_library, proposal(rewrite(), kind="guess"))
 
 
 class TestPromote:
     def test_promote_copies_a_builtin_and_bumps_the_version(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite(**{"5": "the ask is in the first line"}))
-        path = library.promote(private_library, cid)
+        path = candidates.promote(private_library, cid)
         t = json.loads(path.read_text())
         assert path == private_library / "message.json"
         assert (t["version"], t["based_on"]) == (2, {"version": 1})
         assert t["dimensions"][0]["anchors"]["5"] == "the ask is in the first line"
-        assert t["provenance"][:-1] == library.builtin_templates()["message"]["provenance"]
+        assert t["provenance"][:-1] == templates.builtin_templates()["message"]["provenance"]
         assert t["provenance"][-1]["source"].startswith(f"candidate {cid}")
-        assert library.builtin_templates()["message"]["version"] == 1, "built-ins never change"
+        assert templates.builtin_templates()["message"]["version"] == 1, "built-ins never change"
         closed = json.loads((private_library / "history" / f"{cid}.json").read_text())
         assert closed["promoted_into"] == {"id": "message", "version": 2}
         assert not (private_library / "inbox" / f"{cid}.json").exists()
         with pytest.raises(EvalError, match="no open candidate"):
-            library.promote(private_library, cid)
+            candidates.promote(private_library, cid)
 
     def test_the_version_goes_above_the_builtin(
         self, private_library: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        real = library.builtin_templates()
+        real = templates.builtin_templates()
         newer = {**real, "message": {**real["message"], "version": 5}}
-        monkeypatch.setattr(library, "builtin_templates", lambda: newer)
+        monkeypatch.setattr(candidates, "builtin_templates", lambda: newer)
         user = {**real["message"], "version": 2}
         private_library.mkdir(parents=True)
         (private_library / "message.json").write_text(json.dumps(user))
         t = json.loads(
-            library.promote(private_library, candidate(private_library, rewrite())).read_text()
+            candidates.promote(private_library, candidate(private_library, rewrite())).read_text()
         )
         assert t["version"] == 6
 
     def test_into_takes_precedence(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite("structure"))
-        path = library.promote(private_library, cid, into="pitch")
+        path = candidates.promote(private_library, cid, into="pitch")
         assert path.name == "pitch.json"
         assert not (private_library / "message.json").exists()
 
     def test_promote_writes_the_served_file(self, private_library: Path) -> None:
         private_library.mkdir(parents=True)
         (private_library / "team.json").write_text(
-            json.dumps(library.builtin_templates()["message"])
+            json.dumps(templates.builtin_templates()["message"])
         )
-        path = library.promote(private_library, candidate(private_library, rewrite()))
+        path = candidates.promote(private_library, candidate(private_library, rewrite()))
         assert path == private_library / "team.json"
         assert not (private_library / "message.json").exists()
 
@@ -409,20 +405,20 @@ class TestPromote:
         private_library.mkdir(parents=True)
         (private_library / "message.json").write_text("{broken")
         with pytest.raises(EvalError, match="fix or remove it first"):
-            library.promote(private_library, candidate(private_library, rewrite()))
+            candidates.promote(private_library, candidate(private_library, rewrite()))
         assert (private_library / "message.json").read_text() == "{broken"
 
     def test_promote_refuses_todo_markers_in_used_fields(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite(**{"5": TODO_MARKER + ": write it"}))
         with pytest.raises(EvalError, match="edit the candidate"):
-            library.promote(private_library, cid)
+            candidates.promote(private_library, cid)
         assert not (private_library / "message.json").exists()
 
     def test_remove_dimension_ignores_unused_todo_anchors(self, private_library: Path) -> None:
         change = {"action": "remove_dimension", "dimension": "brevity",
                   "anchors": {"5": TODO_MARKER + ": unused"}}  # fmt: skip
         t = json.loads(
-            library.promote(private_library, candidate(private_library, change)).read_text()
+            candidates.promote(private_library, candidate(private_library, change)).read_text()
         )
         assert [d["id"] for d in t["dimensions"]] == ["ask", "relevance", "evidence"]
 
@@ -443,13 +439,13 @@ class TestPromote:
         self, private_library: Path, change: dict[str, Any], message: str
     ) -> None:
         with pytest.raises(EvalError, match=message):
-            library.promote(private_library, candidate(private_library, change))
+            candidates.promote(private_library, candidate(private_library, change))
 
     def test_into_is_needed_without_a_template(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite(), template={})
         with pytest.raises(EvalError, match="--into"):
-            library.promote(private_library, cid)
-        library.promote(private_library, cid, into="message")
+            candidates.promote(private_library, cid)
+        candidates.promote(private_library, cid, into="message")
 
     def test_promotion_is_all_or_nothing(
         self, private_library: Path, monkeypatch: pytest.MonkeyPatch
@@ -459,9 +455,9 @@ class TestPromote:
         def fail(src: Any, dst: Any, **kw: Any) -> None:
             raise OSError("no space left")
 
-        monkeypatch.setattr(library.os, "replace", fail)
+        monkeypatch.setattr(candidates.os, "replace", fail)
         with pytest.raises(OSError):
-            library.promote(private_library, cid)
+            candidates.promote(private_library, cid)
         assert not (private_library / "message.json").exists()
         assert (private_library / "inbox" / f"{cid}.json").exists()
         assert not list(private_library.rglob("*.staged"))
@@ -471,7 +467,7 @@ class TestPromote:
         self, private_library: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         private_library.mkdir(parents=True)
-        original = json.dumps(library.builtin_templates()["message"])
+        original = json.dumps(templates.builtin_templates()["message"])
         (private_library / "message.json").write_text(original)
         cid = candidate(private_library, rewrite())
         real = os.replace
@@ -484,9 +480,9 @@ class TestPromote:
                     raise OSError("disk full")
             real(src, dst, **kw)
 
-        monkeypatch.setattr(library.os, "replace", second_fails)
+        monkeypatch.setattr(candidates.os, "replace", second_fails)
         with pytest.raises(OSError):
-            library.promote(private_library, cid)
+            candidates.promote(private_library, cid)
         assert (private_library / "message.json").read_text() == original
         assert (private_library / "inbox" / f"{cid}.json").exists()
         assert not list(private_library.rglob("*.staged"))
@@ -495,27 +491,29 @@ class TestPromote:
         self, private_library: Path
     ) -> None:
         private_library.mkdir(parents=True)
-        other = {**library.builtin_templates()["pitch"], "id": "pitch-team"}
+        other = {**templates.builtin_templates()["pitch"], "id": "pitch-team"}
         (private_library / "message.json").write_text(json.dumps(other))
         with pytest.raises(EvalError, match="holds a template of another id"):
-            library.promote(private_library, candidate(private_library, rewrite()))
+            candidates.promote(private_library, candidate(private_library, rewrite()))
         assert json.loads((private_library / "message.json").read_text())["id"] == "pitch-team"
 
     def test_side_by_side_shows_both_texts(self, private_library: Path) -> None:
-        plan = library.plan_promotion(
+        plan = candidates.plan_promotion(
             private_library, candidate(private_library, rewrite(**{"5": "NEW"}))
         )
-        lines = "\n".join(library.side_by_side(plan["current"], plan["updated"]))
+        lines = "\n".join(candidates.side_by_side(plan["current"], plan["updated"]))
         assert "dimension ask" in lines and "NEW" in lines
-        assert library.builtin_templates()["message"]["dimensions"][0]["anchors"]["5"][:20] in lines
+        assert (
+            templates.builtin_templates()["message"]["dimensions"][0]["anchors"]["5"][:20] in lines
+        )
 
     def test_reject_moves_with_the_reason(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
         with pytest.raises(EvalError, match="--reason"):
-            library.reject(private_library, cid, " ")
-        closed = json.loads(library.reject(private_library, cid, "keep it").read_text())
+            candidates.reject(private_library, cid, " ")
+        closed = json.loads(candidates.reject(private_library, cid, "keep it").read_text())
         assert (closed["status"], closed["reason"]) == ("rejected", "keep it")
-        assert library.open_candidates(private_library)[0] == []
+        assert candidates.open_candidates(private_library)[0] == []
 
 
 class TestFrozenRun:
@@ -524,11 +522,11 @@ class TestFrozenRun:
     ) -> None:
         sp = h.tmp / "spec.json"
         sp.write_text(
-            json.dumps(filled(library.instantiate(library.builtin_templates()["message"])))
+            json.dumps(filled(templates.instantiate(templates.builtin_templates()["message"])))
         )
         init_run(h.run, sp)
         before = (h.run / "spec.json").read_text()
-        library.promote(
+        candidates.promote(
             private_library, candidate(private_library, rewrite(**{"5": "a different anchor"}))
         )
         assert (h.run / "spec.json").read_text() == before
@@ -539,7 +537,7 @@ class TestFrozenRun:
 
 class TestTemplateReference:
     def write(self, h: Harness, ref: dict[str, Any], change: bool = False) -> Path:
-        spec = filled(library.instantiate(library.builtin_templates()["message"]))
+        spec = filled(templates.instantiate(templates.builtin_templates()["message"]))
         spec["template"] = ref
         if change:
             spec["dimensions"][0]["anchors"]["5"] = "my own five"
@@ -557,8 +555,8 @@ class TestTemplateReference:
         init_run(h.run, self.write(h, {"id": "message", "version": 1, "modified": False}, True))
         ref = load_frozen(h.run)["template"]
         assert ref["modified"] is True
-        assert ref["sha256"] == library.dimensions_sha(
-            library.builtin_templates()["message"]["dimensions"]
+        assert ref["sha256"] == rubric.dimensions_sha(
+            templates.builtin_templates()["message"]["dimensions"]
         )
 
     def test_a_forged_hash_is_replaced(self, h: Harness) -> None:
@@ -572,13 +570,13 @@ class TestLibraryGuardrails:
         """A spec naming a template reads the library before anything is written."""
         sp = tmp_path / "spec.json"
         sp.write_text(json.dumps(make_spec(template={"id": "message", "version": 1})))
-        inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
+        inside = Path(templates.__file__).resolve().parent / "rubrics" / "mine"
         with pytest.raises(EvalError, match="inside the package"):
             init_run(tmp_path / "run", sp, library=inside)
         assert not (tmp_path / "run").exists()
 
     def test_inside_the_package_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        inside = Path(library.__file__).resolve().parent / "rubrics" / "mine"
+        inside = Path(templates.__file__).resolve().parent / "rubrics" / "mine"
         monkeypatch.setenv("SEALED_PANEL_RUBRICS", str(inside))
         with pytest.raises(EvalError, match="inside the package"):
             library_dir()
@@ -611,7 +609,7 @@ class TestLibraryGuardrails:
             assert "SEALED_PANEL_RUBRICS at a folder outside any repository" in err, args
         assert not (repo / "lib").exists()
         with pytest.raises(EvalError, match="never written there"):
-            library.add_candidate(repo / "lib", {"kind": "user_disagreement"})
+            candidates.add_candidate(repo / "lib", {"kind": "user_disagreement"})
 
     def test_reads_inside_a_git_tree_never_refuse(
         self, h: Harness, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -674,7 +672,7 @@ class TestResolvedLibrary:
         lib = library_dir(link)
         assert lib == (repo / "rubrics").resolve()
         with pytest.raises(EvalError, match="inside the git working tree"):
-            library.reject(lib, "c-0123456789ab", "a reason")
+            candidates.reject(lib, "c-0123456789ab", "a reason")
 
     def test_dot_dot_out_of_a_repository_is_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -688,12 +686,12 @@ class TestResolvedLibrary:
 class TestHistoryIsNeverOverwritten:
     def test_an_unreadable_history_file_keeps_its_id(self, private_library: Path) -> None:
         cid = candidate(private_library, rewrite())
-        library.reject(private_library, cid, "no")
+        candidates.reject(private_library, cid, "no")
         damaged = private_library / "history" / f"{cid}.json"
         damaged.write_text("{damaged")
         again = candidate(private_library, rewrite())
         assert again == f"{cid}-2"
-        library.reject(private_library, again, "still no")
+        candidates.reject(private_library, again, "still no")
         assert damaged.read_text() == "{damaged"
 
     def test_a_history_file_is_never_replaced(self, private_library: Path) -> None:
@@ -701,9 +699,9 @@ class TestHistoryIsNeverOverwritten:
         (private_library / "history").mkdir(parents=True, exist_ok=True)
         (private_library / "history" / f"{cid}.json").write_text("{kept}")
         with pytest.raises(EvalError, match="never overwritten"):
-            library.reject(private_library, cid, "no")
+            candidates.reject(private_library, cid, "no")
         with pytest.raises(EvalError, match="never overwritten"):
-            library.promote(private_library, cid)
+            candidates.promote(private_library, cid)
         assert (private_library / "history" / f"{cid}.json").read_text() == "{kept}"
         assert (private_library / "inbox" / f"{cid}.json").exists()
 
@@ -714,7 +712,7 @@ class TestHistoryIsNeverOverwritten:
         (private_library / "history").mkdir(parents=True, exist_ok=True)
         (private_library / "history" / f"{cid}.json").write_text("{kept}")
         with pytest.raises(EvalError, match="never overwritten"):
-            library.plan_promotion(private_library, cid)
+            candidates.plan_promotion(private_library, cid)
         asked: list[str] = []
 
         def answer(prompt: str) -> str:
@@ -745,6 +743,25 @@ class TestSkeletonTarget:
         assert not (h.tmp / "RUBRIC.LOCK").exists() and not (h.tmp / "run.json").exists()
         assert main(["init", str(h.tmp / "r1"), "--spec", str(sp)]) == 0  # ordinary names
 
+    def test_a_git_folder_is_never_created_on_the_command_line(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A `.git` a caller creates makes its parent a git working tree, where learning never
+        writes: neither a run nor a library may create one, in any case (a skeleton creates no
+        folder at all)."""
+        sp = h.tmp / "s.json"
+        sp.write_text(json.dumps(make_spec()))
+        for args, name in (
+            (["init", str(h.tmp / ".git"), "--spec", str(sp)], ".git"),
+            (["init", str(h.tmp / "x" / ".GIT" / "run"), "--spec", str(sp)], ".GIT"),
+            (["rubrics", "list", "--library", str(h.tmp / ".Git" / "lib")], ".Git"),
+        ):
+            assert main(args) == 2, args
+            assert f"{name!r} is reserved: it would make its folder a git working tree" in (
+                capsys.readouterr().err
+            ), args
+        assert sorted(p.name for p in h.tmp.iterdir() if p.name.casefold() == ".git") == []
+
     def test_a_skeleton_goes_only_into_a_new_json_file_outside_any_run(
         self, h: Harness, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -770,7 +787,7 @@ class TestInitLibraryFlag:
     ) -> None:
         other = tmp_path / "other-lib"
         other.mkdir()
-        mine = {**library.builtin_templates()["message"], "id": "team-note"}
+        mine = {**templates.builtin_templates()["message"], "id": "team-note"}
         (other / "team-note.json").write_text(json.dumps(mine))
         out = tmp_path / "spec.json"
         assert (

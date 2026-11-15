@@ -23,7 +23,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Annotated, Any, Literal, NamedTuple, TypeVar
 
 import anyio
 from fastmcp import Context, FastMCP
@@ -31,19 +31,21 @@ from fastmcp.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from . import __version__
-from . import library as rubrics_lib
-from .aggregate import aggregate_round
+from . import __version__, templates
 from .brief import write_briefs
-from .config import Config, config_differences, library_dir, load_config
 from .errors import ConfigError, EvalError, SeatTaken, user_message
-from .record import record_from, record_measurement
+from .measure import record_measurement
+from .record import record_from
 from .report import feedback_path, render_report
 from .report import status as run_status
+from .rubric import TODO_MARKER
+from .run import run_config
 from .runner import judge_seat, open_seats
-from .spec import TODO_MARKER, run_config
-from .spec import init_run as init_any_run
-from .store import INIT_LOCK, contained, locked, resolve_round
+from .settings import Config, config_differences, load_config
+from .steps import aggregate_round, resolve_round
+from .steps import init_run as init_any_run
+from .store import INIT_LOCK, contained, locked
+from .templates import library_dir
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -239,7 +241,7 @@ def init_run(
     facts_root: Path | None = None,
 ) -> str:
     """`init` for the MCP caller, who is the author: a spec that acknowledges injection flags
-    is refused, since acknowledging one is a person's decision (see spec.init_run).
+    is refused, since acknowledging one is a person's decision (see steps.init_run).
 
     Args:
         run: A new or empty directory for the run.
@@ -286,15 +288,24 @@ def names_lock(where: Path, base: Path, lock: Path) -> bool:
         return False  # nothing there yet: not the lock, which exists from startup
 
 
-def build_server(
-    root: Path | None = None,
-    config: Path | None = None,
-    transcript_roots: list[Path] | None = None,
-) -> FastMCP:
-    """The sealed-panel MCP server. Every path a tool takes resolves under the root: `root`,
-    else `[mcp] root` in `config`, else the current directory. `config` is the user's
-    configuration: `init` freezes it into every run, and `judge` refuses a run whose judge
-    settings differ from it."""
+class _Scope(NamedTuple):
+    """What every tool of one server shares: its settings, its root, and the functions that
+    confine the paths a caller gives."""
+
+    server: Config
+    base: Path
+    init_lock: Path
+    path: Callable[[str], Path]
+    opt: Callable[[str | None], Path | None]
+    served: Callable[[str], Path]
+    readable: Callable[[str], Path]
+    transcripts_note: Callable[[], str]
+    transcript_path: Callable[[str], Path]
+
+
+def _settings(root: Path | None, config: Path | None) -> tuple[Config, Path]:
+    """The server's configuration, read once, and its root; refused when the configuration
+    lies under the root, where the caller could rewrite it."""
     config_file = config.expanduser().resolve() if config else None
     server = load_config(config_file)  # read once: the caller may write under the root
     configured = str(server.section("mcp")["root"]).strip()
@@ -304,6 +315,13 @@ def build_server(
             f"the server's configuration {config_file} is under the root {base}: the caller "
             "could rewrite it. Keep it outside the root."
         )
+    return server, base
+
+
+def _transcript_roots(
+    base: Path, transcript_roots: list[Path] | None
+) -> tuple[list[Path], list[str]]:
+    """The transcript roots this server reads, and why each one given and not used is off."""
     allowed: list[Path] = []
     turned_off: list[str] = []  # why a transcript root given is not used
     for r in transcript_roots or []:
@@ -318,9 +336,13 @@ def build_server(
         allowed.append(r.expanduser())
     for reason in turned_off:
         logging.getLogger("sealed_panel").warning("transcripts off: %s", reason)
+    return allowed, turned_off
 
-    # Held by the init tool: a dot-file, so no run is named after it.
-    init_lock = _reserve(base)
+
+def _scope(
+    server: Config, base: Path, init_lock: Path, allowed: list[Path], turned_off: list[str]
+) -> _Scope:
+    """The confinement every tool applies to the paths its caller gives."""
 
     def path(p: str) -> Path:
         """A path a caller gave, resolved (links followed) and confined to the root."""
@@ -377,13 +399,15 @@ def build_server(
                 return contained(Path(p), r)
         raise ToolError(f"{p!r} is outside every transcript root: a transcript is proof only there")
 
-    mcp = FastMCP(
-        "sealed-panel",
-        instructions=INSTRUCTIONS,
-        version=__version__,
-        mask_error_details=True,
-        strict_input_validation=True,
+    return _Scope(
+        server, base, init_lock, path, opt, served, readable, transcripts_note, transcript_path
     )
+
+
+def _setup_tools(mcp: FastMCP, at: _Scope) -> None:
+    """The tools that freeze a run and brief a round."""
+    path, opt, served = at.path, at.opt, at.served
+    server, base, init_lock = at.server, at.base, at.init_lock
 
     @mcp.tool(annotations=ADDS)
     def init(
@@ -432,6 +456,11 @@ def build_server(
             )
 
         return _calling(call)
+
+
+def _attempt_tools(mcp: FastMCP, at: _Scope) -> None:
+    """The tools that record a judge's attempt or a reading, or run the judges."""
+    path, served, transcript_path, server = at.path, at.served, at.transcript_path, at.server
 
     @mcp.tool(annotations=ADDS)
     def record(
@@ -527,6 +556,11 @@ def build_server(
 
         return _calling(call)
 
+
+def _aggregate_tool(mcp: FastMCP, at: _Scope) -> None:
+    """The tool that aggregates a round."""
+    path, served = at.path, at.served
+
     @mcp.tool(annotations=ADDS)
     def aggregate(run: RunPath, round: RoundNo = None, sealed: Sealed = False) -> AggregateResult:
         """Aggregate a round once. A loop round writes the author's findings file."""
@@ -542,6 +576,11 @@ def build_server(
             )
 
         return _calling(call)
+
+
+def _read_tools(mcp: FastMCP, at: _Scope) -> None:
+    """The read-only tools on a run."""
+    readable, transcripts_note, server = at.readable, at.transcripts_note, at.server
 
     @mcp.tool(annotations=READ)
     def status(run: RunPath) -> StatusResult:
@@ -564,6 +603,11 @@ def build_server(
         """The run's report: the sealed grade, the round table and every note."""
         return ReportResult(markdown=_calling(lambda: render_report(readable(run))))
 
+
+def _rubric_tools(mcp: FastMCP, at: _Scope) -> None:
+    """The tools on rubric templates."""
+    path, opt = at.path, at.opt
+
     @mcp.tool(annotations=READ)
     def rubrics_suggest(
         kind: Annotated[str, Field(description="the kind of text, such as email or cv")],
@@ -578,13 +622,13 @@ def build_server(
         def call() -> SuggestResult:
             lib = library_dir(opt(library))
             body = path(text).read_text("utf-8") if text else ""
-            rows = rubrics_lib.suggest(lib, kind, body, top)
+            rows = templates.suggest(lib, kind, body, top)
             every = (
                 {}
                 if rows
                 else {
                     tid: str(s["template"]["when_to_use"])
-                    for tid, s in rubrics_lib.all_templates(lib)[0].items()
+                    for tid, s in templates.all_templates(lib)[0].items()
                 }
             )
             return SuggestResult(
@@ -618,11 +662,37 @@ def build_server(
 
         def call() -> UseResult:
             lib = library_dir(opt(library))
-            written = rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))
+            written = templates.write_skeleton(lib, id, path(out), opt(persona_file))
             return UseResult(path=str(written), template=id, todo_marker=TODO_MARKER)
 
         return _calling(call)
 
+
+def build_server(
+    root: Path | None = None,
+    config: Path | None = None,
+    transcript_roots: list[Path] | None = None,
+) -> FastMCP:
+    """The sealed-panel MCP server. Every path a tool takes resolves under the root: `root`,
+    else `[mcp] root` in `config`, else the current directory. `config` is the user's
+    configuration: `init` freezes it into every run, and `judge` refuses a run whose judge
+    settings differ from it."""
+    server, base = _settings(root, config)
+    allowed, turned_off = _transcript_roots(base, transcript_roots)
+    # Held by the init tool: a dot-file, so no run is named after it.
+    init_lock = _reserve(base)
+
+    at = _scope(server, base, init_lock, allowed, turned_off)
+    mcp = FastMCP(
+        "sealed-panel",
+        instructions=INSTRUCTIONS,
+        version=__version__,
+        mask_error_details=True,
+        strict_input_validation=True,
+    )
+
+    for add in (_setup_tools, _attempt_tools, _aggregate_tool, _read_tools, _rubric_tools):
+        add(mcp, at)
     return mcp
 
 

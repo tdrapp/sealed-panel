@@ -36,26 +36,32 @@ from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = "src/sealed_panel"
-REC, AGG, SPEC, CFG, BRIEF = (
-    f"{PKG}/{m}.py" for m in ("record", "aggregate", "spec", "config", "brief")
-)
+REC, AGG, BRIEF = (f"{PKG}/{m}.py" for m in ("record", "aggregate", "brief"))
 DEFAULTS = f"{PKG}/defaults.toml"
-LEARN, LIB = f"{PKG}/learn.py", f"{PKG}/library.py"
+LEARN = f"{PKG}/learning/learn.py"
 RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 TEXT = f"{PKG}/text.py"
+TRANSCRIPT, REPLY, SEAT = (f"{PKG}/{m}.py" for m in ("transcript", "reply", "seat"))
+MEASURE = f"{PKG}/measure.py"
+# FROZEN is run.py, the frozen run directory (RUN is the judge runner).
+RUBRIC, FROZEN, STEPS = (f"{PKG}/{m}.py" for m in ("rubric", "run", "steps"))
+SETTINGS, TEMPLATES = f"{PKG}/settings.py", f"{PKG}/templates.py"
+CANDIDATES, LOCATION = f"{PKG}/learning/candidates.py", f"{PKG}/learning/location.py"
+LEARNING_CLI = f"{PKG}/learning/cli.py"
+REPORT = f"{PKG}/report.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
     # Calibration of each judge.
-    "control check off": (REC, 'if mean_ctrl > spec["control_max"]:', "if False:"),
+    "control check off": (SEAT, 'if mean_ctrl > spec["control_max"]:', "if False:"),
     "control bound inclusive": (
-        REC,
+        SEAT,
         'if mean_ctrl > spec["control_max"]:',
         'if mean_ctrl >= spec["control_max"]:',
     ),
-    "known-good check off": (REC, 'statistics.mean(good.values()) < spec["good_min"]', "False"),
+    "known-good check off": (SEAT, 'statistics.mean(good.values()) < spec["good_min"]', "False"),
     "known-good bound inclusive": (
-        REC,
+        SEAT,
         'statistics.mean(good.values()) < spec["good_min"]',
         'statistics.mean(good.values()) <= spec["good_min"]',
     ),
@@ -66,7 +72,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "round zero allowed": (BRIEF, "if rnd < 1:", "if False:"),
     "brief twice": (BRIEF, 'if rdir.exists() and any(rdir.glob("brief_*.md")):', "if False:"),
     # Quotes and reply cells.
-    "quote check off": (REC, "if not quote_found(", "if False and not quote_found("),
+    "quote check off": (REPLY, "if not quote_found(", "if False and not quote_found("),
     "tiny fragments allowed": (
         f"{PKG}/text.py",
         "if any(len(p) < cfg.min_fragment_chars for p in parts):",
@@ -75,18 +81,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "fragment order ignored": (f"{PKG}/text.py", "pos = i + len(p)", "pos = 0"),
     "smart quotes not normalised": (TEXT, """    "\\u201c": '"',\n""", ""),
     "boolean score accepted": (
-        REC,
+        REPLY,
         "if isinstance(s, bool) or not isinstance(s, int) or",
         "if not isinstance(s, int) or",
     ),
-    "unknown severity accepted": (REC, "if sev not in cfg.severities:", "if False:"),
-    "empty reasoning accepted": (REC, 'if not str(d.get("reasoning", "")).strip():', "if False:"),
-    "severity cap off": (REC, "if s > caps[sev]:", "if False:"),
+    "unknown severity accepted": (REPLY, "if sev not in cfg.severities:", "if False:"),
+    "empty reasoning accepted": (REPLY, 'if not str(d.get("reasoning", "")).strip():', "if False:"),
+    "severity cap off": (REPLY, "if s > caps[sev]:", "if False:"),
     "blocking cap 4": (DEFAULTS, "blocking = 3,", "blocking = 4,"),
     "bad-quote share loosened": (DEFAULTS, 'max_bad_share = "1/3"', 'max_bad_share = "1/2"'),
     "short quotes accepted": (DEFAULTS, "min_chars = 12", "min_chars = 8"),
     "one-quote flag off": (
-        REC,
+        REPLY,
         '"one_quote": len(quotes) >= 2 and len(set(quotes)) == 1,',
         '"one_quote": False,',
     ),
@@ -95,9 +101,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "agent reuse allowed": (REC, "if agent_id in used_agent_ids(run):", "if False:"),
     "empty agent id accepted": (REC, "if not agent_id.strip():", "if False:"),
     "reply reuse allowed": (REC, "if digest in used_reply_hashes(run):", "if False:"),
-    "second valid reply allowed": (REC, 'if any(r["ok"] for r in prior):', "if False:"),
+    "second valid reply allowed": (SEAT, 'if any(r["ok"] for r in prior):', "if False:"),
     "replacements uncapped": (
-        REC,
+        SEAT,
         "    if len(real) > cfg.max_replacements:\n        raise EvalError(\n",
         "    if False:\n        raise EvalError(\n",
     ),
@@ -124,72 +130,72 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '"replied": replied,',
         '"replied": False,',
     ),
-    "voids uncapped": (REC, "if len(voids) >= MAX_VOIDS:", "if False:"),
+    "voids uncapped": (SEAT, "if len(voids) >= MAX_VOIDS:", "if False:"),
     "voids count as real attempts": (
-        REC,
+        SEAT,
         'real = [r for r in prior if not r.get("void")]',
         "real = list(prior)",
     ),
     "handback ignored": (
-        REC,
+        TRANSCRIPT,
         "    if handed:\n        last = handed[-1]",
         "    if False:\n        last = handed[-1]",
     ),
     "refused handback read as delivered": (
-        REC,
+        TRANSCRIPT,
         "            if not include_refused and call_id is not None and call_id in refused:",
         "            if False:",
     ),
     "refused error without an id skips id-less calls": (
-        REC,
+        TRANSCRIPT,
         "if not include_refused and call_id is not None and call_id in refused:",
         "if not include_refused and call_id in refused:",
     ),
-    "void cap boundary": (REC, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
+    "void cap boundary": (SEAT, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
     "refused verdict not read when nothing was delivered": (
-        REC,
+        TRANSCRIPT,
         "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if refused:",
         "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if False:",
     ),
     "an earlier malformed refusal hides the last": (
-        REC,
+        TRANSCRIPT,
         "        if refused[-1] is None:\n            raise MalformedReply(",
         "        if None in refused:\n            raise MalformedReply(",
     ),
     "malformed refused verdict read as text": (
-        REC,
+        TRANSCRIPT,
         "        if refused[-1] is None:\n            raise MalformedReply(",
         "        if False:\n            raise MalformedReply(",
     ),
     "empty handback tool not skipped": (
-        REC,
+        TRANSCRIPT,
         "    if not tool:\n        return []",
         "    if False:\n        return []",
     ),
     "pasted reply on a peeked seat": (
-        REC,
+        SEAT,
         'if source == "output" and any(r.get("void") and r.get("replied") for r in prior):',
         "if False:",
     ),
     "malformed handback read as text": (
-        REC,
+        TRANSCRIPT,
         "        if last is None:\n            raise MalformedReply(",
         "        if False:\n            raise MalformedReply(",
     ),
     "measure flag overrides threshold": (
-        REC,
+        MEASURE,
         "        if passed is not None:\n            raise EvalError(",
         "        if False:\n            raise EvalError(",
     ),
     "measure after aggregate": (
-        REC,
+        MEASURE,
         '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: measure',
         '    if False:\n        raise EvalError("this round is already aggregated: measure',
     ),
     # Aggregation.
     "re-aggregate allowed": (
-        AGG,
+        STEPS,
         '    if (rdir / "result.json").is_file():\n'
         '        raise EvalError("this round is already aggregated: a round',
         '    if False:\n        raise EvalError("this round is already aggregated: a round',
@@ -240,99 +246,99 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     # The spec and its freeze.
-    "rubric lock off": (SPEC, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
+    "rubric lock off": (FROZEN, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
-        SPEC,
+        FROZEN,
         "if frozen.fingerprint != read_text(lock).strip():",
         "if False:",
     ),
     "declared choice unchecked": (
-        SPEC,
+        RUBRIC,
         'if not isinstance(c, dict) or not c.get("choice") or not c.get("user_said"):',
         "if False:",
     ),
-    "spec injection allowed": (SPEC, "if injection_flags(exposed):", "if False:"),
+    "spec injection allowed": (FROZEN, "if injection_flags(exposed):", "if False:"),
     "unknown spec key accepted": (
-        SPEC,
+        RUBRIC,
         'errors = _unknown(spec, SPEC_KEYS, "spec")',
         "errors = []",
     ),
     "unknown dimension key accepted": (
-        SPEC,
+        RUBRIC,
         "errors += _unknown(d, DIMENSION_KEYS, where)",
         "errors += []",
     ),
     "facts and facts_file together": (
-        SPEC,
+        RUBRIC,
         'if "facts" in spec and "facts_file" in spec:',
         "if False:",
     ),
     "missing facts_file accepted": (
-        SPEC,
+        FROZEN,
         "if not path.is_file():",
         "if False:",
     ),
     "framings left out of the hash": (
-        SPEC,
+        FROZEN,
         "        spec.setdefault(key, value)  # framings included",
         '        if key != "framings":\n'
         "            spec.setdefault(key, value)  # framings included",
     ),
-    "non-finite numbers accepted": (SPEC, "and math.isfinite(value)", "and True"),
+    "non-finite numbers accepted": (RUBRIC, "and math.isfinite(value)", "and True"),
     "measured min above max accepted": (
-        SPEC,
+        RUBRIC,
         'and m["min"] > m["max"]:',
         "and False:",
     ),
-    "duplicate measured ids accepted": (SPEC, "if len(set(mids)) != len(mids):", "if False:"),
+    "duplicate measured ids accepted": (RUBRIC, "if len(set(mids)) != len(mids):", "if False:"),
     "measured field types unchecked": (
-        SPEC,
+        RUBRIC,
         "                errors.append(f\"measured {m.get('id')}: {key} must be a string\")",
         "                pass",
     ),
     "declared choice types unchecked": (
-        SPEC,
+        RUBRIC,
         '                errors.append(f"declared choice: {key} must be a string")',
         "                pass",
     ),
     "judges per persona unbounded (spec)": (
-        SPEC,
+        RUBRIC,
         "or not cfg.min_judges_per_persona <= jp <= MAX_JUDGES_PER_PERSONA",
         "or jp < cfg.min_judges_per_persona",
     ),
-    "empty framings accepted": (SPEC, "        or not framings\n", ""),
+    "empty framings accepted": (RUBRIC, "        or not framings\n", ""),
     "facts_file not relative to the spec": (
-        SPEC,
+        FROZEN,
         "            path = base / path  # relative to the spec file's folder",
         "            pass",
     ),
     "extension rule on many lines": (
-        SPEC,
+        FROZEN,
         "return len(stripped.splitlines()) == 1 and bool(re.search(ext, stripped, re.IGNORECASE))",
         "return bool(re.search(ext, stripped, re.IGNORECASE))",
     ),
     "extension rule case-sensitive": (
-        SPEC,
+        FROZEN,
         "return len(stripped.splitlines()) == 1 and bool(re.search(ext, stripped, re.IGNORECASE))",
         "return len(stripped.splitlines()) == 1 and bool(re.search(ext, stripped))",
     ),
     "home or relative prefix accepted": (
-        SPEC,
+        FROZEN,
         "if stripped.startswith(HOME_OR_RELATIVE):",
         "if False:",
     ),
     "leading-slash facts accepted": (
-        SPEC,
+        FROZEN,
         'if stripped.startswith("/") and "/" in stripped[1:]:',
         "if False:",
     ),
     "leading slash alone taken as a path": (
-        SPEC,
+        FROZEN,
         'if stripped.startswith("/") and "/" in stripped[1:]:',
         'if stripped.startswith("/"):',
     ),
     "slash path facts accepted": (
-        SPEC,
+        FROZEN,
         'if len(stripped.split()) == 1 and "/" in stripped:',
         "if False:",
     ),
@@ -352,8 +358,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if normalise(cand) == normalise(ctrl):",
         "if False:",
     ),
-    "init twice": (SPEC, "    if is_run(run):\n", "    if False:\n"),
-    "measure twice": (REC, 'if any(r["id"] == mid for r in rows):', "if False:"),
+    "init twice": (FROZEN, "    if is_run(run):\n", "    if False:\n"),
+    "measure twice": (MEASURE, 'if any(r["id"] == mid for r in rows):', "if False:"),
     "baseline dropped": (BRIEF, 'roles.append(("baseline", read_text(first)))', "pass"),
     # Redundant guards: kept as defence in depth, expected to survive (see EXPECTED_SURVIVORS).
     "max_rounds exceeded": (BRIEF, 'if rnd > spec["max_rounds"]:', "if False:"),
@@ -361,8 +367,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # The rubric library and learning.
     "auto-promotion": (
         LEARN,
-        "paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]",
-        "paths = [library.promote(lib, library.add_candidate(lib, p).stem) for p in "
+        "paths = [candidates.add_candidate(lib, p) for p in proposals_after_seal(run)]",
+        "paths = [candidates.promote(lib, candidates.add_candidate(lib, p).stem) for p in "
         "proposals_after_seal(run)]",
     ),
     "spread threshold off by one": (
@@ -421,211 +427,211 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '"verified": did not in cand.get("unverified", []),',
         '"verified": True,',
     ),
-    "dedup off": (LIB, "if existing is not None:", "if False:"),
+    "dedup off": (CANDIDATES, "if existing is not None:", "if False:"),
     "dedup ignores the template version": (
-        LIB,
+        CANDIDATES,
         "return f\"{template['id']}@v{template.get('version')}{modified}\"",
         "return f\"{template['id']}{modified}\"",
     ),
     "dedup case-sensitive": (
-        LIB,
+        CANDIDATES,
         'return f"{kind}|{_template_tag(template, rubric_sha)}|{dimension.casefold()}"',
         'return f"{kind}|{_template_tag(template, rubric_sha)}|{dimension}"',
     ),
     "evidence added twice": (
-        LIB,
+        CANDIDATES,
         'if not any(_same(e, x) for x in existing["evidence"])',
         "if True",
     ),
     "rejected key reopened": (
-        LIB,
+        CANDIDATES,
         'if any(c.get("key") == key and c.get("status") in ("rejected", "promoted") for c in history):',
         "if False:",
     ),
-    "rejection memory lost": (LIB, "    if earlier:\n", "    if False:\n"),
+    "rejection memory lost": (CANDIDATES, "    if earlier:\n", "    if False:\n"),
     "closed candidate reopened": (
-        LIB,
+        CANDIDATES,
         'while (inbox_dir(lib) / f"{cid}.json").exists() or '
         '(history_dir(lib) / f"{cid}.json").exists():',
         'while (inbox_dir(lib) / f"{cid}.json").exists():',
     ),
     "candidate id unchecked": (
-        LIB,
+        CANDIDATES,
         "    if not CANDIDATE_ID.match(cid):\n        raise",
         "    if False:\n        raise",
     ),
     "file id trusted": (
-        LIB,
+        CANDIDATES,
         'c["id"] = path.stem  # the file name is the id',
         "pass  # the file name is the id",
     ),
     "bad inbox file fails the listing": (
-        LIB,
+        CANDIDATES,
         '        except (OSError, ValueError) as exc:\n            warnings.append(f"skipped {path}: {exc}")',
         '        except ZeroDivisionError as exc:\n            warnings.append(f"skipped {path}: {exc}")',
     ),
     "bad user template fails the listing": (
-        LIB,
+        TEMPLATES,
         "            except (OSError, ValueError, EvalError) as exc:",
         "            except ZeroDivisionError as exc:",
     ),
     "promotion ignores TODO markers": (
-        LIB,
+        CANDIDATES,
         'if todo_paths(_used_fields(change), "proposed_change"):',
         "if False:",
     ),
     "unused TODO fields block a removal": (
-        LIB,
+        CANDIDATES,
         'if todo_paths(_used_fields(change), "proposed_change"):',
         'if todo_paths(change, "proposed_change"):',
     ),
     "closed candidate promoted": (
-        LIB,
+        CANDIDATES,
         'if not isinstance(c, dict) or c.get("status") != "open":',
         "if False:",
     ),
     "version not bumped": (
-        LIB,
+        CANDIDATES,
         'updated["version"] = max(versions) + 1',
         'updated["version"] = current["version"] + 1',
     ),
     "provenance replaced": (
-        LIB,
+        CANDIDATES,
         '    updated["provenance"] = [\n        *current["provenance"],',
         '    updated["provenance"] = [',
     ),
     "into ignored": (
-        LIB,
+        CANDIDATES,
         'tid = into or (c.get("template") or {}).get("id")',
         'tid = (c.get("template") or {}).get("id") or into',
     ),
     "promote writes beside the served file": (
-        LIB,
+        CANDIDATES,
         'target = served["path"] or lib / f"{tid}.json"',
         'target = lib / f"{tid}.json"',
     ),
     "invalid user file overwritten": (
-        LIB,
+        CANDIDATES,
         "        if w.startswith(f\"skipped {lib / (tid + '.json')}:\"):",
         "        if False:",
     ),
     "promotion not staged": (
-        LIB,
+        CANDIDATES,
         '        dump_json(staged_t, plan["updated"])\n        dump_json(staged_h, c)\n        os.replace(staged_t, target)',
         '        dump_json(target, plan["updated"])\n        dump_json(staged_h, c)',
     ),
-    "reject without a reason": (LIB, "if not reason.strip():", "if False:"),
+    "reject without a reason": (CANDIDATES, "if not reason.strip():", "if False:"),
     "kind not normalised": (
-        LIB,
+        TEMPLATES,
         'return re.sub(r"[\\s_]+", "-", kind.strip().casefold())',
         "return kind",
     ),
     "aliases ignored": (
-        LIB,
+        TEMPLATES,
         'names = {normalise_kind(k) for k in [*t["kinds"], *t.get("aliases", [])]}',
         'names = {normalise_kind(k) for k in t["kinds"]}',
     ),
     "keywords match inside words": (
-        LIB,
+        TEMPLATES,
         'if re.search(r"\\b" + re.escape(k.casefold()) + r"\\b", low)',
         "if k.casefold() in low",
     ),
     "newer built-in not flagged": (
-        LIB,
+        TEMPLATES,
         'if base is not None and builtin[tid]["version"] > base:',
         "if False:",
     ),
     "skeleton thresholds kept": (
-        LIB,
+        TEMPLATES,
         '                row[bound] = _todo(f"your {bound} (suggested {row[bound]})")',
         "                pass",
     ),
     "skeleton facts hint dropped": (
-        LIB,
+        TEMPLATES,
         'hint = t.get("facts_hint") or "the facts the judges may trust"',
         'hint = "the facts the judges may trust"',
     ),
     "modified flag never set": (
-        SPEC,
+        STEPS,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref["modified"] = False',
     ),
     "template not frozen by the hash": (
-        SPEC,
+        RUBRIC,
         "if k not in OPTIONAL_HASH_KEYS or k in spec",
         "if k not in OPTIONAL_HASH_KEYS",
     ),
     "promoted key reopened": (
-        LIB,
+        CANDIDATES,
         'c.get("status") in ("rejected", "promoted")',
         'c.get("status") == "rejected"',
     ),
     "modified ignored in dedup": (
-        LIB,
+        CANDIDATES,
         'modified = "+modified" if template.get("modified") else ""',
         'modified = ""',
     ),
-    "runs not kept": (LIB, "            runs.append(this_run)", "            pass"),
+    "runs not kept": (CANDIDATES, "            runs.append(this_run)", "            pass"),
     "another template overwritten": (
-        LIB,
+        CANDIDATES,
         'if served["path"] is None and target.exists():',
         "if False:",
     ),
     "no rollback of the first move": (
-        LIB,
+        CANDIDATES,
         "            if before is None:\n                target.unlink()\n            else:\n                target.write_bytes(before)\n",
         "            pass\n",
     ),
     "staged files left behind": (
-        LIB,
+        CANDIDATES,
         "            leftover.unlink(missing_ok=True)",
         "            pass",
     ),
     "end of input crashes the prompt": (
-        f"{PKG}/cli.py",
+        LEARNING_CLI,
         '    except EOFError:\n        answer = ""',
         '    except ZeroDivisionError:\n        answer = ""',
     ),
-    "promote without a terminal": (f"{PKG}/cli.py", "if not sys.stdin.isatty():", "if False:"),
-    "a wrong id typed is accepted": (f"{PKG}/cli.py", "if answer != a.candidate:", "if False:"),
+    "promote without a terminal": (LEARNING_CLI, "if not sys.stdin.isatty():", "if False:"),
+    "a wrong id typed is accepted": (LEARNING_CLI, "if answer != a.candidate:", "if False:"),
     "feedback library unresolved": (
-        f"{PKG}/cli.py",
+        LEARNING_CLI,
         "lib = library_dir(a.library) if a.library else None",
         "lib = a.library",
     ),
     "library inside the package": (
-        CFG,
+        TEMPLATES,
         "if real == package or package in real.parents:",
         "if False:",
     ),
     "library inside a git tree": (
-        CFG,
+        LOCATION,
         "    if top is not None:\n        raise ConfigError(",
         "    if False:\n        raise ConfigError(",
     ),
     "relative library path accepted": (
-        CFG,
+        TEMPLATES,
         "        if not path.is_absolute():\n            raise ConfigError(",
         "        if False:\n            raise ConfigError(",
     ),
     "unknown template accepted": (
-        SPEC,
+        STEPS,
         '    if served is None:\n        raise EvalError(\n            f"spec.template names no known template',
         '    if False:\n        raise EvalError(\n            f"spec.template names no known template',
     ),
-    "unknown template version accepted": (SPEC, "    if match is None:\n", "    if False:\n"),
+    "unknown template version accepted": (STEPS, "    if match is None:\n", "    if False:\n"),
     "template hash trusted": (
-        SPEC,
+        STEPS,
         'ref["sha256"] = dimensions_sha(match["dimensions"])',
         'ref.setdefault("sha256", dimensions_sha(match["dimensions"]))',
     ),
     "modified flag trusted": (
-        SPEC,
+        STEPS,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref.setdefault("modified", dimensions_sha(spec["dimensions"]) != ref["sha256"])',
     ),
     "library compared lexically": (
-        CFG,
+        TEMPLATES,
         "real = path.expanduser().resolve(strict=False)",
         "real = path.expanduser().absolute()",
     ),
@@ -635,13 +641,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "ctrl is None:",
     ),
     "run created before the library is resolved": (
-        SPEC,
+        STEPS,
         '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
         "    run.mkdir(parents=True, exist_ok=True)\n"
         '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
     ),
     "closed id refused only after the prompt": (
-        LIB,
+        CANDIDATES,
         '    _history_file(lib, c["id"])  # a closed id',
         "    pass  # a closed id",
     ),
@@ -652,70 +658,74 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "promoted feedback called rejected": (
         LEARN,
-        'if library.closed_status(target, proposal) == "promoted":',
+        'if candidates.closed_status(target, proposal) == "promoted":',
         "if False:",
     ),
     "history file overwritten": (
-        LIB,
+        CANDIDATES,
         '    if dest.exists():\n        raise EvalError(f"{dest} already exists',
         '    if False:\n        raise EvalError(f"{dest} already exists',
     ),
     "init ignores --library": (
-        SPEC,
-        "_check_template_ref(spec, cfg, library_dir(library))",
-        "_check_template_ref(spec, cfg, library_dir(None))",
+        STEPS,
+        "_check_template_ref(spec, cfg, templates.library_dir(library))",
+        "_check_template_ref(spec, cfg, templates.library_dir(None))",
     ),
-    "TODO markers accepted by init": (SPEC, "    if todo:\n", "    if False:\n"),
+    "TODO markers accepted by init": (RUBRIC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
     "min valid judges floor off": (
-        CFG,
+        SETTINGS,
         'if limits["min_valid_judges"] < MIN_VALID_JUDGES_FLOOR:',
         "if False:",
     ),
     "replacement ceiling off": (
-        CFG,
+        SETTINGS,
         'if not 0 <= limits["max_replacements"] <= MAX_REPLACEMENTS_CEILING:',
         "if False:",
     ),
-    "bad share ceiling off": (CFG, "elif not 0 <= share <= MAX_BAD_SHARE_CEILING:", "elif False:"),
-    "severity ceilings off": (CFG, "if caps[name] > ceiling:", "if False:"),
-    "severity order off": (CFG, "if values != sorted(values):", "if False:"),
-    "run bounds off": (CFG, "if not low <= value <= high:", "if False:"),
-    "quote floor off": (CFG, 'if quotes["min_chars"] < MIN_QUOTE_CHARS_FLOOR:', "if False:"),
+    "bad share ceiling off": (
+        SETTINGS,
+        "elif not 0 <= share <= MAX_BAD_SHARE_CEILING:",
+        "elif False:",
+    ),
+    "severity ceilings off": (SETTINGS, "if caps[name] > ceiling:", "if False:"),
+    "severity order off": (SETTINGS, "if values != sorted(values):", "if False:"),
+    "run bounds off": (SETTINGS, "if not low <= value <= high:", "if False:"),
+    "quote floor off": (SETTINGS, 'if quotes["min_chars"] < MIN_QUOTE_CHARS_FLOOR:', "if False:"),
     # The run's [text] settings reaching a check other than quote matching. The replacement
     # imports the configured normalisation itself: the module no longer does.
     "a removed setting read as an unknown key": (
-        CFG,
+        SETTINGS,
         "        if not path and key in REMOVED_SECTIONS:\n",
         "        if False:\n",
     ),
     "learning called by aggregate": (
-        AGG,
+        STEPS,
         "        write_feedback(run, entry)\n    return entry",
         "        write_feedback(run, entry)\n"
         "    else:\n"
-        '        __import__("sealed_panel.learn", fromlist=["x"]).learn_after_seal(\n'
-        '            run, __import__("sealed_panel.config", fromlist=["x"]).library_dir()\n'
+        '        __import__("sealed_panel.learning.learn", fromlist=["x"]).learn_after_seal(\n'
+        '            run, __import__("sealed_panel.templates", fromlist=["x"]).library_dir()\n'
         "        )\n"
         "    return entry",
     ),
     "a run created before 0.4.0 accepted": (
-        SPEC,
+        FROZEN,
         "    if not marker.exists() and not marker.is_symlink():\n",
         "    if False:\n",
     ),
     "a damaged run marker accepted": (
-        SPEC,
+        FROZEN,
         "    if isinstance(version, bool) or not isinstance(version, int):\n",
         "    if False:\n",
     ),
     "a run of a newer format accepted": (
-        SPEC,
+        FROZEN,
         "    if version > SCHEMA_VERSION:\n",
         "    if False:\n",
     ),
     "a run of an older format accepted": (
-        SPEC,
+        FROZEN,
         "    if version < SCHEMA_VERSION:\n",
         "    if False:\n",
     ),
@@ -744,7 +754,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    pasted = brief in transcript_prompt(transcript, cfg)\n",
     ),
     "one quote for all compared raw": (
-        REC,
+        REPLY,
         "quotes.append(normalise(quote))",
         "quotes.append(quote)",
     ),
@@ -754,12 +764,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "",
     ),
     "a candidate written into a git tree": (
-        LIB,
+        CANDIDATES,
         '    writable_library(lib)\n    kind = proposal["kind"]',
         '    kind = proposal["kind"]',
     ),
     "a frozen configuration missing a key accepted": (
-        CFG,
+        SETTINGS,
         "    errors = [f\"missing configuration key {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
         "    errors: list[str] = []\n",
     ),
@@ -774,16 +784,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '    return (folder / "rubric.lock").exists()',
     ),
     "judges per persona unbounded (config)": (
-        CFG,
+        SETTINGS,
         'if run["judges_per_persona"] > MAX_JUDGES_PER_PERSONA:',
         "if False:",
     ),
     "long values cut in the report": (
-        CFG,
+        REPORT,
         "    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:\n        return text",
         "    if True:\n        return text[:57]",
     ),
-    "overrides hidden": (CFG, "if current.get(key) != defaults.get(key):", "if False:"),
+    "overrides hidden": (REPORT, "if current.get(key) != defaults.get(key):", "if False:"),
     # The judge runner.
     "runner without a command": (RUN, "if not command:", "if False:"),
     "runner after aggregation": (RUN, 'if (rdir / "result.json").is_file():', "if False:"),
@@ -835,25 +845,25 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    if False:",
     ),
     "judge command shown as a hash": (
-        CFG,
+        REPORT,
         "if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:",
         "if len(text) <= SHOW_LIMIT:",
     ),
     "runner proof unchecked": (REC, "if (runner is None) != (source != RUNNER):", "if False:"),
     "runner proof dropped": (REC, '        result["runner"] = runner\n', "        pass\n"),
-    "judge timeout unbounded": (CFG, 'if not low <= judge["timeout_s"] <= high:', "if False:"),
+    "judge timeout unbounded": (SETTINGS, 'if not low <= judge["timeout_s"] <= high:', "if False:"),
     "judge timeout bound exclusive": (
-        CFG,
+        SETTINGS,
         'if not low <= judge["timeout_s"] <= high:',
         'if not low < judge["timeout_s"] < high:',
     ),
     "judge command unchecked": (
-        CFG,
+        SETTINGS,
         "if not all(isinstance(arg, str) and arg for arg in command):",
         "if False:",
     ),
     "judge environment names unchecked": (
-        CFG,
+        SETTINGS,
         "if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):",
         "if False:",
     ),
@@ -886,7 +896,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "stale marker reused without a void": (
         RUN,
-        '    _record_reply(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
+        '    record_attempt(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)\n',
         "    pass\n",
     ),
     "running seat aggregated": (
@@ -902,7 +912,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "interrupted judge left unrecorded": (
         RUN,
-        '        _record_reply(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)\n',
+        '        record_attempt(run, rnd, judge, agent_id, "", sealed, RUNNER, void=True, runner=proof)\n',
         "        pass\n",
     ),
     "refused reply leaves its process unrecorded": (
@@ -924,7 +934,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "base = (root or Path.cwd()).expanduser().resolve()",
     ),
     "init over a foreign directory": (
-        SPEC,
+        FROZEN,
         "if run.is_symlink() or (run.is_dir() and any(run.iterdir())):",
         "if False:",
     ),
@@ -933,9 +943,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if p.is_symlink():\n",
         "        if False:\n",
     ),
-    "library inside a run accepted": (CFG, '    outside_runs(real, "the rubric library")\n', ""),
+    "library inside a run accepted": (
+        TEMPLATES,
+        '    outside_runs(real, "the rubric library")\n',
+        "",
+    ),
     "root listed with the grading settings": (
-        CFG,
+        SETTINGS,
         'NOT_GRADING = frozenset({"mcp.root"})',
         "NOT_GRADING = frozenset()",
     ),
@@ -978,17 +992,17 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "rubrics_use writes outside the root": (
         MCP,
-        "rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))",
-        "rubrics_lib.write_skeleton(lib, id, Path(out), opt(persona_file))",
+        "templates.write_skeleton(lib, id, path(out), opt(persona_file))",
+        "templates.write_skeleton(lib, id, Path(out), opt(persona_file))",
     ),
-    "rubrics_use writes inside a run": (LIB, '    outside_runs(out, "the spec")\n', ""),
+    "rubrics_use writes inside a run": (TEMPLATES, '    outside_runs(out, "the spec")\n', ""),
     "a spec skeleton not named .json": (
-        LIB,
+        TEMPLATES,
         '    if out.suffix != ".json":\n',
         "    if False:\n",
     ),
     "a spec skeleton creates its folder": (
-        LIB,
+        TEMPLATES,
         "    if not out.parent.is_dir():\n",
         "    if False:\n",
     ),
@@ -998,7 +1012,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "                return Path(p).resolve()\n",
     ),
     "facts_file outside the root read": (
-        SPEC,
+        FROZEN,
         "        if root is not None:\n            path = contained(",
         "        if False:\n            path = contained(",
     ),
@@ -1040,16 +1054,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    path.parent.mkdir(exist_ok=True)\n    path.write_text(feedback_for_author(entry))\n",
     ),
     "a linked template served": (
-        LIB,
-        '            if path.is_symlink():\n                warnings.append(f"skipped {path}: a symbolic link")\n                continue\n            try:\n                t = _checked(',
-        "            try:\n                t = _checked(",
+        TEMPLATES,
+        '            if path.is_symlink():\n                warnings.append(f"skipped {path}: a symbolic link")\n                continue\n            try:\n                t = checked_template(',
+        "            try:\n                t = checked_template(",
     ),
     "a linked candidate read": (
-        LIB,
+        CANDIDATES,
         '        if path.is_symlink():\n            warnings.append(f"skipped {path}: a symbolic link")\n            continue\n        try:\n            c = json.loads(',
         "        try:\n            c = json.loads(",
     ),
-    "a linked candidate opened": (LIB, "    refuse_links(path)\n", ""),
+    "a linked candidate opened": (CANDIDATES, "    refuse_links(path)\n", ""),
     "stderr mixed into the reply": (
         RUN,
         "args=(proc.stderr.fileno(), caps[1], err.write, over_err)",
@@ -1086,7 +1100,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n",
     ),
     "a server tool call not seen": (
-        REC,
+        TRANSCRIPT,
         """str(b.get(t["block_type_key"])).endswith(""",
         """str(b.get(t["block_type_key"])).__eq__(""",
     ),
@@ -1101,30 +1115,30 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        except ZeroDivisionError as exc:\n            if on_seat:",
     ),
     "the handback tool counted as a tool use": (
-        REC,
+        TRANSCRIPT,
         "if (kind, name) != exempt})",
         "if True})",
     ),
     "the handback exempt by name only": (
-        REC,
+        TRANSCRIPT,
         "if (kind, name) != exempt})",
         "if name != exempt[1]})",
     ),
-    "a linked inbox followed": (LIB, '    refuse_links(lib, lib / "inbox")\n', ""),
-    "a linked history followed": (LIB, '    refuse_links(lib, lib / "history")\n', ""),
+    "a linked inbox followed": (CANDIDATES, '    refuse_links(lib, lib / "inbox")\n', ""),
+    "a linked history followed": (CANDIDATES, '    refuse_links(lib, lib / "history")\n', ""),
     "a linked library folder written": (
-        LIB,
+        CANDIDATES,
         '    refuse_links(lib, lib / "inbox")\n',
         '    refuse_links(lib / "inbox")\n',
     ),
     # Round 3: shadowed settings, planted markers, moved libraries.
     "unknown keys in a frozen configuration accepted": (
-        CFG,
+        SETTINGS,
         "        if key not in shape:\n",
         "        if False:\n",
     ),
     "a frozen configuration not checked for its shape": (
-        SPEC,
+        FROZEN,
         "    if shape:\n",
         "    if False:\n",
     ),
@@ -1200,12 +1214,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # A transcript cut off on its last line.
     "a cut-off last line read as the earlier reply": (
-        REC,
+        TRANSCRIPT,
         "if lines and lines[-1][1] is None:",
         "if False:",
     ),
     "a line separator inside a string splits the line": (
-        REC,
+        TRANSCRIPT,
         'read_text(transcript).split("\\n")',
         "read_text(transcript).splitlines()",
     ),
@@ -1226,12 +1240,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if not flags:",
     ),
     "the acknowledgement left out of the rubric hash": (
-        SPEC,
+        RUBRIC,
         '    "template",\n    INJECTION_ACK,\n)',
         '    "template",\n)',
     ),
     "an empty acknowledgement accepted": (
-        SPEC,
+        RUBRIC,
         "if INJECTION_ACK in spec and not spec[INJECTION_ACK].strip():",
         "if False:",
     ),
@@ -1242,7 +1256,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # The judge model declared next to the grade.
     "an unbounded judge model id accepted": (
-        CFG,
+        SETTINGS,
         "if not model_id.isprintable() or len(model_id) > MODEL_ID_MAX_CHARS:",
         "if False:",
     ),
@@ -1275,7 +1289,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     # Only a person acknowledges a flag, and the grade line says it was.
     "the MCP init freezes an acknowledgement": (
-        SPEC,
+        FROZEN,
         "if spec.get(INJECTION_ACK) and not acknowledge:",
         "if False:",
     ),
@@ -1309,8 +1323,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # 0.4.0: the seat lock (flock) and the one containment guard.
     "host record without the seat lock": (
         REC,
-        "    with seat_lock(rdir, judge):\n        return _record_reply(",
-        "    with contextlib.nullcontext():\n        return _record_reply(",
+        "    with seat_lock(rdir, judge):\n        return record_attempt(",
+        "    with contextlib.nullcontext():\n        return record_attempt(",
     ),
     "runner judge without the seat lock": (
         RUN,
@@ -1359,7 +1373,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if False:\n",
     ),
     "init does not check for a run above": (
-        SPEC,
+        FROZEN,
         '    outside_runs(run, "the run")\n',
         "",
     ),
@@ -1370,8 +1384,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "run-wide checks without the run lock": (
         REC,
-        "@under_run_lock\ndef _record_reply(",
-        "def _record_reply(",
+        "@under_run_lock\ndef record_attempt(",
+        "def record_attempt(",
     ),
     "a round briefed twice at once": (
         BRIEF,
@@ -1394,7 +1408,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n        return {}\n",
     ),
     "concurrent readings lose one": (
-        REC,
+        MEASURE,
         "@under_run_lock\ndef record_measurement(",
         "def record_measurement(",
     ),
@@ -1422,6 +1436,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         RUN,
         '    if any(r["ok"] for r in prior):\n        raise SeatTaken(',
         "    if False:\n        raise SeatTaken(",
+    ),
+    "a .git created by a caller": (
+        f"{PKG}/store.py",
+        "    return name.casefold() in RESERVED_NAMES or name.casefold() == GIT_MARKER\n",
+        "    return name.casefold() in RESERVED_NAMES\n",
     ),
 }
 

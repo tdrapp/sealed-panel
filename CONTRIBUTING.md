@@ -54,7 +54,7 @@ pull request, so a red `pip-audit` is fixed in its own pull request.
 | `build` | the sdist and the wheel build; the wheel installs in a fresh environment with the lock's versions, `sealed-panel --version` names the package version, and the MCP server answers `initialize` (`tools/smoke_mcp.py`) |
 | `actionlint` | the workflows, with shellcheck on each step's script |
 | `gitleaks` | secrets in the whole history, with a pinned release checked by its sha256; `.gitleaks.toml` allowlists only the sha256 digests of the test fixtures and the lock |
-| `imports` | the import contract in `pyproject.toml`: the command line and the MCP server above the core, `store` and `errors` at the bottom; a new module must be placed in a layer |
+| `imports` | the import contract in `pyproject.toml`: each module imports only the layers below it, siblings joined by `\|` not each other, the interfaces on top, `learning` above the core, `errors` at the bottom; a new module must be placed in a layer |
 | `complexity` | xenon caps the ranks at their 0.3.1 level (worst block F, worst module D, average B), and `tools/complexity_check.py` holds every function above rank B at its complexity in `tools/complexity_baseline.json`; a new function stays at rank B (complexity 10 or less); on a pull request, `--against` the base branch fails when an entry present on both sides rose, or when the number of entries or their sum rose |
 | `docstrings` | interrogate: at least 80% of the public functions, classes and modules of the package have a docstring |
 | `pip-audit` | known vulnerabilities in every locked package, by hash |
@@ -195,7 +195,7 @@ A known-good equal to the candidate made the calibration check pass by construct
   section (`tests/test_docstrings.py`), and an `Args:` section anywhere names every argument
   (ruff `D417`); give a new public function one. A setting goes in `defaults.toml` and
   `docs/configuration.md`; a setting that guards the protocol also gets a hard bound in
-  `config.py`. The brief texts stay in `brief.py`: they are the instrument.
+  `settings.py`. The brief texts stay in `brief.py`: they are the instrument.
 
 ## Vendor names
 

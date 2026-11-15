@@ -223,22 +223,22 @@ as named constants:
   the label pool, and the default 2 and 4 anchors (`brief.py`): they are the instrument, and
   every run with the same version of sealed-panel asks the judges the same thing;
 - the size of the brief id (6 random bytes) and of the shuffle seed (64 bits) (`brief.py`);
-- the cap of 3 void attempts per judge slot and round (`record.py`);
+- the cap of 3 void attempts per judge slot and round (`seat.py`);
 - the judge runner's base environment (`PATH`, `HOME`, `LANG`), the size of its agent ids (6
   random bytes), the grace period after it stops a process (5 seconds), and the size of a read
   (64 KiB) (`runner.py`);
 - every file sealed-panel creates in a run (records, briefs, lock files, the judge's stderr log)
   written owner-only (0600), and every directory created 0700, whatever the umask or the mode of
   the file it replaces (`store.py`, `runner.py`);
-- the length above which the report shows a value by hash (80 characters) (`config.py`);
+- the length above which the report shows a value by hash (80 characters) (`report.py`);
 - the score scale, integers 1 to 5, with 5 as the convergence target, and the required anchors
-  1, 3 and 5 (`decide.py`, `spec.py`);
+  1, 3 and 5 (`decide.py`, `rubric.py`);
 - the stop rule's window of two rounds and the suspect-jump threshold of 2 (`decide.py`);
 - the decision names, the run directory layout and its file names;
 - widths and scan sizes: the text hash (16 hex characters), file-name parts of recorded
   replies, the rubric hash in the report (12), the characters searched for an agent id, and
   the largest file read when looking for unrecorded agents;
-- the file extensions that make a `facts` text look like a path (`spec.py`);
+- the file extensions that make a `facts` text look like a path (`run.py`);
 - the learning thresholds (two loop judges for a new dimension, two judges of one round to
-  sharpen an anchor) and the suggest weights (`learn.py`, `library.py`);
+  sharpen an anchor) and the suggest weights (`learning/learn.py`, `templates.py`);
 - rounding of stored statistics, and the error, findings and report wording.

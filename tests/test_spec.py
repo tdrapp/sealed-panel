@@ -8,7 +8,8 @@ import pytest
 
 from conftest import Harness, make_spec
 from sealed_panel.errors import EvalError
-from sealed_panel.spec import load_frozen, validate_spec
+from sealed_panel.rubric import validate_spec
+from sealed_panel.run import load_frozen
 
 
 class TestSpec:

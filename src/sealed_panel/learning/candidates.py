@@ -1,10 +1,8 @@
-"""The rubric library: built-in templates, the user library, suggestions and promotions.
+"""Rubric candidates in the user library: the inbox, its history, promotion and rejection.
 
-Built-in templates are package data in `sealed_panel/rubrics/`. The user library is a
-user-level directory (see `config.library_dir`) that holds user templates (`*.json`, which
-override a built-in of the same id), `inbox/` (learned candidates) and `history/` (promoted or
-rejected candidates). Candidates quote real texts, so the user library is private by nature
-and never part of the package.
+The user library holds `inbox/` (learned candidates) and `history/` (promoted or rejected
+candidates) next to the user templates. Candidates quote real texts, so the user library is
+private by nature and never part of the package.
 
 Nothing here changes a template on its own: only `promote`, run by a person through the CLI
 after seeing the change side by side, writes a user template.
@@ -18,320 +16,22 @@ import os
 import re
 import textwrap
 from datetime import UTC, datetime
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from .config import writable_library
-from .errors import EvalError
-from .spec import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
-from .store import dump_json, load_json, outside_runs, refuse_links
+from ..errors import EvalError
+from ..rubric import TODO_MARKER, todo_paths
+from ..store import dump_json, refuse_links
+from ..templates import builtin_templates, checked_template, get_template, user_templates
+from .location import writable_library
 
-TEMPLATE_KEYS = frozenset(
-    {
-        "id",
-        "version",
-        "title",
-        "kinds",
-        "keywords",
-        "when_to_use",
-        "personas",
-        "dimensions",
-        "measured",
-        "provenance",
-    }
-)
-OPTIONAL_TEMPLATE_KEYS = frozenset({"aliases", "facts_hint", "based_on"})
-DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors"})
-PROVENANCE_KEYS = frozenset({"date", "source", "change"})
-MIN_DIMENSIONS, MAX_DIMENSIONS = 3, 6
 CANDIDATE_KINDS = ("judges_disagree", "control_too_close", "user_disagreement")
 ACTIONS = ("add_dimension", "rewrite_anchors", "remove_dimension")
-ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
 # A candidate id, checked before it becomes part of a path. The id inside a file is never used.
 CANDIDATE_ID = re.compile(r"^c-[0-9a-f]{12}(?:-[0-9]{1,4})?$")
 COLUMN = 44
-
-Served = dict[str, Any]  # {"template": ..., "source": ..., "path": Path | None}
-
-
-# -- templates ---------------------------------------------------------------------------
-
-
-def _strs(value: Any) -> bool:
-    return isinstance(value, list) and all(isinstance(x, str) and x.strip() for x in value)
-
-
-def template_errors(t: Any) -> list[str]:
-    """Every way a template breaks the format. An empty list means it is valid."""
-    if not isinstance(t, dict):
-        return ["a template must be a JSON object"]
-    errors = [f"unknown key {k!r}" for k in sorted(set(t) - TEMPLATE_KEYS - OPTIONAL_TEMPLATE_KEYS)]
-    errors += [f"missing key {k!r}" for k in sorted(TEMPLATE_KEYS - set(t))]
-    if errors:
-        return errors
-    if not isinstance(t["id"], str) or not ID_PATTERN.match(t["id"]):
-        errors.append("id must be lowercase letters, digits and dashes")
-    if isinstance(t["version"], bool) or not isinstance(t["version"], int) or t["version"] < 1:
-        errors.append("version must be an integer >= 1")
-    for key in ("title", "when_to_use"):
-        if not isinstance(t[key], str) or not t[key].strip():
-            errors.append(f"{key} must be a non-empty string")
-    if not _strs(t["kinds"]) or not t["kinds"]:
-        errors.append("kinds must be a non-empty list of strings")
-    if not _strs(t["keywords"]):
-        errors.append("keywords must be a list of strings")
-    if "aliases" in t and not _strs(t["aliases"]):
-        errors.append("aliases must be a list of strings")
-    if "facts_hint" in t and (not isinstance(t["facts_hint"], str) or not t["facts_hint"].strip()):
-        errors.append("facts_hint must be a non-empty string")
-    based = t.get("based_on")
-    if based is not None and (
-        not isinstance(based, dict)
-        or set(based) != {"version"}
-        or isinstance(based["version"], bool)
-        or not isinstance(based["version"], int)
-    ):
-        errors.append("based_on must be an object with an integer version")
-    personas = t["personas"]
-    if not isinstance(personas, list) or not personas:
-        errors.append("personas must be a non-empty list")
-    else:
-        for p in personas:
-            if not isinstance(p, dict) or set(p) != {"id", "description"}:
-                errors.append("each persona needs exactly an id and a description")
-    dims = t["dimensions"]
-    if not isinstance(dims, list) or not MIN_DIMENSIONS <= len(dims) <= MAX_DIMENSIONS:
-        errors.append(f"dimensions must be a list of {MIN_DIMENSIONS} to {MAX_DIMENSIONS}")
-    else:
-        ids = []
-        for d in dims:
-            if not isinstance(d, dict) or set(d) != DIMENSION_KEYS:
-                errors.append("each dimension needs exactly id, name, question and anchors")
-                continue
-            ids.append(d["id"])
-            anchors = d["anchors"]
-            if not isinstance(anchors, dict) or not all(
-                isinstance(anchors.get(lvl), str) and anchors[lvl].strip()
-                for lvl in REQUIRED_ANCHORS
-            ):
-                errors.append(f"dimension {d['id']}: anchors 1, 3 and 5 must be non-empty")
-        if len(set(ids)) != len(ids):
-            errors.append("dimension ids must be unique")
-    if not isinstance(t["measured"], list):
-        errors.append("measured must be a list")
-    prov = t["provenance"]
-    if not isinstance(prov, list) or not prov:
-        errors.append("provenance must be a non-empty list")
-    else:
-        for entry in prov:
-            if not isinstance(entry, dict) or set(entry) != PROVENANCE_KEYS:
-                errors.append("each provenance entry needs exactly date, source and change")
-    if not errors and todo_paths(t, "template"):
-        errors.append(f"a template must not hold {TODO_MARKER} markers")
-    return errors
-
-
-def _checked(t: Any, where: str) -> dict[str, Any]:
-    errors = template_errors(t)
-    if errors:
-        raise EvalError(f"{where} is not a valid template:\n  " + "\n  ".join(errors))
-    out: dict[str, Any] = t
-    return out
-
-
-def builtin_templates() -> dict[str, dict[str, Any]]:
-    """The packaged rubric templates, by id."""
-    folder = resources.files("sealed_panel").joinpath("rubrics")
-    found = {}
-    for entry in sorted(folder.iterdir(), key=lambda e: e.name):
-        if entry.name.endswith(".json"):
-            t = _checked(json.loads(entry.read_text(encoding="utf-8")), f"built-in {entry.name}")
-            found[t["id"]] = t
-    return found
-
-
-def user_templates(lib: Path) -> tuple[dict[str, tuple[dict[str, Any], Path]], list[str]]:
-    """Valid user templates by id with their file, and a warning for each file skipped."""
-    found: dict[str, tuple[dict[str, Any], Path]] = {}
-    warnings = []
-    if lib.is_dir():
-        for path in sorted(lib.glob("*.json")):
-            if path.is_symlink():
-                warnings.append(f"skipped {path}: a symbolic link")
-                continue
-            try:
-                t = _checked(json.loads(path.read_text(encoding="utf-8")), str(path))
-            except (OSError, ValueError, EvalError) as exc:
-                warnings.append(f"skipped {path}: {str(exc).splitlines()[0]}")
-                continue
-            if t["id"] in found:
-                warnings.append(f"skipped {path}: id {t['id']!r} is already served by another file")
-                continue
-            found[t["id"]] = (t, path)
-    return found, warnings
-
-
-def all_templates(lib: Path) -> tuple[dict[str, Served], list[str]]:
-    """Every served template by id, with its source and file; a user template overrides a
-    built-in. Unreadable or invalid user files are skipped with a warning."""
-    builtin = builtin_templates()
-    out: dict[str, Served] = {
-        k: {"template": v, "source": "built-in", "path": None} for k, v in builtin.items()
-    }
-    users, warnings = user_templates(lib)
-    for tid, (t, path) in users.items():
-        source = "user"
-        if tid in builtin:
-            source = f"user (overrides built-in v{builtin[tid]['version']})"
-            base = (t.get("based_on") or {}).get("version")
-            if base is not None and builtin[tid]["version"] > base:
-                source += f"; built-in is newer than your base (v{base})"
-        out[tid] = {"template": t, "source": source, "path": path}
-    return dict(sorted(out.items())), warnings
-
-
-def get_template(lib: Path, tid: str) -> Served:
-    """One template the library serves, with its source; refused when unknown.
-
-    Args:
-        lib: The user rubric library.
-        tid: The template id.
-    """
-    found, _ = all_templates(lib)
-    if tid not in found:
-        raise EvalError(f"no template {tid!r}; `sealed-panel rubrics list` shows them")
-    return found[tid]
-
-
-# -- suggest -----------------------------------------------------------------------------
-
-
-def normalise_kind(kind: str) -> str:
-    """A kind of text in the form templates use: folded case, dashes for spaces.
-
-    Args:
-        kind: The kind as the user wrote it.
-    """
-    return re.sub(r"[\s_]+", "-", kind.strip().casefold())
-
-
-def _keyword_hits(t: dict[str, Any], text: str) -> list[str]:
-    low = text.casefold()
-    return sorted(
-        {k for k in t["keywords"] if re.search(r"\b" + re.escape(k.casefold()) + r"\b", low)}
-    )
-
-
-def suggest(lib: Path, kind: str, text: str = "", top: int = 3) -> list[dict[str, Any]]:
-    """The templates whose kinds or aliases match `kind` (case, spaces and underscores
-    ignored), ordered by keyword overlap with the text, then by id. Empty when none matches."""
-    if top < 1:
-        raise EvalError("--top must be at least 1")
-    wanted = normalise_kind(kind)
-    rows = []
-    for tid, served in all_templates(lib)[0].items():
-        t = served["template"]
-        names = {normalise_kind(k) for k in [*t["kinds"], *t.get("aliases", [])]}
-        if wanted not in names:
-            continue
-        hits = _keyword_hits(t, text) if text else []
-        rows.append(
-            {
-                "id": tid,
-                "version": t["version"],
-                "source": served["source"],
-                "when_to_use": t["when_to_use"],
-                "dimensions": [(d["id"], d["question"]) for d in t["dimensions"]],
-                "keywords": hits,
-            }
-        )
-    rows.sort(key=lambda r: (-len(r["keywords"]), r["id"]))
-    return rows[:top]
-
-
-# -- use ---------------------------------------------------------------------------------
-
-
-def _todo(text: str) -> str:
-    return f"{TODO_MARKER}: {text}"
-
-
-def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """A spec skeleton from a template. Title, purpose, facts and every suggested instrument
-    threshold are TODO markers, and so are the persona descriptions unless personas are given;
-    `init` refuses until they are filled."""
-    if personas is None:
-        personas = [
-            {"id": p["id"], "description": _todo(f"adapt this placeholder: {p['description']}")}
-            for p in t["personas"]
-        ]
-    measured = []
-    for m in t["measured"]:
-        row = dict(m)
-        for bound in ("max", "min"):
-            if bound in row:
-                row[bound] = _todo(f"your {bound} (suggested {row[bound]})")
-        measured.append(row)
-    dims = [
-        {"id": d["id"], "name": d["name"], "question": d["question"], "anchors": dict(d["anchors"])}
-        for d in t["dimensions"]
-    ]
-    hint = t.get("facts_hint") or "the facts the judges may trust"
-    return {
-        "title": _todo("a neutral title; the judges see it"),
-        "purpose": _todo("what a 5 makes happen"),
-        "template": {"id": t["id"], "version": t["version"], "sha256": dimensions_sha(dims)},
-        "personas": personas,
-        "dimensions": dims,
-        "facts": _todo(f"{hint}, or replace this key with facts_file"),
-        "measured": measured,
-    }
-
-
-def _skeleton_target(out: Path) -> None:
-    """The one owner of where a skeleton goes, for the command line and MCP alike: never a file
-    a run could be told by (`rubric.lock`), never a new folder, never inside a run, never over
-    a file."""
-    if out.suffix != ".json":
-        raise EvalError(f"{out}: a spec is a .json file; name one")
-    if not out.parent.is_dir():
-        raise EvalError(f"{out.parent} is not a folder: the spec goes into an existing one")
-    outside_runs(out, "the spec")
-    if out.exists():
-        raise EvalError(f"{out} already exists: choose another path or remove it first")
-
-
-def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = None) -> Path:
-    """Write a spec skeleton from a template; its TODO markers stop `init` until filled.
-
-    Args:
-        lib: The user rubric library.
-        tid: The template id.
-        out: Where to write the spec: a new `.json` file in an existing folder outside any run.
-        persona_file: A JSON list of personas to put in the skeleton, or None.
-    """
-    _skeleton_target(out)
-    t = get_template(lib, tid)["template"]
-    personas = None
-    if persona_file is not None:
-        loaded = load_json(persona_file)
-        if not isinstance(loaded, list) or not all(isinstance(p, dict) for p in loaded):
-            raise EvalError(f"{persona_file} must hold a list of personas (id and description)")
-        personas = loaded
-    skeleton = instantiate(t, personas)
-    problems = [
-        e
-        for e in validate_spec(skeleton)
-        if TODO_MARKER not in e and "must be a finite number" not in e
-    ]
-    if problems:
-        raise EvalError("the skeleton would not be a valid spec:\n  " + "\n  ".join(problems))
-    dump_json(out, skeleton)
-    return out
-
-
-# -- candidates --------------------------------------------------------------------------
 
 
 def inbox_dir(lib: Path) -> Path:
@@ -633,7 +333,7 @@ def plan_promotion(lib: Path, cid: str, into: str | None = None) -> dict[str, An
             "change": summary,
         },
     ]
-    _checked(updated, f"template {tid} after the change")
+    checked_template(updated, f"template {tid} after the change")
     target = served["path"] or lib / f"{tid}.json"
     if served["path"] is None and target.exists():
         raise EvalError(

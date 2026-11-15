@@ -6,15 +6,12 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from .config import Config
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
-from .ledger import results_by_judge
-from .record import round_keys, transcript_agent_id
-from .report import write_feedback
-from .runner import every_seat
-from .spec import dims_for, load_frozen, run_config
-from .store import dump_json, load_json, round_dir, run_lock
+from .rubric import dims_for
+from .settings import Config
+from .store import load_json
+from .transcript import transcript_agent_id
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
 MAX_SCAN_BYTES = 20_000_000
@@ -184,31 +181,28 @@ def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]
     return {n: sorted({h[n] for h in seen if n in h}) for n in sorted(names)}
 
 
-def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
-    """Aggregate a round once, write it to the round's result.json and return it. After a
-    loop round, also write the author's findings to RUN/feedback/after_rN.md. Nothing is
-    written outside the run: learning is a command of its own. Every
-    seat of the round, then the run's lock, is held for the whole step, so no judge starts or
-    records meanwhile; a seat another call holds refuses the step.
+def aggregate(
+    spec: dict[str, Any],
+    cfg: Config,
+    rdir: Path,
+    keys: dict[str, Any],
+    by_judge: dict[int, list[dict[str, Any]]],
+    rnd: int,
+    sealed: bool,
+) -> dict[str, Any]:
+    """A round's result: medians per persona and dimension, paired gains, noise, findings and
+    flags, refused when the round is not complete. It writes nothing and takes no lock: the
+    aggregate step (steps.aggregate_round) holds the seats and the run, and stores the result.
 
     Args:
-        run: The run directory.
+        spec: The frozen spec.
+        cfg: The run's configuration.
+        rdir: The round directory, read for the instrument readings and the transcripts.
+        keys: The round's keys.json.
+        by_judge: The round's recorded attempts, per judge slot.
         rnd: The round number, from 1.
         sealed: Whether the round is the sealed panel's.
     """
-    with every_seat(run, rnd, sealed), run_lock(run):  # seats first, then the run
-        return _aggregate(run, rnd, sealed)
-
-
-def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
-    """aggregate_round, with every seat held."""
-    spec = load_frozen(run)
-    cfg = run_config(run)
-    rdir = round_dir(run, rnd, sealed)
-    if (rdir / "result.json").is_file():
-        raise EvalError("this round is already aggregated: a round is aggregated once")
-    keys = round_keys(rdir, rnd)
-    by_judge = results_by_judge(rdir)
     _check_complete(spec, rdir, keys, by_judge, sealed, cfg)
     valid = [next(r for r in rs if r["ok"]) for rs in by_judge.values() if any(r["ok"] for r in rs)]
     rejected = [r for rs in by_judge.values() for r in rs if not r["ok"]]
@@ -284,7 +278,4 @@ def _aggregate(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
     }
     if (rdir / "measured.json").exists():
         entry["measured"] = load_json(rdir / "measured.json")
-    dump_json(rdir / "result.json", entry)
-    if not sealed:
-        write_feedback(run, entry)
     return entry

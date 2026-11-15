@@ -10,9 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 import re
-import sys
 import tomllib
 from collections.abc import Mapping
 from fractions import Fraction
@@ -22,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ConfigError
-from .store import outside_runs
 
 # Sections a version before 0.4.0 froze into every run, and 0.4.0 fixed in code: a file that
 # sets one is refused, naming the key.
@@ -370,106 +367,8 @@ def resolve(cfg: Config | None) -> Config:
     return default_config() if cfg is None else cfg
 
 
-LIBRARY_ENV = "SEALED_PANEL_RUBRICS"
-
-
-def default_library_dir() -> Path:
-    """The user-level rubric library: never relative to the current directory."""
-    home = Path.home()
-    if sys.platform == "darwin":
-        base = home / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
-    return base / "sealed-panel" / "rubrics"
-
-
-def _git_top(path: Path) -> Path | None:
-    for parent in [path, *path.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return None
-
-
-def guard_library(path: Path) -> Path:
-    """Refuse a library inside the installed package or a run, for any use: its files would be
-    read as templates and candidates. The path is resolved first (symlinks and `..` followed),
-    so the checks see where candidates would really be written; the resolved path is
-    returned."""
-    real = path.expanduser().resolve(strict=False)
-    package = Path(__file__).resolve().parent
-    if real == package or package in real.parents:
-        raise ConfigError(f"the rubric library may not live inside the package: {real}")
-    outside_runs(real, "the rubric library")
-    return real
-
-
-def writable_library(lib: Path) -> Path:
-    """The library, refused for a write when it lies in a git working tree (a folder with a
-    `.git` at or above it, ignored by git or not: no git process runs to ask). Candidates and
-    their history quote the judged texts, so they are never written where a commit could take
-    them. Reads never refuse.
-
-    Args:
-        lib: The library, as library_dir resolved it.
-    """
-    top = _git_top(lib.resolve())
-    if top is not None:
-        raise ConfigError(
-            f"the rubric library {lib} is inside the git working tree {top}: candidates quote "
-            "the judged texts, so they are never written there. Point --library or "
-            f"${LIBRARY_ENV} at a folder outside any repository"
-        )
-    return lib
-
-
-def library_dir(flag: str | Path | None = None) -> Path:
-    """The user library: the flag, else $SEALED_PANEL_RUBRICS, else the user-level default.
-    `~` is expanded; a flag may be relative to the current directory, the environment variable
-    may not. The result is absolute and checked by guard_library.
-
-    Args:
-        flag: The --library value, or None.
-    """
-    if flag is not None and str(flag).strip():
-        return guard_library(Path(flag).expanduser().absolute())
-    value = os.environ.get(LIBRARY_ENV, "")
-    if value.strip():
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            raise ConfigError(
-                f"${LIBRARY_ENV} must be an absolute path or start with ~, got {value!r}"
-            )
-        return guard_library(path)
-    return guard_library(default_library_dir())
-
-
-def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
-    flat: dict[str, Any] = {}
-    for key, value in data.items():
-        name = f"{prefix}{key}"
-        if isinstance(value, dict):
-            flat.update(_flatten(value, name + "."))
-        else:
-            flat[name] = value
-    return flat
-
-
-SHOW_LIMIT = 80
 # Settings that place files and do not change a grade: never listed as overrides.
 NOT_GRADING = frozenset({"mcp.root"})
-
-
-# Settings always shown in full: what runs as the judge is never reduced to a hash.
-SHOW_IN_FULL = frozenset({"judge.command", "judge.env_allow"})
-
-
-def _show(value: Any, where: str, key: str = "") -> str:
-    """A value in full, or, when it is long, its size and short hash and where to read it."""
-    text = json.dumps(value, ensure_ascii=True)
-    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:
-        return text
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-    return f"<{len(text)} characters, sha256 {digest}, see {where}>"
 
 
 _ABSENT = object()
@@ -510,33 +409,3 @@ def schema_errors(
         elif isinstance(value, Mapping) and isinstance(shape[key], Mapping):
             errors += schema_errors(value, shape[key], (*path, key))
     return errors
-
-
-def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
-    """Every setting that differs from the packaged defaults, as `key = value (default x)`.
-
-    Per-run keys are read from the frozen spec when one is given, since that is the value
-    the run uses; the other keys come from the configuration.
-
-    Args:
-        cfg: The configuration.
-        spec: The frozen spec, or None.
-    """
-    defaults = _flatten(default_data())
-    current = _flatten(cfg.data)
-    out = []
-    for key in sorted(set(defaults) | set(current)):
-        if key.startswith("run.") and spec is not None:
-            continue
-        if key in NOT_GRADING:
-            continue  # where files are, not how a text is graded
-        if current.get(key) != defaults.get(key):
-            now = _show(current.get(key), "config.json", key)
-            was = _show(defaults.get(key), "defaults", key)
-            out.append(f"{key} = {now} (default {was})")
-    if spec is not None:
-        for key, default in default_data()["run"].items():
-            if key in spec and spec[key] != default:
-                now, was = _show(spec[key], "spec.json"), _show(default, "defaults")
-                out.append(f"spec.{key} = {now} (default {was})")
-    return out

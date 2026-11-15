@@ -20,13 +20,15 @@ from fastmcp import Client
 
 from conftest import BAD, FLAT, MARKERS, Harness, judge_json, make_spec, mark
 from sealed_panel import mcp_server
-from sealed_panel.config import Config, load_config
 from sealed_panel.errors import ConfigError, EvalError
+from sealed_panel.learning.location import writable_library
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.mcp_server import JUDGE_TOOL_TIMEOUT_S, build_server
 from sealed_panel.report import status as run_status_of
-from sealed_panel.spec import TODO_MARKER, init_run
-from sealed_panel.spec import run_config as run_config_of
+from sealed_panel.rubric import TODO_MARKER
+from sealed_panel.run import run_config as run_config_of
+from sealed_panel.settings import Config, load_config
+from sealed_panel.steps import init_run
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
 TOOLS = [
@@ -800,6 +802,19 @@ class TestPaths:
             await call(c, "rubrics_use", id="message", out="x/spec.json")
             msg = await error(c, "status", run="x")
         assert "not initialised" in msg
+
+    async def test_a_git_folder_is_never_created_under_the_root(
+        self, h: Harness, mode: str
+    ) -> None:
+        """An `init` of ".git" made the root a git working tree: every later library write
+        under it was refused. No tool creates a `.git`, in any case."""
+        write_spec(h)
+        async with Client(build_server(h.tmp), mode=mode) as c:
+            for run in (".git", ".GIT/inner", "x/.git"):
+                msg = await error(c, "init", run=run, spec="spec.json")
+                assert "is reserved: it would make its folder a git working tree" in msg, run
+        assert not (h.tmp / ".git").exists() and not (h.tmp / "x").exists()
+        assert writable_library(h.tmp / "lib") == h.tmp / "lib"
 
     async def test_a_foreign_directory_is_not_overwritten(self, h: Harness, mode: str) -> None:
         write_spec(h)

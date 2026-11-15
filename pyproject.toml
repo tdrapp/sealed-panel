@@ -110,6 +110,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "T20", "D1", "D417"]
 "tests/orphan_judge.py" = ["T20"]
 # The command line prints its results.
 "src/sealed_panel/cli.py" = ["T20"]
+"src/sealed_panel/learning/cli.py" = ["T20"]
 # Mutation anchors are verbatim lines of code; another change owns this tool's engine.
 "tools/mutation_check.py" = ["E501", "D1"]
 # Developer tools print, and start the interpreter or the command under test.
@@ -137,7 +138,10 @@ ignore_missing_imports = true
 root_package = "sealed_panel"
 
 [[tool.importlinter.contracts]]
-name = "cli and mcp_server above the core, store and errors at the bottom"
+# Each line is a layer that may import only the layers below it. Modules joined by `|` are
+# independent: they may not import each other (`:` would let them). learning sits above the
+# core, so no core module imports it.
+name = "interfaces > learning > steps > domain > foundations, siblings independent"
 type = "layers"
 containers = ["sealed_panel"]
 exhaustive = true
@@ -145,8 +149,16 @@ layers = [
     "__main__",
     "cli",
     "mcp_server",
-    "aggregate : brief : config : decide : learn : ledger : library : record : report : runner : spec : text",
-    "store",
+    "learning",
+    "steps",
+    "runner | report",
+    "aggregate",
+    "record | measure",
+    "reply | seat | brief",
+    "run | templates | transcript",
+    "rubric | decide | ledger",
+    "model | text",
+    "settings | store",
     "errors",
 ]
 

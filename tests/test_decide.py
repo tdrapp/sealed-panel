@@ -9,14 +9,16 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, make_spec
 from sealed_panel import brief as brief_module
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
 from sealed_panel.decide import BLOCKED, SEAL_NEXT
 from sealed_panel.errors import EvalError
-from sealed_panel.learn import user_disagreement
-from sealed_panel.record import record_measurement, record_reply
+from sealed_panel.learning.learn import user_disagreement
+from sealed_panel.measure import record_measurement
+from sealed_panel.record import record_reply
 from sealed_panel.report import render_report, status
-from sealed_panel.spec import load_frozen, rubric_hash, validate_spec
+from sealed_panel.rubric import rubric_hash, validate_spec
+from sealed_panel.run import load_frozen
+from sealed_panel.steps import aggregate_round
 
 THREE = {"clarity": 3, "evidence": 3}
 FIVE = {"clarity": 5, "evidence": 5}

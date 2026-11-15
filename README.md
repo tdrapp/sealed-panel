@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 332 mutations, 330
+bound or boundary at a time and requires the suite to fail on each. Of its 333 mutations, 331
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -372,24 +372,35 @@ sealed-panel/
   src/sealed_panel/
     __init__.py          public API
     __main__.py          python -m sealed_panel
-    defaults.toml        the settings, with their bounds checked in config.py
-    config.py            load, merge and bound the settings; list overrides
+    defaults.toml        the settings, with their bounds checked in settings.py
     rubrics/             the built-in rubric templates (JSON)
-    library.py           templates, suggest, skeletons, candidates, promotion
-    runner.py            the judge runner: one process per brief, with its proof
-    mcp_server.py        the MCP server (the mcp extra)
-    learn.py             candidates learned from a sealed run, and user feedback
-    errors.py            EvalError and ConfigError
-    store.py             JSON and text files, round directories
-    spec.py              validate, freeze and hash the spec
-    text.py              normalisation, quote checks, injection flags
-    brief.py             blind briefs (the brief texts live here)
-    record.py            judge replies, transcripts, handbacks, void attempts, instruments
-    ledger.py            views derived from the run's files
-    aggregate.py         medians, paired gains, noise, findings
-    decide.py            the stop rule
-    report.py            findings file, status, report
     cli.py               the sealed-panel command, including `rubrics` and `feedback`
+    mcp_server.py        the MCP server (the mcp extra)
+    learning/            rubric candidates from sealed runs; the core never imports it
+      learn.py           the two signals after a seal, and the user's own read
+      candidates.py      the inbox, its history, promotion and rejection
+      location.py        where learning may write: never in a git working tree
+      cli.py             the learning commands' handlers
+    steps.py             init and aggregate as the interfaces call them
+    runner.py            the judge runner: one process per brief, with its proof
+    report.py            findings file, status, report, overrides
+    aggregate.py         medians, paired gains, noise, findings (computes, writes nothing)
+    record.py            store a judge's attempt: a reply, a rejected reply or a void
+    measure.py           instrument readings
+    reply.py             extract and validate a judge's reply
+    seat.py              calibration, replacement and void caps, the seat lock
+    brief.py             blind briefs (the brief texts live here)
+    run.py               freeze a run and read it back checked; run.json, the salt
+    templates.py         templates, suggest, skeletons, where the library lives
+    transcript.py        read a judge's transcript
+    rubric.py            validate and hash a spec
+    decide.py            the stop rule
+    ledger.py            views derived from the run's files
+    model.py             names shared by the run's records
+    text.py              normalisation, quote checks, injection flags
+    settings.py          load, merge and bound the settings
+    store.py             JSON and text files, round directories, locks
+    errors.py            EvalError and ConfigError
     py.typed             typing marker
   tests/                 the behaviour contract (pytest), one file per concern
   tools/

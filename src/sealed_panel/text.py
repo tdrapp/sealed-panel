@@ -6,7 +6,7 @@ import hashlib
 import re
 import unicodedata
 
-from .config import Config, resolve
+from .settings import Config, resolve
 
 # An ellipsis written as [...], (...), four dots or spaced dots counts as one ellipsis.
 _ELLIPSIS_FORMS = r"[\[(]\s*\.{3,}\s*[\])]|\.(?:\s*\.){2,}"

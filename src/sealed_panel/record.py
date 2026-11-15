@@ -1,344 +1,43 @@
-"""Record one judge's reply (or one instrument reading) for a round, and validate it.
+"""Record one judge's attempt for a round: a reply, a rejected reply or a void.
 
-A reply comes either from a file the judge's text was saved to, or from a transcript: a JSONL
-file whose assistant entries carry text blocks. The field names of a transcript entry are set
-in the [transcript] section of the configuration.
+A reply comes either from a file the judge's text was saved to, or from a transcript (see
+`transcript`). It is validated by `reply`, checked against its seat by `seat`, and stored in
+the round's directory.
 """
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
-import json
 import re
-import statistics
-from collections.abc import Iterator
-from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from .config import Config, resolve
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
-from .spec import dims_for, load_frozen, refuse_older_run, run_config, writes_run
-from .store import dump_json, load_json, locked, read_text, round_dir, under_run_lock
-from .text import normalise, quote_found
+from .reply import check_output, extract_json
+from .rubric import dims_for
+from .run import load_frozen, refuse_older_run, run_config
+from .seat import calibrate, check_seat, check_void_cap, seat_lock
+from .settings import Config
+from .store import dump_json, load_json, read_text, round_dir, under_run_lock
+from .text import normalise
+from .transcript import (
+    assistant_texts,
+    judge_tools,
+    last_reply,
+    tool_calls,
+    transcript_agent_id,
+    transcript_prompt,
+    unreadable_lines,
+)
 
-SCORE_MIN, SCORE_MAX = 1, 5
-# Characters searched for the agent id, from the start of a transcript.
-AGENT_ID_SCAN_CHARS = 20_000
 # Widths used in a recorded reply's file name.
 AGENT_TAG_CHARS = 12
 SAFE_NAME_CHARS = 40
-# Void attempts allowed per judge slot and round. A void never fills a seat, so voids have
-# their own cap and do not count toward max_replacements.
-MAX_VOIDS = 3
+
+
 # The source of a reply read by the judge runner: sealed-panel wrote the brief and read the reply.
 RUNNER = "runner"
-
-
-def transcript_agent_id(transcript: Path, cfg: Config | None = None) -> str | None:
-    """The agent id the transcript itself carries (None when it carries none)."""
-    t = resolve(cfg).transcript
-    pattern = '"' + re.escape(str(t["agent_id_key"])) + r'"\s*:\s*"([^"]+)"'
-    m = re.search(pattern, read_text(transcript)[:AGENT_ID_SCAN_CHARS])
-    return m.group(1) if m else None
-
-
-def _lines(transcript: Path) -> list[tuple[int, dict[str, Any] | None]]:
-    """(line number, entry) for every non-empty line; None for a line that is not a JSON object.
-    Lines end at a newline only: a JSON string may hold other line separators."""
-    out: list[tuple[int, dict[str, Any] | None]] = []
-    for n, line in enumerate(read_text(transcript).split("\n"), start=1):
-        if not line.strip():
-            continue
-        try:
-            e = json.loads(line)
-        except (ValueError, RecursionError):
-            e = None
-        out.append((n, e if isinstance(e, dict) else None))
-    return out
-
-
-def _entries(transcript: Path) -> list[dict[str, Any]]:
-    return [e for _, e in _lines(transcript) if e is not None]
-
-
-def unreadable_lines(transcript: Path) -> list[int]:
-    """The numbers of the transcript's non-empty lines that are not a JSON object. Reading
-    skips them; `record` counts them in its result."""
-    return [n for n, e in _lines(transcript) if e is None]
-
-
-def _block_text(content: Any, t: dict[str, Any]) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            str(b.get(t["text_key"], ""))
-            for b in content
-            if isinstance(b, dict) and b.get(t["block_type_key"]) == t["text_block_type"]
-        )
-    return ""
-
-
-def _content(e: dict[str, Any], t: dict[str, Any]) -> Any:
-    message = e.get(t["message_key"])
-    return message.get(t["content_key"]) if isinstance(message, dict) else None
-
-
-def transcript_prompt(transcript: Path, cfg: Config | None = None) -> str:
-    """The text of the first user entry: the prompt the agent was launched with."""
-    t = resolve(cfg).transcript
-    for e in _entries(transcript):
-        if e.get(t["role_key"]) == t["user_role"]:
-            return _block_text(_content(e, t), t)
-    return ""
-
-
-def assistant_texts(transcript: Path, cfg: Config | None = None) -> list[str]:
-    """Every non-empty assistant text of a transcript, in order."""
-    t = resolve(cfg).transcript
-    texts = []
-    for e in _entries(transcript):
-        if e.get(t["role_key"]) != t["assistant_role"]:
-            continue
-        content = _content(e, t)
-        if isinstance(content, list):
-            text = _block_text(content, t)
-            if text.strip():
-                texts.append(text)
-    return texts
-
-
-def handback_messages(
-    transcript: Path, cfg: Config | None = None, include_refused: bool = False
-) -> list[str | None]:
-    """The messages the agent returned through the configured handback tool, in order; None
-    for a call whose message is not one non-empty string (never coerced into a reply). Some
-    agent runtimes return a subagent's answer as a tool call rather than as a final text.
-
-    A call whose tool result came back as an error was refused by the runtime and never reached
-    the caller. By default such calls are left out, so the list holds what was delivered. With
-    include_refused, they are kept: last_reply uses that list when nothing was delivered at all,
-    and a void uses it because a refused verdict still shows the judge replied. An empty
-    handback_tool setting means no tool is read."""
-    t = resolve(cfg).transcript
-    tool = t["handback_tool"]
-    if not tool:
-        return []
-    entries = _entries(transcript)
-    refused = set()
-    for e in entries:
-        if e.get(t["role_key"]) != t["user_role"]:
-            continue
-        content = _content(e, t)
-        if isinstance(content, list):
-            for b in content:
-                if (
-                    isinstance(b, dict)
-                    and b.get(t["block_type_key"]) == t["tool_result_type"]
-                    and b.get(t["tool_error_key"]) is True
-                ):
-                    refused.add(b.get(t["tool_result_id_key"]))
-    messages: list[str | None] = []
-    for e in entries:
-        if e.get(t["role_key"]) != t["assistant_role"]:
-            continue
-        content = _content(e, t)
-        if not isinstance(content, list):
-            continue
-        for b in content:
-            if (
-                not isinstance(b, dict)
-                or b.get(t["block_type_key"]) != t["tool_block_type"]
-                or b.get(t["tool_name_key"]) != tool
-            ):
-                continue
-            call_id = b.get(t["tool_id_key"])
-            if not include_refused and call_id is not None and call_id in refused:
-                continue  # refused by the runtime: never delivered
-            inp = b.get(t["tool_input_key"])
-            msg = inp.get(t["tool_message_key"]) if isinstance(inp, dict) else None
-            messages.append(msg if isinstance(msg, str) and msg.strip() else None)
-    return messages
-
-
-def tool_calls(transcript: Path, cfg: Config | None = None) -> list[tuple[str, str]]:
-    """(block type, name) of every tool the agent called in its transcript, in order."""
-    t = resolve(cfg).transcript
-    names = []
-    for e in _entries(transcript):
-        if e.get(t["role_key"]) != t["assistant_role"]:
-            continue
-        content = _content(e, t)
-        for b in content if isinstance(content, list) else []:
-            # Any type ending like the tool block: a server's tool call is a tool call too.
-            if isinstance(b, dict) and str(b.get(t["block_type_key"])).endswith(
-                str(t["tool_block_type"])
-            ):
-                names.append((str(b.get(t["block_type_key"])), str(b.get(t["tool_name_key"]))))
-    return names
-
-
-def judge_tools(transcript: Path, cfg: Config | None = None) -> list[str]:
-    """The tools the judge called, sorted, the configured handback tool excepted (the way some
-    runtimes return a reply). A judge gets no tools: a call to any other tool means it could
-    have read the run directory, labels and roles included."""
-    t = resolve(cfg).transcript
-    exempt = (str(t["tool_block_type"]), str(t["handback_tool"]))
-    return sorted({name for kind, name in tool_calls(transcript, cfg) if (kind, name) != exempt})
-
-
-def last_reply(transcript: Path, cfg: Config | None = None) -> str:
-    """A transcript's reply: its last delivered handback message, since that is what its
-    caller received; else its last non-empty assistant text; else, when nothing was delivered
-    at all, its last refused handback, which the judge still wrote. A malformed last handback,
-    delivered or refused, raises MalformedReply; no reply at all is an error, never a guess.
-
-    A last line that is not a JSON object raises MalformedReply: a transcript cut off while
-    being written may have lost the final reply, and the text before it is not that reply.
-
-    Args:
-        transcript: The judge's JSONL transcript.
-        cfg: The run's configuration.
-    """
-    lines = _lines(transcript)
-    if lines and lines[-1][1] is None:
-        raise MalformedReply(
-            f"the last line of {transcript} (line {lines[-1][0]}) is not a readable entry: the "
-            "transcript may have been cut off before its final reply"
-        )
-    handed = handback_messages(transcript, cfg)
-    if handed:
-        last = handed[-1]
-        if last is None:
-            raise MalformedReply(f"malformed handback in {transcript}: its message is not a text")
-        return last
-    texts = assistant_texts(transcript, cfg)
-    if texts:
-        return texts[-1]
-    refused = handback_messages(transcript, cfg, include_refused=True)
-    if refused:
-        if refused[-1] is None:
-            raise MalformedReply(
-                f"malformed refused handback in {transcript}: its message is not a text"
-            )
-        return refused[-1]
-    raise EvalError(f"no assistant reply found in {transcript}")
-
-
-FENCE_OPENING = re.compile(r"```(?:json)?[ \t\r\n]*\{")
-
-
-def extract_json(text: str) -> Any:
-    """The JSON object in a judge's output: inside its fence when it wrote one, else from the
-    first brace to the last. Linear in the size of the text: a reply is hostile input."""
-    start, end = text.find("{"), text.rfind("}")
-    opening = FENCE_OPENING.search(text)
-    if opening:
-        closing = text.rfind("```")
-        last = text.rfind("}", 0, closing) if closing >= opening.end() else -1
-        if last >= opening.end() - 1 and not text[last + 1 : closing].strip():
-            start, end = opening.end() - 1, last
-    if start < 0 or end <= start:
-        raise EvalError("no JSON object in the judge output")
-    return json.loads(text[start : end + 1])
-
-
-def check_output(
-    out: Any,
-    key: dict[str, str],
-    texts: dict[str, str],
-    dim_ids: list[str],
-    cfg: Config | None = None,
-) -> dict[str, Any]:
-    """Validate one judge's JSON against its label key. Scores are kept per ROLE, never label.
-
-    Args:
-        out: The judge's parsed JSON.
-        key: The brief's label key: label to role.
-        texts: The text of each role, for the quote check.
-        dim_ids: The dimensions the persona is scored on.
-        cfg: The configuration; the packaged defaults when None.
-    """
-    cfg = resolve(cfg)
-    caps = cfg.severity_caps
-    errors: list[str] = []
-    parsed: dict[str, Any] = {}
-    items = out.get("items") if isinstance(out, dict) else None
-    if not isinstance(items, dict):
-        return {"ok": False, "errors": ["'items' object missing"], "items": {}}
-    quotes_total = quotes_bad = 0
-    for label, role in key.items():
-        it = items.get(label)
-        if not isinstance(it, dict):
-            errors.append(f"item {label}: missing")
-            continue
-        raw_dims = it.get("dimensions")
-        dims: dict[str, Any] = raw_dims if isinstance(raw_dims, dict) else {}
-        scores: dict[str, int] = {}
-        raw_scores: dict[str, int] = {}
-        severities: dict[str, str] = {}
-        unverified: list[str] = []
-        capped: list[str] = []
-        quotes: list[str] = []
-        quoted: dict[str, str] = {}
-        for did in dim_ids:
-            d = dims.get(did)
-            if not isinstance(d, dict):
-                errors.append(f"item {label}: dimension {did} missing")
-                continue
-            s, sev = d.get("score"), d.get("severity")
-            if isinstance(s, bool) or not isinstance(s, int) or not SCORE_MIN <= s <= SCORE_MAX:
-                errors.append(f"item {label}/{did}: score must be an integer 1-5")
-                continue
-            if sev not in cfg.severities:
-                errors.append(f"item {label}/{did}: severity must be one of {cfg.severities}")
-                continue
-            if not str(d.get("reasoning", "")).strip():
-                errors.append(f"item {label}/{did}: reasoning missing")
-                continue
-            raw_scores[did] = s
-            quotes_total += 1
-            quote = str(d.get("quote", ""))
-            quotes.append(normalise(quote))
-            quoted[did] = quote
-            if not quote_found(quote, texts[role], cfg):
-                quotes_bad += 1
-                unverified.append(did)
-                continue
-            if s > caps[sev]:
-                s = caps[sev]
-                capped.append(did)
-            scores[did], severities[did] = s, sev
-        raw_wp = it.get("weakest_point")
-        wp: dict[str, Any] = raw_wp if isinstance(raw_wp, dict) else {}
-        wdim = wp.get("dimension")
-        parsed[role] = {
-            "scores": scores,
-            "raw_scores": raw_scores,
-            "severity": severities,
-            "unverified": unverified,
-            "capped": capped,
-            "one_quote": len(quotes) >= 2 and len(set(quotes)) == 1,
-            "quotes": quoted,
-            "retell": it.get("retell", ""),
-            "weakest_point": {
-                "text": wp.get("text", ""),
-                "dimension": wdim,
-                "quote": wp.get("quote", ""),
-                "severity": severities.get(wdim, "unknown") if isinstance(wdim, str) else "unknown",
-            },
-            "reasoning": {
-                did: (dims.get(did) or {}).get("reasoning", "")
-                for did in dim_ids
-                if isinstance(dims.get(did), dict)
-            },
-        }
-    if quotes_total and Fraction(quotes_bad, quotes_total) > cfg.max_bad_share:
-        errors.append(f"{quotes_bad}/{quotes_total} quotes not found in the items")
-    return {"ok": not errors, "errors": errors, "items": parsed}
 
 
 def safe_name(s: str) -> str:
@@ -348,35 +47,6 @@ def safe_name(s: str) -> str:
         s: The string.
     """
     return re.sub(r"[^A-Za-z0-9_.-]", "_", s)[:SAFE_NAME_CHARS]
-
-
-def _calibrate(result: dict[str, Any], meta: dict[str, Any], spec: dict[str, Any]) -> None:
-    """Discard a judge whose control is too high or whose known-good is too low."""
-    ctrl = result["items"].get("control", {}).get("raw_scores", {})
-    if not ctrl:
-        result["ok"] = False
-        result["errors"].append("the control has no verified score")
-    else:
-        mean_ctrl = statistics.mean(ctrl.values())
-        result["control_mean"] = round(mean_ctrl, 2)
-        if mean_ctrl > spec["control_max"]:
-            result["ok"] = False
-            result["errors"].append(
-                f"control scored {mean_ctrl:.2f} > {spec['control_max']}: this judge does "
-                "not discriminate; brief a replacement on the same brief file"
-            )
-    good = result["items"].get("known_good", {}).get("raw_scores", {})
-    has_good = "known_good" in meta["key"].values()
-    if (
-        result["ok"]
-        and has_good
-        and (not good or statistics.mean(good.values()) < spec["good_min"])
-    ):
-        result["ok"] = False
-        result["errors"].append(
-            f"known-good scored below {spec['good_min']}: this judge is too harsh or the "
-            "rubric does not fit; brief a replacement"
-        )
 
 
 def _store(rdir: Path, judge: int, agent_id: str, raw: str, result: dict[str, Any]) -> None:
@@ -427,36 +97,6 @@ def _void(
     }
     _store(rdir, judge, agent_id, "", result)
     return result
-
-
-def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
-    """Refuse a further void on a slot that already has MAX_VOIDS of them."""
-    voids = [r for r in prior if r.get("void")]
-    if len(voids) >= MAX_VOIDS:
-        raise EvalError(
-            f"judge {judge} already has {len(voids)} voided attempts: find why its agents stop "
-            "before voiding more"
-        )
-
-
-def check_seat(judge: int, prior: list[dict[str, Any]], source: str, cfg: Config) -> None:
-    """Refuse a reply the slot cannot take: a second valid one, a pasted one where the brief
-    may have been seen, or one past the replacement cap."""
-    if any(r["ok"] for r in prior):
-        raise EvalError(
-            f"judge {judge} already has a valid reply in this round: "
-            "a second one would be a re-roll"
-        )
-    if source == "output" and any(r.get("void") and r.get("replied") for r in prior):
-        raise EvalError(
-            f"judge {judge} already had a reply voided (brief not verbatim): its next reply must "
-            "come from a transcript holding the pasted brief, never pasted by hand"
-        )
-    real = [r for r in prior if not r.get("void")]
-    if len(real) > cfg.max_replacements:
-        raise EvalError(
-            f"judge {judge} was rejected {len(real)} times: stop and fix the brief or the rubric"
-        )
 
 
 def _runner_void(
@@ -514,22 +154,6 @@ def _judge_meta(keys: dict[str, Any], judge: int, rdir: Path) -> dict[str, Any]:
     return meta
 
 
-@contextlib.contextmanager
-def seat_lock(rdir: Path, judge: int) -> Iterator[None]:
-    """Hold a seat of a round (an flock on `seat_j<J>.lock` beside its brief) while the block
-    runs: every call that records an attempt on the seat holds it from the seat check to the
-    stored attempt, so two calls never both pass the check. Raises SeatTaken when another call
-    holds it.
-
-    Args:
-        rdir: The round directory.
-        judge: The judge slot.
-    """
-    busy = f"seat {judge} is held by another call (a judge running or a reply being recorded)"
-    with locked(rdir / f"seat_j{judge}.lock", busy):
-        yield
-
-
 def _refuse_in_a_runner_run(cfg: Config) -> None:
     """A run with a judge command takes runner replies only, on every seat."""
     if cfg.judge["command"]:
@@ -573,13 +197,13 @@ def record_reply(
     rdir = round_dir(run, rnd, sealed)
     _judge_meta(round_keys(rdir, rnd), judge, rdir)  # a seat that exists, before its lock file
     with seat_lock(rdir, judge):
-        return _record_reply(
+        return record_attempt(
             run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed
         )
 
 
 @under_run_lock
-def _record_reply(
+def record_attempt(
     run: Path,
     rnd: int,
     judge: int,
@@ -661,7 +285,7 @@ def _record_reply(
             reason = "nested too deeply" if isinstance(exc, RecursionError) else exc
             result = {"ok": False, "errors": [f"unparseable: {reason}"], "items": {}}
     if result["ok"]:
-        _calibrate(result, meta, spec)
+        calibrate(result, meta, spec)
     result.update(
         {
             "reply_sha256": digest,
@@ -682,21 +306,6 @@ def _record_reply(
         result.update(ok=False, errors=["unparseable: nested too deeply"], items={})
         _store(rdir, judge, agent_id, raw, result)
     return result
-
-
-def outcome_line(r: dict[str, Any]) -> str:
-    """What `record` and `judge` print for one recorded attempt."""
-    if r.get("void"):
-        return f"VOID judge {r['judge']}: " + (
-            "; ".join(r["errors"][:1])
-            if r.get("source") == RUNNER
-            else "recorded as an attempt without a reply"
-        )
-    return (
-        ("VALID" if r["ok"] else "REJECTED")
-        + f" judge {r['judge']}"
-        + ("" if r["ok"] else ": " + "; ".join(r["errors"][:3]))
-    )
 
 
 def record_from(
@@ -745,48 +354,3 @@ def record_from(
                 raise
             malformed = str(exc)
     return record_reply(run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed)
-
-
-@writes_run
-@under_run_lock
-def record_measurement(
-    run: Path, rnd: int, mid: str, value: str, passed: bool | None, sealed: bool
-) -> bool:
-    """Record one instrument reading. A numeric threshold decides pass or fail. The round's
-    readings are read and rewritten under the run's lock, so concurrent readings are all kept.
-
-    Args:
-        run: The run directory.
-        rnd: The round number, from 1.
-        mid: The measured criterion's id.
-        value: The reading.
-        passed: Pass or fail, for a criterion without a numeric threshold; else None.
-        sealed: Whether the round is the sealed panel's.
-    """
-    spec = load_frozen(run)
-    run_config(run)
-    m = next((x for x in spec.get("measured") or [] if x["id"] == mid), None)
-    if m is None:
-        raise EvalError(f"{mid} is not a measured criterion of this rubric")
-    if "max" in m or "min" in m:
-        if passed is not None:
-            raise EvalError(f"{mid} has a numeric threshold: the script decides pass or fail")
-        try:
-            num = float(value)
-        except ValueError as exc:
-            raise EvalError(f"{mid} needs a number, got {value!r}") from exc
-        passed = ("max" not in m or num <= m["max"]) and ("min" not in m or num >= m["min"])
-    elif passed is None:
-        raise EvalError(f"{mid} has no numeric threshold: say whether it passed")
-    rdir = round_dir(run, rnd, sealed)
-    if not (rdir / "keys.json").exists():
-        raise EvalError("brief the round before measuring it")
-    if (rdir / "result.json").is_file():
-        raise EvalError("this round is already aggregated: measure before aggregating")
-    path = rdir / "measured.json"
-    rows = load_json(path) if path.exists() else []
-    if any(r["id"] == mid for r in rows):
-        raise EvalError(f"{mid} is already measured for this round: a measurement is taken once")
-    rows = [*rows, {"id": mid, "value": value, "pass": passed}]
-    dump_json(path, rows)
-    return passed

@@ -9,14 +9,15 @@ from typing import Any
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec, strip_fence
-from sealed_panel import learn, library
-from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.config import library_dir, load_config
 from sealed_panel.errors import EvalError
-from sealed_panel.learn import learn_after_seal, proposals_after_seal, user_disagreement
+from sealed_panel.learning import candidates, learn
+from sealed_panel.learning.learn import learn_after_seal, proposals_after_seal, user_disagreement
 from sealed_panel.record import record_reply
-from sealed_panel.spec import dims_for, init_run
+from sealed_panel.rubric import dims_for
+from sealed_panel.settings import load_config
+from sealed_panel.steps import aggregate_round, init_run
+from sealed_panel.templates import library_dir
 
 FIVE = {"clarity": 5, "evidence": 5}
 # A control that stays calibrated (mean 2) but scores clarity close to a strong candidate.
@@ -38,7 +39,7 @@ def close_seal(h: Harness) -> dict[str, Any]:
 
 
 def kinds(lib: Path) -> list[tuple[str, str, int]]:
-    rows, _ = library.open_candidates(lib)
+    rows, _ = candidates.open_candidates(lib)
     return sorted((c["kind"], c["dimension"], c["count"]) for c in rows)
 
 
@@ -65,7 +66,7 @@ class TestJudgesDisagree:
             h, [{"scores": {"clarity": 3, "evidence": 4}}, {"scores": FLAT}, {"scores": FIVE}]
         )
         assert kinds(private_library) == [("judges_disagree", "clarity", 1)]
-        c = library.open_candidates(private_library)[0][0]
+        c = candidates.open_candidates(private_library)[0][0]
         ev = c["evidence"][0]
         assert ev["scores"] == [3, 4, 5]
         assert ev["run_dir"] == str(h.run.absolute())
@@ -82,7 +83,7 @@ class TestJudgesDisagree:
         seal_with(h, [{"scores": FLAT, "severity": {"evidence": "blocking"}},
                       {"scores": FLAT}, {"scores": FLAT}])  # fmt: skip
         assert kinds(private_library) == [("judges_disagree", "evidence", 1)]
-        note = library.open_candidates(private_library)[0][0]["evidence"][0]["note"]
+        note = candidates.open_candidates(private_library)[0][0]["evidence"][0]["note"]
         assert "judge 1 gave 4 with severity blocking" in note
 
     def test_a_none_with_a_one_contradicts(self, h: Harness, private_library: Path) -> None:
@@ -128,7 +129,7 @@ class TestControlTooClose:
         e = close_seal(h)
         assert e["personas"]["coo"]["dimensions"]["clarity"]["control_median"] == 3
         assert kinds(private_library) == [("control_too_close", "clarity", 1)]
-        ev = library.open_candidates(private_library)[0][0]["evidence"][0]
+        ev = candidates.open_candidates(private_library)[0][0]["evidence"][0]
         assert (ev["candidate_raw_mean"], ev["control_raw_mean"]) == (4, 3)
 
     def test_calibration_counts_the_persona_dimensions(self, h: Harness) -> None:
@@ -218,7 +219,7 @@ class TestUserDisagreement:
         h.full(1, "cand", FLAT)
         h.full(1, "v2", FLAT, sealed=True)
         user_disagreement(h.run, "the evidence reads thinner than 4", "evidence")
-        c = library.open_candidates(private_library)[0][0]
+        c = candidates.open_candidates(private_library)[0][0]
         ev = c["evidence"][0]
         v2 = h.files["v2"].read_text()[:40]
         assert {q["quote"] for q in ev["quotes"]} == {v2}
@@ -237,7 +238,7 @@ class TestUserDisagreement:
             record_reply(h.run, 1, meta["judge"], f"q{meta['judge']}", json.dumps(raw), True)
         aggregate_round(h.run, 1, True)
         user_disagreement(h.run, "thin", "evidence")
-        quotes = library.open_candidates(private_library)[0][0]["evidence"][0]["quotes"]
+        quotes = candidates.open_candidates(private_library)[0][0]["evidence"][0]["quotes"]
         assert {q["judge"]: q["verified"] for q in quotes} == {1: False, 2: True, 3: True}
 
     def test_with_and_without_a_dimension(self, h: Harness, private_library: Path) -> None:
@@ -267,7 +268,7 @@ class TestUserDisagreement:
         h.init()
         h.full(1, "cand", FLAT, sealed=True)
         cid = user_disagreement(h.run, "first read", "evidence").stem
-        library.reject(private_library, cid, "the anchor is right")
+        candidates.reject(private_library, cid, "the anchor is right")
         with pytest.raises(EvalError, match="rejected before"):
             user_disagreement(h.run, "again", "evidence")
 
@@ -341,7 +342,7 @@ class TestRunSettings:
         three = {"clarity": 3, "evidence": 4}
         seal_with(h, [{"scores": three, "severity": {"clarity": "blocking"}},
                       {"scores": three}, {"scores": three}])  # fmt: skip
-        note = library.open_candidates(private_library)[0][0]["evidence"][0]["note"]
+        note = candidates.open_candidates(private_library)[0][0]["evidence"][0]["note"]
         assert "judge 1 gave 3 with severity blocking" in note
 
     def test_feedback_after_a_promotion_says_promoted(
@@ -353,6 +354,6 @@ class TestRunSettings:
         c = json.loads(path.read_text())
         c["proposed_change"]["anchors"] = {"3": "a three", "5": "a five"}
         path.write_text(json.dumps(c))
-        library.promote(private_library, path.stem, into="message")
+        candidates.promote(private_library, path.stem, into="message")
         with pytest.raises(EvalError, match="already promoted"):
             user_disagreement(h.run, "again", "evidence")

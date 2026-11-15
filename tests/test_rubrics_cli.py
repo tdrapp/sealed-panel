@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from conftest import MARKERS, Harness, mark
-from sealed_panel import library
 from sealed_panel.cli import main
+from sealed_panel.learning import candidates
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "announcement"
@@ -23,7 +23,7 @@ def run(capsys: pytest.CaptureFixture[str], *args: object) -> tuple[int, str]:
 
 
 def add(lib: Path, change: dict[str, object], version: int = 1) -> str:
-    path = library.add_candidate(
+    path = candidates.add_candidate(
         lib,
         {
             "kind": "judges_disagree",
@@ -43,7 +43,7 @@ REMOVE = {"action": "remove_dimension", "dimension": "brevity"}
 class TestRubricsCli:
     def test_list(self, capsys: pytest.CaptureFixture[str], private_library: Path) -> None:
         cid = add(private_library, REMOVE)
-        library.reject(private_library, cid, "keep brevity")
+        candidates.reject(private_library, cid, "keep brevity")
         add(private_library, REMOVE, version=2)
         (private_library / "broken.json").write_text("{nope")
         rc, out = run(capsys, "rubrics", "list")
