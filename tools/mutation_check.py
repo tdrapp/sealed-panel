@@ -959,13 +959,19 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "rubrics_use writes outside the root": (
         MCP,
-        'target = outside_runs(path(out), "the spec")',
-        'target = outside_runs(Path(out), "the spec")',
+        "rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))",
+        "rubrics_lib.write_skeleton(lib, id, Path(out), opt(persona_file))",
     ),
-    "rubrics_use writes inside a run": (
-        MCP,
-        'target = outside_runs(path(out), "the spec")',
-        "target = path(out)",
+    "rubrics_use writes inside a run": (LIB, '    outside_runs(out, "the spec")\n', ""),
+    "a spec skeleton not named .json": (
+        LIB,
+        '    if out.suffix != ".json":\n',
+        "    if False:\n",
+    ),
+    "a spec skeleton creates its folder": (
+        LIB,
+        "    if not out.parent.is_dir():\n",
+        "    if False:\n",
     ),
     "links followed in a transcript root": (
         MCP,

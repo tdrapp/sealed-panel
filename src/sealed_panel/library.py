@@ -25,7 +25,7 @@ from typing import Any
 from .config import writable_library
 from .errors import EvalError
 from .spec import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
-from .store import dump_json, load_json, refuse_links
+from .store import dump_json, load_json, outside_runs, refuse_links
 
 TEMPLATE_KEYS = frozenset(
     {
@@ -289,17 +289,29 @@ def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None)
     }
 
 
+def _skeleton_target(out: Path) -> None:
+    """The one owner of where a skeleton goes, for the command line and MCP alike: never a file
+    a run could be told by (`rubric.lock`), never a new folder, never inside a run, never over
+    a file."""
+    if out.suffix != ".json":
+        raise EvalError(f"{out}: a spec is a .json file; name one")
+    if not out.parent.is_dir():
+        raise EvalError(f"{out.parent} is not a folder: the spec goes into an existing one")
+    outside_runs(out, "the spec")
+    if out.exists():
+        raise EvalError(f"{out} already exists: choose another path or remove it first")
+
+
 def write_skeleton(lib: Path, tid: str, out: Path, persona_file: Path | None = None) -> Path:
     """Write a spec skeleton from a template; its TODO markers stop `init` until filled.
 
     Args:
         lib: The user rubric library.
         tid: The template id.
-        out: Where to write the spec; refused when it exists.
+        out: Where to write the spec: a new `.json` file in an existing folder outside any run.
         persona_file: A JSON list of personas to put in the skeleton, or None.
     """
-    if out.exists():
-        raise EvalError(f"{out} already exists: choose another path or remove it first")
+    _skeleton_target(out)
     t = get_template(lib, tid)["template"]
     personas = None
     if persona_file is not None:

@@ -755,9 +755,17 @@ class TestPaths:
         async with Client(build_server(h.tmp), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
             await call(c, "brief", run="run", round=1, artefact="cand.md", control="ctrl.md")
-            for out in ("run/rounds/r1/result.json", "run/sealed", "run/config.json", "run/x.json"):
+            for out in ("run/rounds/r1/result.json", "run/config.json", "run/x.json"):
                 msg = await error(c, "rubrics_use", id="message", out=out)
                 assert "inside the run" in msg, out
+            # Nothing a run is told by, and no new folder: neither `run/sealed` nor a file or
+            # folder named rubric.lock that would pass the root's folders off as runs.
+            for out in ("run/sealed", "rubric.lock", "x/rubric.lock"):
+                assert "a .json file" in await error(c, "rubrics_use", id="message", out=out)
+            for out in ("x/rubric.lock/s.json", "run/sealed/s.json"):
+                assert "is not a folder" in await error(c, "rubrics_use", id="message", out=out)
+            assert not (h.tmp / "rubric.lock").exists() and not (h.tmp / "x").exists()
+            await call(c, "init", run="second", spec="spec.json")
             msg = await error(c, "rubrics_suggest", kind="email", library="run/lib")
             assert "inside the run" in msg
             msg = await error(c, "init", run="run/rounds/r1/inner", spec="spec.json")

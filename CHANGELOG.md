@@ -9,6 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- `rubrics use` and the MCP `rubrics_use` write a spec skeleton only to a new `.json` file in an
+  existing folder outside any run: a skeleton named `rubric.lock` (or written under a folder of
+  that name) would pass its folder off as a run, and the command line could write one inside a
+  run. The rule lives where the file is written, so both interfaces share it.
 - Nothing a tool creates goes inside a run: one guard (`store.outside_runs`) refuses a new run,
   the `rubrics_use` spec skeleton, and a rubric library at or under a folder holding
   `rubric.lock`. A skeleton written to `run/rounds/r1/result.json` would have faked an

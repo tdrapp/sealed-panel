@@ -727,6 +727,28 @@ class TestHistoryIsNeverOverwritten:
         assert asked == []
 
 
+class TestSkeletonTarget:
+    """`rubrics use` owns where its skeleton goes, on the command line as through MCP."""
+
+    def test_a_skeleton_goes_only_into_a_new_json_file_outside_any_run(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        h.init()
+        h.brief(1, "cand")
+        (h.tmp / "taken.json").write_text("{}")
+        for out, why in (
+            (h.run / "rounds" / "x.json", "inside the run"),
+            (h.tmp / "rubric.lock", "a .json file"),
+            (h.tmp / "new" / "s.json", "is not a folder"),
+            (h.tmp / "taken.json", "already exists"),
+        ):
+            assert main(["rubrics", "use", "message", "--out", str(out)]) == 2, out
+            assert why in capsys.readouterr().err, out
+        assert (h.tmp / "taken.json").read_text() == "{}"
+        assert not (h.run / "rounds" / "x.json").exists() and not (h.tmp / "new").exists()
+        assert main(["rubrics", "use", "message", "--out", str(h.tmp / "s.json")]) == 0
+
+
 class TestInitLibraryFlag:
     def test_init_reads_the_library_it_is_given(
         self, h: Harness, tmp_path: Path, capsys: pytest.CaptureFixture[str]
