@@ -144,6 +144,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the table marks for one and 3 to 6 dimensions, a spec may add `weight` and `personas` and
   has no count bound. What each accepts and every error it gives are unchanged, checked on
   20,000 generated specs and templates against the previous validators.
+- The docs say what "three to six dimensions per persona" is: the method's advice, which no
+  check applies to a spec; a template holds three to six dimensions (`docs/protocol.md`, the
+  skill and `spec-reference.md`).
 - **Breaking:** `sealed_panel.__all__` is the stable API, and smaller. Kept: the step functions
   (`init_run`, `write_briefs`, `record_reply`, `record_from`, `record_measurement`,
   `judge_round`, `aggregate_round`, `status`, `render_report`), `Config` and `load_config`,

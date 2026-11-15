@@ -53,12 +53,12 @@ and replace every `TODO(sealed-panel)` marker; `init` refuses the spec until the
 When no template fits, write the spec by hand as below.
 
 Write `spec.json`, starting from `spec.example.json` beside this file; every key is described
-in `spec-reference.md`, and unknown keys are refused. Three to six
-dimensions per persona, each a question plus anchors at 1, 3 and 5 written as observable
-evidence on the page ("names a number the persona can check"), never adjectives
-("convincing"). A 5 also means no material or blocking flaw on that dimension. Show the rubric
-to the user when the persona or the stakes are theirs to define; otherwise state it in one
-table and go.
+in `spec-reference.md`, and unknown keys are refused. Aim for three to six dimensions per
+persona (the method's advice: `init` enforces no count on a spec), each a question plus
+anchors at 1, 3 and 5 written as observable evidence on the page ("names a number the persona
+can check"), never adjectives ("convincing"). A 5 also means no material or blocking flaw on
+that dimension. Show the rubric to the user when the persona or the stakes are theirs to define;
+otherwise state it in one table and go.
 
 ## 2. Freeze
 

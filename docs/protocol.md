@@ -50,7 +50,8 @@ setting that differs from the defaults is printed next to the grade.
   wide numeric scale. The scale is 1 to 5, anchors at 1, 3 and 5; 4 is "the 5 anchor except one
   material gap" and 2 is "between 1 and 3".
 - **Decomposed.** Three to six dimensions per persona, each its own question with its own
-  quote, against the halo effect.
+  quote, against the halo effect. This is the method's advice, not a check: a spec sets no
+  count, while a template holds three to six dimensions.
 - **Instruments take what they can measure.** Length, timing, a format rule or a fact check are
   measured by a script (`measure`), listed in the brief as not the judge's to score, and
   required to pass for CONVERGED.
