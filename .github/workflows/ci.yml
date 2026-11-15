@@ -155,8 +155,8 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
       - run: '"$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .'
 
-  # The layers in [tool.importlinter]: the command line and the MCP server above the core,
-  # store and errors at the bottom.
+  # The layers in [tool.importlinter]: each layer imports only those below it, siblings joined
+  # by "|" not each other; the interfaces on top, learning above the core, errors at the bottom.
   imports:
     name: imports
     runs-on: ubuntu-latest
