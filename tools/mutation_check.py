@@ -552,7 +552,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'hint = "the facts the judges may trust"',
     ),
     "modified flag never set": (
-        STEPS,
+        TEMPLATES,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref["modified"] = False',
     ),
@@ -615,18 +615,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if False:\n            raise ConfigError(",
     ),
     "unknown template accepted": (
-        STEPS,
+        TEMPLATES,
         '    if served is None:\n        raise EvalError(\n            f"spec.template names no known template',
         '    if False:\n        raise EvalError(\n            f"spec.template names no known template',
     ),
-    "unknown template version accepted": (STEPS, "    if match is None:\n", "    if False:\n"),
+    "unknown template version accepted": (TEMPLATES, "    if match is None:\n", "    if False:\n"),
     "template hash trusted": (
-        STEPS,
+        TEMPLATES,
         'ref["sha256"] = dimensions_sha(match["dimensions"])',
         'ref.setdefault("sha256", dimensions_sha(match["dimensions"]))',
     ),
     "modified flag trusted": (
-        STEPS,
+        TEMPLATES,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref.setdefault("modified", dimensions_sha(spec["dimensions"]) != ref["sha256"])',
     ),
@@ -642,9 +642,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "run created before the library is resolved": (
         STEPS,
-        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
+        '    if isinstance(spec.get("template"), dict):\n        templates.check_template_ref(',
         "    run.mkdir(parents=True, exist_ok=True)\n"
-        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
+        '    if isinstance(spec.get("template"), dict):\n        templates.check_template_ref(',
     ),
     "closed id refused only after the prompt": (
         CANDIDATES,
@@ -668,8 +668,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init ignores --library": (
         STEPS,
-        "_check_template_ref(spec, cfg, templates.library_dir(library))",
-        "_check_template_ref(spec, cfg, templates.library_dir(None))",
+        "templates.check_template_ref(spec, templates.library_dir(library))",
+        "templates.check_template_ref(spec, templates.library_dir(None))",
     ),
     "TODO markers accepted by init": (RUBRIC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -1209,8 +1209,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "an overlap reason kept silent": (
         MCP,
-        '                    "; ".join(turned_off)\n                    if turned_off\n',
-        '                    ""\n                    if turned_off\n',
+        '                    "; ".join(self.turned_off)\n                    if self.turned_off\n',
+        '                    ""\n                    if self.turned_off\n',
     ),
     # A transcript cut off on its last line.
     "a cut-off last line read as the earlier reply": (

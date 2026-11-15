@@ -245,6 +245,36 @@ def get_template(lib: Path, tid: str) -> Served:
     return found[tid]
 
 
+def check_template_ref(spec: dict[str, Any], lib: Path) -> None:
+    """The template reference must name a template and version the library knows. Its hash is
+    the template's own, and `modified` is computed here, never taken from the spec.
+
+    Args:
+        spec: The spec being frozen; its `template` reference is completed in place.
+        lib: The user rubric library.
+    """
+    ref = spec["template"]
+    served = all_templates(lib)[0].get(ref["id"])
+    if served is None:
+        raise EvalError(
+            f"spec.template names no known template: {ref['id']!r} (library {lib}; "
+            "pass --library to read another)"
+        )
+    known = [served["template"]]
+    builtin = builtin_templates().get(ref["id"])
+    if builtin is not None:
+        known.append(builtin)
+    match = next((t for t in known if t["version"] == ref["version"]), None)
+    if match is None:
+        versions = sorted({t["version"] for t in known})
+        raise EvalError(
+            f"spec.template {ref['id']!r} has no version {ref['version']} here (known: {versions})"
+        )
+    ref["sha256"] = dimensions_sha(match["dimensions"])
+    # Frozen with the rubric: whether the dimensions still match the template they came from.
+    ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
+
+
 # -- suggest -----------------------------------------------------------------------------
 
 

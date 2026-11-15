@@ -14,6 +14,7 @@ from typing import Any
 
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
+from .model import RUNNER
 from .reply import check_output, extract_json
 from .rubric import dims_for
 from .run import load_frozen, refuse_older_run, run_config
@@ -34,10 +35,6 @@ from .transcript import (
 # Widths used in a recorded reply's file name.
 AGENT_TAG_CHARS = 12
 SAFE_NAME_CHARS = 40
-
-
-# The source of a reply read by the judge runner: sealed-panel wrote the brief and read the reply.
-RUNNER = "runner"
 
 
 def safe_name(s: str) -> str:

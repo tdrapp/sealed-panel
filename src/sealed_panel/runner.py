@@ -36,7 +36,8 @@ from typing import Any
 
 from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
-from .record import RUNNER, record_attempt, round_keys
+from .model import RUNNER
+from .record import record_attempt, round_keys
 from .run import load_frozen, run_config, run_salt
 from .seat import check_seat, check_void_cap, seat_lock
 from .settings import Config
