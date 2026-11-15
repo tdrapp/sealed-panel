@@ -11,7 +11,6 @@ import fcntl
 import functools
 import json
 import os
-import re
 import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -105,35 +104,12 @@ def contained(path: Path, root: Path, given: str | None = None) -> Path:
 
 # The MCP server's own file at its root, held by the init tool.
 INIT_LOCK = ".sealed-panel-init.lock"
-# Every name a run holds: its files and folders. Nothing is created inside a run but by
-# sealed-panel (see outside_runs); tests/test_files.py checks that a full run creates no other
-# name, so a new run file updates this inventory.
-RUN_NAMES = frozenset(
-    {
-        "rubric.lock", "run.json", "run.lock", "config.json", "config.lock", "spec.json",
-        "env.salt", "rounds", "sealed", "feedback", "keys.json", "result.json", "measured.json",
-        "candidate.md", "control.md", "previous.md", "baseline.md", "known_good.md",
-    }
-)  # fmt: skip
-RUN_NAME_PATTERN = re.compile(
-    r"r[0-9]+|seat_j[0-9]+\.lock|started_j[0-9]+_.*\.json|brief_j[0-9]+\.md"
-    r"|out_j[0-9]+_.*\.json|runner_j[0-9]+_.*\.log|after_r[0-9]+\.md"
-)
 # The names a run or the server is recognised by from outside: a folder holding rubric.lock is
 # a run, run.json is its format, the init lock is the server's. No caller creates a path with
 # one of them anywhere in it (see outside_runs), so nothing a caller made passes for a run's or
 # the server's own file. Every other run name is only read inside a run, where nothing is
 # created but by sealed-panel.
 RESERVED_NAMES = frozenset({"rubric.lock", "run.json", INIT_LOCK})
-
-
-def run_name(name: str) -> bool:
-    """Whether a file or folder name is one a run holds (see RUN_NAMES).
-
-    Args:
-        name: One path component.
-    """
-    return name in RUN_NAMES or RUN_NAME_PATTERN.fullmatch(name) is not None
 
 
 def reserved(name: str) -> bool:

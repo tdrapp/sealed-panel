@@ -8,6 +8,7 @@ import contextlib
 import errno
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -43,6 +44,29 @@ from sealed_panel.spec import init_run, run_config
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
+
+# Every name a run holds: its files and folders. Nothing is created inside a run but by
+# sealed-panel (see store.outside_runs); the full-run test below checks that a run creates no
+# other name, so a new run file updates this inventory, and that every name a run is
+# recognised by (store.RESERVED_NAMES) is one of them.
+RUN_NAMES = frozenset(
+    {
+        "rubric.lock", "run.json", "run.lock", "config.json", "config.lock", "spec.json",
+        "env.salt", "rounds", "sealed", "feedback", "keys.json", "result.json", "measured.json",
+        "candidate.md", "control.md", "previous.md", "baseline.md", "known_good.md",
+    }
+)  # fmt: skip
+RUN_NAME_PATTERN = re.compile(
+    r"r[0-9]+|seat_j[0-9]+\.lock|started_j[0-9]+_.*\.json|brief_j[0-9]+\.md"
+    r"|out_j[0-9]+_.*\.json|runner_j[0-9]+_.*\.log|after_r[0-9]+\.md"
+)
+
+
+def run_name(name: str) -> bool:
+    """Whether a file or folder name is one a run holds (see RUN_NAMES)."""
+    return name in RUN_NAMES or RUN_NAME_PATTERN.fullmatch(name) is not None
+
+
 SRC = Path(__file__).resolve().parent.parent / "src" / "sealed_panel"
 
 
@@ -105,7 +129,7 @@ class TestWrites:
     def test_every_name_a_full_run_creates_is_in_the_inventory(
         self, h: Harness, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A run of the runner through every step: no file or folder outside store.RUN_NAMES,
+        """A run of the runner through every step: no file or folder outside RUN_NAMES,
         so a new run file updates the inventory, and every name a run is recognised by is
         reserved."""
         measured = [{"id": "length", "description": "words", "max": 100}]
@@ -127,8 +151,8 @@ class TestWrites:
         names = {p.name for p in r.rglob("*")}
         assert {"after_r1.md", "result.json", "run.json"} <= names
         assert any(n.startswith("runner_j") for n in names)
-        assert sorted(n for n in names if not store.run_name(n)) == []
-        assert all(store.run_name(n) for n in store.RESERVED_NAMES - {store.INIT_LOCK})
+        assert sorted(n for n in names if not run_name(n)) == []
+        assert all(run_name(n) for n in store.RESERVED_NAMES - {store.INIT_LOCK})
 
     def test_nothing_is_left_behind(self, tmp_path: Path) -> None:
         folder = tmp_path / "here"
