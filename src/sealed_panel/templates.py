@@ -209,6 +209,9 @@ def _dimension_errors(dims: Any) -> list[str]:
         if not isinstance(d, dict) or set(d) != DIMENSION_KEYS:
             errors.append("each dimension needs exactly id, name, question and anchors")
             continue
+        if not isinstance(d["id"], str):  # a list or an object would also break the set below
+            errors.append(f"dimension {d['id']!r}: id must be a string")
+            continue
         ids.append(d["id"])
         if missing_anchors(d["anchors"]):
             errors.append(f"dimension {d['id']}: anchors 1, 3 and 5 must be non-empty")

@@ -223,6 +223,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes and their fallback, the link check on every entry of a round directory, and the
   dotted-key check: each answered a writer inside the run directory, now out of scope.
 
+### Fixed
+
+- A user template whose dimension id was a list or an object made the template check raise
+  `TypeError`, so `rubrics list` (and every command that reads the library) stopped with
+  "unusable input" instead of skipping that file. A dimension id must now be a string, and a
+  template that breaks it is skipped with a warning naming it ("dimension ['a']: id must be a
+  string"). This also refuses a number, `null` or a boolean as a dimension id, which the check
+  accepted before; such a template was unusable anyway, since `rubrics use` wrote a skeleton
+  that `init` refuses for the same reason.
+
 ## [0.3.1] - 2026-11-09
 
 ### Fixed

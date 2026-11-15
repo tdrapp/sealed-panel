@@ -773,6 +773,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    errors = [f\"{MISSING_KEY} {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
         "    errors: list[str] = []\n",
     ),
+    "a template dimension id of any type accepted": (
+        TEMPLATES,
+        '        if not isinstance(d["id"], str):  # a list or an object',
+        "        if False:  # a list or an object",
+    ),
     "a missing configuration key names no release": (
         FROZEN,
         "    if any(e.startswith(MISSING_KEY) for e in shape):\n",
