@@ -48,7 +48,7 @@ def _confirm(a: argparse.Namespace, plan: dict[str, object]) -> None:
         raise EvalError("not confirmed: nothing was written")
 
 
-def promote(a: argparse.Namespace, lib: Path) -> None:
+def promote_command(a: argparse.Namespace, lib: Path) -> None:
     """`rubrics promote`: show the change side by side, have a person confirm it, apply it.
 
     Args:
@@ -61,7 +61,7 @@ def promote(a: argparse.Namespace, lib: Path) -> None:
     print(f"promoted {a.candidate} into {path} (v{load_json(path)['version']})")
 
 
-def reject(a: argparse.Namespace, lib: Path) -> None:
+def reject_command(a: argparse.Namespace, lib: Path) -> None:
     """`rubrics reject`: close a candidate with a reason.
 
     Args:
@@ -72,7 +72,7 @@ def reject(a: argparse.Namespace, lib: Path) -> None:
     print(f"rejected {a.candidate}: moved to {path}")
 
 
-def feedback(a: argparse.Namespace) -> None:
+def feedback_command(a: argparse.Namespace) -> None:
     """`feedback`: record the user's own read disagreeing with the sealed grade.
 
     Args:
@@ -83,7 +83,7 @@ def feedback(a: argparse.Namespace) -> None:
     print(f"recorded your read as candidate {path.stem} in {path.parent}")
 
 
-def learn(a: argparse.Namespace) -> None:
+def learn_command(a: argparse.Namespace) -> None:
     """`learning learn`: write a sealed run's rubric candidates to the inbox.
 
     Args:

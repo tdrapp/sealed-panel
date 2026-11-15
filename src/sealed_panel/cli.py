@@ -199,9 +199,9 @@ def _rubrics(a: argparse.Namespace) -> None:
         out = templates.write_skeleton(lib, a.id, a.out, a.persona_file)
         print(f"wrote {out}: fill every {TODO_MARKER} marker, then run init")
     elif a.rcmd == "promote":
-        learning_cli.promote(a, lib)
+        learning_cli.promote_command(a, lib)
     elif a.rcmd == "reject":
-        learning_cli.reject(a, lib)
+        learning_cli.reject_command(a, lib)
 
 
 def _mcp(a: argparse.Namespace) -> None:
@@ -264,9 +264,9 @@ def _run(a: argparse.Namespace) -> None:
     elif a.cmd == "report":
         print(render_report(a.run), end="")
     elif a.cmd == "feedback":
-        learning_cli.feedback(a)
+        learning_cli.feedback_command(a)
     elif a.cmd == "learning":
-        learning_cli.learn(a)
+        learning_cli.learn_command(a)
     elif a.cmd == "rubrics":
         _rubrics(a)
     elif a.cmd == "mcp":
