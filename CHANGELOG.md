@@ -53,6 +53,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking** for code that imports a module rather than the package: the package is split into
+  one module per job, with no change in behaviour. `record.py` becomes `transcript`, `reply`,
+  `seat`, `measure` and `record`; `spec.py` becomes `rubric` and `run`; `config.py` becomes
+  `settings` (the override display moves to `report`); `library.py` becomes `templates` and the
+  `sealed_panel.learning` subpackage, which holds learning (`learn`, the candidates, the
+  git-tree refusal, its commands' handlers) and which the core never imports; the commands keep
+  their names. `aggregate` computes a round and writes nothing: `steps.aggregate_round` takes
+  the locks and stores the result, beside `steps.init_run` and `steps.resolve_round`. The MCP
+  server's `build_server` is one function per concern. The import contract keeps each layer
+  above the ones it uses and forbids siblings joined by `|` to import each other. The names in
+  `sealed_panel.__all__` are unchanged.
 - **Breaking:** Refusals that the MCP tools also raise no longer name command-line flags: "a
   void needs the agent's transcript", "the round number is required for a loop round", "the
   agent id ...", "say whether it passed". A stop decision's `next` is "brief the sealed panel"
