@@ -743,6 +743,25 @@ class TestSkeletonTarget:
         assert not (h.tmp / "RUBRIC.LOCK").exists() and not (h.tmp / "run.json").exists()
         assert main(["init", str(h.tmp / "r1"), "--spec", str(sp)]) == 0  # ordinary names
 
+    def test_a_git_folder_is_never_created_on_the_command_line(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A `.git` a caller creates makes its parent a git working tree, where learning never
+        writes: neither a run nor a library may create one, in any case (a skeleton creates no
+        folder at all)."""
+        sp = h.tmp / "s.json"
+        sp.write_text(json.dumps(make_spec()))
+        for args, name in (
+            (["init", str(h.tmp / ".git"), "--spec", str(sp)], ".git"),
+            (["init", str(h.tmp / "x" / ".GIT" / "run"), "--spec", str(sp)], ".GIT"),
+            (["rubrics", "list", "--library", str(h.tmp / ".Git" / "lib")], ".Git"),
+        ):
+            assert main(args) == 2, args
+            assert f"{name!r} is reserved: it would make its folder a git working tree" in (
+                capsys.readouterr().err
+            ), args
+        assert sorted(p.name for p in h.tmp.iterdir() if p.name.casefold() == ".git") == []
+
     def test_a_skeleton_goes_only_into_a_new_json_file_outside_any_run(
         self, h: Harness, capsys: pytest.CaptureFixture[str]
     ) -> None:

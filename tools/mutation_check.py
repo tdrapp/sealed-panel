@@ -1437,6 +1437,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '    if any(r["ok"] for r in prior):\n        raise SeatTaken(',
         "    if False:\n        raise SeatTaken(",
     ),
+    "a .git created by a caller": (
+        f"{PKG}/store.py",
+        "    return name.casefold() in RESERVED_NAMES or name.casefold() == GIT_MARKER\n",
+        "    return name.casefold() in RESERVED_NAMES\n",
+    ),
 }
 
 

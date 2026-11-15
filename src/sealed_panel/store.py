@@ -110,15 +110,18 @@ INIT_LOCK = ".sealed-panel-init.lock"
 # the server's own file. Every other run name is only read inside a run, where nothing is
 # created but by sealed-panel.
 RESERVED_NAMES = frozenset({"rubric.lock", "run.json", INIT_LOCK})
+# A name that makes its folder a git working tree, where learning never writes: a caller who
+# created one (an MCP `init` of ".git", say) would take the rubric library at the root away.
+GIT_MARKER = ".git"
 
 
 def reserved(name: str) -> bool:
-    """Whether a name is one a run or the server is recognised by, in any case.
+    """Whether a name is one a run or the server is recognised by, or `.git`, in any case.
 
     Args:
         name: One path component.
     """
-    return name.casefold() in RESERVED_NAMES
+    return name.casefold() in RESERVED_NAMES or name.casefold() == GIT_MARKER
 
 
 def is_run(folder: Path) -> bool:
@@ -131,13 +134,25 @@ def is_run(folder: Path) -> bool:
     return (folder / "rubric.lock").is_file()
 
 
+def _why_reserved(what: str, path: Path, taken: str) -> str:
+    if taken.casefold() == GIT_MARKER:
+        return (
+            f"{what} {path}: {taken!r} is reserved: it would make its folder a git working tree, "
+            "where the rubric library is never written; choose another"
+        )
+    return (
+        f"{what} {path}: {taken!r} is a name reserved for a run's own files (it marks a run "
+        "or the server's lock); choose another"
+    )
+
+
 def outside_runs(path: Path, what: str) -> Path:
     """The path with every link followed, refused when it is a run or lies inside one, or when a
-    name it would create is one a run or the server is recognised by (RESERVED_NAMES, in any
-    case): the one guard on a path a caller names to create (a new run, a spec skeleton, a
-    rubric library). Every component that does not exist yet, and the last one, is checked, so
-    nothing a caller creates passes for a run or the server's lock, and nothing is put where a
-    round's lock or result goes.
+    name it would create is one a run or the server is recognised by (RESERVED_NAMES) or `.git`
+    (GIT_MARKER), in any case: the one guard on a path a caller names to create (a new run, a
+    spec skeleton, a rubric library). Every component that does not exist yet, and the last one,
+    is checked, so nothing a caller creates passes for a run, the server's lock or a git working
+    tree, and nothing is put where a round's lock or result goes.
 
     Args:
         path: The path to create, or to create things under.
@@ -147,10 +162,7 @@ def outside_runs(path: Path, what: str) -> Path:
     new = [p.name for p in (real, *real.parents) if p == real or not p.exists()]
     taken = next((n for n in new if reserved(n)), None)
     if taken is not None:
-        raise EvalError(
-            f"{what} {path}: {taken!r} is a name reserved for a run's own files (it marks a run "
-            "or the server's lock); choose another"
-        )
+        raise EvalError(_why_reserved(what, path, taken))
     for folder in (real, *real.parents):
         if is_run(folder):
             raise EvalError(

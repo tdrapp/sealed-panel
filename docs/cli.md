@@ -44,8 +44,9 @@ rubric is a new run), if it lies inside another run, or if it holds other files:
 new or empty directory, so it never writes over another program's files. A path `init`, `rubrics
 use` or a `--library` would create may not hold a name a run or the server is recognised by
 (`rubric.lock`, `run.json`, `.sealed-panel-init.lock`), in any case: the refusal reads "'NAME'
-is a name reserved for a run's own files". A folder is a run only when its `rubric.lock` is a
-file.
+is a name reserved for a run's own files". Nor may it hold `.git`, in any case: it would make
+its folder a git working tree, where the rubric library is never written. A folder is a run only
+when its `rubric.lock` is a file.
 
 A spec has `title`, `purpose`, `personas` (each with `id` and `description`) and `dimensions`
 (each with `id`, `question`, `anchors` at `"1"`, `"3"` and `"5"`, and optionally `name`,

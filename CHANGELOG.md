@@ -9,6 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- No path a caller names to create (the `init` run, a `--library`, through the command line or
+  the MCP tools) may hold `.git`, in any case. An MCP `init` of `.git` made the server's root a
+  git working tree, after which every rubric library under it was refused for a write. The
+  refusal reads "'.git' is reserved: it would make its folder a git working tree".
 - `rubrics use` and the MCP `rubrics_use` write a spec skeleton only to a new `.json` file in an
   existing folder outside any run: a skeleton named `rubric.lock` (or written under a folder of
   that name) would pass its folder off as a run, and the command line could write one inside a
