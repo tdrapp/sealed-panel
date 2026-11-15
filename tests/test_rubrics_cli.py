@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import io
-import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
+from conftest import Harness
 from sealed_panel import library
 from sealed_panel.cli import main
-from sealed_panel.errors import EvalError
-from sealed_panel.record import record_reply
 
 ROOT = Path(__file__).resolve().parent.parent
-FIXTURE = ROOT / "tests" / "fixtures" / "run-0.1.0"
 EXAMPLE = ROOT / "examples" / "announcement"
 
 
@@ -120,44 +117,34 @@ class TestRubricsCli:
         assert run(capsys, "rubrics", "promote", "../../x", "--yes")[0] == 2
 
 
-class TestRunFrozenByVersion010:
-    """A run initialised and aggregated by sealed-panel 0.1.0 is read by this version and never
-    written to: every write command refuses it, naming 0.1.0."""
+class TestRunCreatedBefore040:
+    """A run without the run.json of this version (created before 0.4.0) is refused by every
+    command, read or write, with one message, and nothing is created in it."""
 
-    def test_status_and_report_read_it(
-        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    def test_every_command_refuses_it(
+        self, h: Harness, capsys: pytest.CaptureFixture[str], private_library: Path
     ) -> None:
-        r = tmp_path / "run"
-        shutil.copytree(FIXTURE, r)
-        rc, out = run(capsys, "status", r)
-        assert rc == 0 and '"CAP"' in out and "frozen by sealed-panel 0.1.0" in out
-        rc, out = run(capsys, "report", r)
-        assert rc == 0 and "library" not in out.splitlines()[2]
-
-    def test_every_write_command_refuses_it(
-        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, private_library: Path
-    ) -> None:
-        r = tmp_path / "run"
-        shutil.copytree(FIXTURE, r)
-        before = sorted(p.relative_to(r) for p in r.rglob("*"))
-        art = ["--artefact", EXAMPLE / "draft_v1.md", "--control", EXAMPLE / "control.md"]
-        reply = tmp_path / "reply.json"
+        h.init()
+        h.full(1, "cand", {"clarity": 4, "evidence": 4})
+        (h.run / "run.json").unlink()  # as a 0.3.x run: no marker
+        before = sorted(p.relative_to(h.run) for p in h.run.rglob("*"))
+        art = ["--artefact", h.files["cand"], "--control", h.files["ctrl"]]
+        reply = h.tmp / "reply.json"
         reply.write_text("{}")
-        commands: list[tuple[object, ...]] = [
-            ("brief", r, "--sealed", *art),
+        r = h.run
+        for args in (
+            ("status", r),
+            ("report", r),
             ("brief", r, "--round", "2", *art),
-            ("record", r, "--sealed", "--judge", "1", "--agent-id", "x", "--output", reply),
+            ("record", r, "--round", "2", "--judge", "1", "--agent-id", "x", "--output", reply),
             ("judge", r, "--sealed"),
-            ("measure", r, "--sealed", "--id", "length", "--value", "130"),
+            ("measure", r, "--round", "1", "--id", "length", "--value", "1"),
             ("aggregate", r, "--round", "1"),
             ("learning", "learn", r),
             ("feedback", r, "--note", "too kind"),
-        ]
-        for args in commands:
+        ):
             rc, out = run(capsys, *args)
-            assert rc == 2 and "frozen by sealed-panel 0.1.0, before 0.4.0" in out, args
-            assert "Finish it with sealed-panel 0.1.0" in out, args
-        with pytest.raises(EvalError, match=r"frozen by sealed-panel 0\.1\.0"):
-            record_reply(r, 1, 1, "x", "{}", True)
-        assert sorted(p.relative_to(r) for p in r.rglob("*")) == before
+            assert rc == 2 and "created by an earlier version of sealed-panel" in out, args
+            assert "@v<version>" in out, args
+        assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
         assert not private_library.exists()

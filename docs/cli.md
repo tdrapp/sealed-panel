@@ -8,10 +8,9 @@ sealed-panel [--version] <command> RUN [options]
 `init` accepts `--config PATH` (see [configuration.md](configuration.md)); every later command
 reads the configuration frozen into the run.
 
-A run frozen by a version before 0.4.0 is read only: `status` and `report` read it, and every
-command that writes to a run (`brief`, `record`, `judge`, `measure`, `aggregate`, `learning
-learn`, `feedback`) refuses it, naming the version that froze it, so finish it with that
-version.
+`init` writes `run.json` with the run format (`schema_version`). Every command, read or write,
+refuses a run without it, one created by a version before 0.4.0, before creating anything in
+it: finish or read such a run with the version that created it, installed from its tag.
 
 `--round N` is required for a loop round. With `--sealed` it is optional and defaults to 1,
 since a run has one sealed panel.
@@ -204,8 +203,7 @@ version, and in a sealed panel the median on the round-1 baseline. Computes the 
 medians, for information only), the best paired gain, the suspect jumps, the findings, the
 prompt extras and the judges who reused one quote. Writes the round's `result.json`, the only
 record of the round: `status`, `report` and the next round read the rounds from these files
-(`ledger.json`, a copy of them, is no longer written; a run frozen before 0.4.0 keeps its own,
-which agrees with its rounds since 0.4.0 never writes to it). After a loop round, also writes
+(`ledger.json`, a copy of them, is no longer written). After a loop round, also writes
 `RUN/feedback/after_rN.md`, the findings the author revises from. Nothing is written outside the
 run: before 0.4.0 a sealed panel also wrote learned candidates to the user library's inbox; that
 is now `learning learn`.

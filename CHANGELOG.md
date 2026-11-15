@@ -92,18 +92,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `learn.CONTROL_MIN_CANDIDATE` and `learn.CONTROL_GAP`. `normalise` and `injection_flags` lost
   their `cfg` argument, and `fixed_normalise`, `normalise_with` and `library_dir`'s `cfg`
   argument are gone.
-- **Breaking:** writing to a run frozen before 0.4.0. Before: every command worked on any run.
-  After: `brief`, `record` (a void included), `judge`, `measure`, `aggregate`, `learning learn`
-  and `feedback`, on the command line and through MCP, refuse a run whose `config.json` holds a
-  section 0.4.0 removed, naming the version that froze it ("frozen by sealed-panel 0.3.1, before
-  0.4.0: ... Finish it with sealed-panel 0.3.1"); `status` and `report` read it, `status` says
-  so under `read_only`, and both list its own frozen `[text]`, `[injection]` and `[library]`
-  values that differ from their 0.3.1 default, labelled as frozen by that version.
+- **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
+  versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
+  and every command and MCP tool, read or write, refuses a run without it, before creating
+  anything in it, with one message: the run was created by an earlier version, 0.4.0 changed
+  what a run freezes, so finish or read it with the version that created it, installed from its
+  tag. No version before 0.4.0 was published to the package index.
 - **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
   its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
   derives the rounds from the round files (loop rounds first, by number) and the rubric hash
-  from `rubric.lock`. A run frozen before keeps its `ledger.json`, which agrees with its round
-  files (0.4.0 never writes to such a run) and is no longer read.
+  from `rubric.lock`.
 - The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
   the judge's process group): the package declares POSIX only and never ran there. No change on
   macOS or Linux.
@@ -116,21 +114,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [--library DIR]`, which the skill runs after a sealed panel; `init` freezes no library; the
   library is `--library`, else `$SEALED_PANEL_RUBRICS`, else the user default; the thresholds
   are constants (4.0, 1.0); and `--run` on `rubrics` commands and `run` on the MCP rubrics tools
-  are gone. A file that sets a `[library]` key is refused, naming it; a run frozen before reads
-  as for `[text]`.
+  are gone. A file that sets a `[library]` key is refused, naming it.
 - **Breaking:** `[injection]` (`patterns`, `samples`). Before: a configuration could add
   patterns (every default had to stay, each matching its sample line). After: the five 0.3.1
   patterns are the constant `text.INJECTION_PATTERNS`, and `injection_flags(text)` takes no
-  configuration. A file that sets an `[injection]` key is refused, naming it; a run frozen
-  before 0.4.0 reads as for `[text]`.
+  configuration. A file that sets an `[injection]` key is refused, naming it.
 - **Breaking:** `[text]` (`strip_chars`, `punctuation`). Before: a configuration could map
   punctuation and hold the stripped characters for quote matching, within bounds, while every
   other check used the defaults. After: both are constants in `text.py`, equal to the 0.3.1
   defaults, and one `normalise(text)` serves every comparison (`normalise` lost its `cfg`
   argument; `fixed_normalise` and `normalise_with` are gone). A file that sets a `[text]` key is
   refused with a message naming it ("text.strip_chars: no longer a setting, ... fixed in code
-  since 0.4.0"); a run frozen before 0.4.0 keeps reading: its lock is checked against
-  `config.json` as frozen, then `[text]` is dropped.
+  since 0.4.0").
 - **Breaking:** MCP tools, 14 to 10 (`tests/mcp_tools.json` regenerated). Before: `seal`,
   `void`, `rubrics_list`, `rubrics_show` and `feedback` were tools. After: `seal(...)` is
   `brief(..., sealed=true)` (its `round` defaults to 1, as `--sealed` does, and a loop round

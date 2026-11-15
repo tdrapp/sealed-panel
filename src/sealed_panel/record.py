@@ -20,7 +20,7 @@ from typing import Any
 from .config import Config, resolve
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
-from .spec import dims_for, load_writable, refuse_older_run, run_config, writes_run
+from .spec import dims_for, load_frozen, refuse_older_run, run_config, writes_run
 from .store import dump_json, load_json, locked, read_text, round_dir, under_run_lock
 from .text import normalise, quote_found
 
@@ -596,7 +596,7 @@ def _record_reply(
     `void` the process gave no reply. Only runner.judge_seat passes a proof. The caller holds
     the seat's lock (seat_lock); the run's lock is taken here, after it, for the run-wide
     checks (an agent id or a reply already used) and the store."""
-    spec = load_writable(run)
+    spec = load_frozen(run)
     cfg = run_config(run)
     if (runner is None) != (source != RUNNER):
         raise EvalError("a runner reply needs the runner's proof, and only a runner reply has one")
@@ -724,7 +724,6 @@ def record_from(
         output: The pasted reply, or None.
         void: Record the transcript's agent as an attempt that never replied.
     """
-    refuse_older_run(run)
     _refuse_in_a_runner_run(run_config(run))
     if void and transcript is None:
         raise EvalError("a void needs the agent's transcript")
@@ -766,7 +765,7 @@ def record_measurement(
         passed: Pass or fail, for a criterion without a numeric threshold; else None.
         sealed: Whether the round is the sealed panel's.
     """
-    spec = load_writable(run)
+    spec = load_frozen(run)
     run_config(run)
     m = next((x for x in spec.get("measured") or [] if x["id"] == mid), None)
     if m is None:

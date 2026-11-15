@@ -90,12 +90,8 @@ the candidate, whether the previous version or the baseline rides along, the one
 and the whole-brief check of a transcript.
 
 A configuration file that still sets a `[text]` key is refused with a message naming the key.
-A run frozen before 0.4.0 holds its `[text]` table in `config.json`. Such a run is read only:
-its lock is checked against the file as frozen, `status` and the report list its own `[text]`,
-`[injection]` and `[library]` values that differ from their 0.3.1 default (labelled "frozen by"
-the version that froze it, which the run's files tell: `env.salt` came with 0.3.1, `[judge]`
-with 0.3.0, `[library]` with 0.2.0), and every command that writes to a run refuses it, naming
-that version. 0.4.0 never grades it under the constants.
+A run created before 0.4.0 (one without `run.json`) is refused by every command, so none is ever
+graded under the constants.
 
 ## Injection patterns (fixed since 0.4.0)
 
@@ -107,7 +103,7 @@ control, previous version, baseline, known-good); a match is flagged per item in
 findings and in the report, and blocks CONVERGED and the sealed grade unless the spec has
 `injection_acknowledged`. A match in the spec's title, purpose, persona descriptions or
 declared choices refuses `init`. A configuration file that still sets an `[injection]` key is
-refused with a message naming the key; a run frozen before 0.4.0 is read as for `[text]`.
+refused with a message naming the key.
 
 ## `[transcript]`
 
@@ -221,8 +217,7 @@ sealed `aggregate` wrote learned candidates) and the two thresholds of `control_
 the library is `--library DIR`, else `$SEALED_PANEL_RUBRICS`, else the user-level default (see
 [rubrics.md](rubrics.md)); learning runs only through `sealed-panel learning learn RUN`; and
 the thresholds are constants of the learning module (4.0 and 1.0, their 0.3.1 defaults). A file
-that still sets a `[library]` key is refused with a message naming it; a run frozen before 0.4.0
-reads as for `[text]`.
+that still sets a `[library]` key is refused with a message naming it.
 
 ## What stays in code
 

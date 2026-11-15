@@ -17,7 +17,7 @@ from .config import Config, resolve
 from .decide import BLOCKED, INJECTION_ACK, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
 from .ledger import view as ledger_view
-from .spec import dims_for, load_writable, rubric_hash, run_config, writes_run
+from .spec import dims_for, load_frozen, rubric_hash, run_config, writes_run
 from .store import (
     dump_json,
     make_dir,
@@ -276,7 +276,7 @@ def write_briefs(
         good: An optional known-good text, validated by the user.
         sealed: Whether to brief the sealed panel.
     """
-    spec = load_writable(run)
+    spec = load_frozen(run)
     cfg = run_config(run)
     ledger = ledger_view(run)
     cand, ctrl = read_text(artefact), read_text(control)

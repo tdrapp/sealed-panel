@@ -14,16 +14,12 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .config import (
     MAX_JUDGES_PER_PERSONA,
-    REMOVED_SECTIONS,
     RUN_BOUNDS,
     Config,
-    fingerprint,
     library_dir,
-    removed_overrides,
     resolve,
     run_value_error,
     schema_errors,
-    without_removed,
 )
 from .decide import INJECTION_ACK
 from .errors import EvalError
@@ -65,6 +61,15 @@ CHOICE_KEYS = frozenset({"choice", "user_said"})
 HOME_OR_RELATIVE = ("~/", "./", "../")
 # The run's salt for the hashes of the judge environment's values, created at init.
 ENV_SALT = "env.salt"
+# The run format, written to run.json at init: a run without it was created before 0.4.0.
+SCHEMA_VERSION = 1
+RUN_FILE = "run.json"
+OLDER_RUN = (
+    "this run was created by an earlier version of sealed-panel: 0.4.0 changed what a run "
+    "freezes, so it neither reads nor writes it. Finish or read it with the version that created "
+    "it, installed from its tag: pip install "
+    "'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
+)
 SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
 
@@ -410,6 +415,7 @@ def init_run(
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
     write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
+    dump_json(run / RUN_FILE, {"schema_version": SCHEMA_VERSION})  # written, not hashed
     return digest
 
 
@@ -428,12 +434,29 @@ def run_salt(run: Path) -> bytes | None:
     return salt if len(salt) == SALT_BYTES else None
 
 
-def load_frozen(run: Path) -> dict[str, Any]:
-    """The run's spec, refused when it changed after the freeze.
+def refuse_older_run(run: Path) -> None:
+    """Refuse a run created before 0.4.0, for every command, read or write: such a run has no
+    `run.json` holding this version's schema. 0.4.0 changed what a run freezes, so it neither
+    reads nor writes an older one.
 
     Args:
         run: The run directory.
     """
+    if not (run / "rubric.lock").exists():
+        return  # not a run: the step's own check says so
+    marker = run / RUN_FILE
+    found = load_json(marker) if marker.is_file() else None
+    if not isinstance(found, dict) or found.get("schema_version") != SCHEMA_VERSION:
+        raise EvalError(OLDER_RUN)
+
+
+def load_frozen(run: Path) -> dict[str, Any]:
+    """The run's spec, refused when the run is older than 0.4.0 or changed after the freeze.
+
+    Args:
+        run: The run directory.
+    """
+    refuse_older_run(run)
     lock = run / "rubric.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
@@ -446,51 +469,13 @@ def load_frozen(run: Path) -> dict[str, Any]:
     return spec
 
 
-def frozen_before(run: Path) -> str | None:
-    """The version that froze a run before 0.4.0, or None for a run of this version. Every
-    earlier version froze the `[text]` and `[injection]` sections that 0.4.0 removed, so their
-    presence in config.json is the mark; the rest narrows the version: the env salt came with
-    0.3.1, `[judge]` with 0.3.0, `[library]` with 0.2.0.
-
-    Args:
-        run: The run directory.
-    """
-    if not (run / "config.json").is_file():
-        return None  # not a run: the step's own check says so
-    raw = load_json(run / "config.json")
-    if not isinstance(raw, dict) or not any(k in raw for k in REMOVED_SECTIONS):
-        return None
-    if (run / ENV_SALT).is_file():
-        return "0.3.1"
-    if "judge" in raw:
-        return "0.3.0"
-    return "0.2.x" if "library" in raw else "0.1.0"
-
-
-def refuse_older_run(run: Path) -> None:
-    """Refuse to write to a run frozen before 0.4.0: its frozen settings name sections this
-    version no longer applies, so a step written now would be graded by other rules than the
-    steps before it. `status` and `report` still read it.
-
-    Args:
-        run: The run directory.
-    """
-    version = frozen_before(run)
-    if version is not None:
-        raise EvalError(
-            f"this run was frozen by sealed-panel {version}, before 0.4.0: 0.4.0 reads it "
-            f"(status, report) but never writes to it. Finish it with sealed-panel {version}, "
-            "the version that started it, or start a new run"
-        )
-
-
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
 def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Path, P], R]:
-    """Run `fn(run, ...)` only for a run this version may write (see refuse_older_run), checked
-    before anything is created in it, the run's lock file included.
+    """Run `fn(run, ...)` only for a run of this version (see refuse_older_run), checked before
+    anything is created in it, the run's lock file included.
 
     Args:
         fn: A step whose first argument is the run directory.
@@ -504,44 +489,18 @@ def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Pa
     return checked
 
 
-def load_writable(run: Path) -> dict[str, Any]:
-    """The run's frozen spec, for a step that writes to the run: refused for a run frozen
-    before 0.4.0, then checked as load_frozen checks it.
-
-    Args:
-        run: The run directory.
-    """
-    refuse_older_run(run)
-    return load_frozen(run)
-
-
-def frozen_settings(run: Path) -> list[str]:
-    """The settings of a run frozen before 0.4.0 that this version no longer has and that
-    differ from their 0.3.1 default (see config.removed_overrides); empty for a run of this
-    version.
-
-    Args:
-        run: The run directory.
-    """
-    version = frozen_before(run)
-    if version is None:
-        return []
-    return removed_overrides(load_json(run / "config.json"), version)
-
-
 def run_config(run: Path) -> Config:
     """The configuration frozen at init."""
+    refuse_older_run(run)
     lock = run / "config.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    raw = load_json(run / "config.json")
-    data = without_removed(raw) if isinstance(raw, dict) else None
-    shape = ["not a table"] if data is None else schema_errors(data)
-    if data is None or shape:
+    data = load_json(run / "config.json")
+    shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
+    if shape:
         raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
     frozen = Config(data)
-    # Checked against the data as frozen: a run frozen before 0.4.0 keeps its removed sections.
-    if fingerprint(raw) != read_text(lock).strip():
+    if frozen.fingerprint != read_text(lock).strip():
         raise EvalError(
             "the configuration changed after the freeze: scores are no longer comparable. "
             "Start a new run directory."

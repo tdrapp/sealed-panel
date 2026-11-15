@@ -244,7 +244,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "rubric lock off": (SPEC, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
         SPEC,
-        "if fingerprint(raw) != read_text(lock).strip():",
+        "if frozen.fingerprint != read_text(lock).strip():",
         "if False:",
     ),
     "declared choice unchecked": (
@@ -705,20 +705,10 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        )\n"
         "    return entry",
     ),
-    "a run frozen before 0.4.0 written": (
+    "a run created before 0.4.0 accepted": (
         SPEC,
-        '    if version is not None:\n        raise EvalError(\n            f"this run was frozen by',
-        '    if False:\n        raise EvalError(\n            f"this run was frozen by',
-    ),
-    "an older run's own settings hidden": (
-        SPEC,
-        '    return removed_overrides(load_json(run / "config.json"), version)\n',
-        "    return []\n",
-    ),
-    "an older run refused through MCP as a settings difference": (
-        MCP,
-        "        refuse_older_run(where)  # its own refusal, not a settings difference\n",
-        "",
+        '    if not isinstance(found, dict) or found.get("schema_version") != SCHEMA_VERSION:\n',
+        "    if False:\n",
     ),
     "the control compared raw": (
         BRIEF,
@@ -1110,8 +1100,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a frozen configuration not checked for its shape": (
         SPEC,
-        "    if data is None or shape:\n",
-        "    if data is None:\n",
+        "    if shape:\n",
+        "    if False:\n",
     ),
     "stale files settled in host mode": (
         RUN,

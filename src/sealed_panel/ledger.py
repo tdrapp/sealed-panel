@@ -69,8 +69,7 @@ def rounds(run: Path) -> list[dict[str, Any]]:
 
 def view(run: Path) -> dict[str, Any]:
     """The run's ledger, derived: the rubric hash from `rubric.lock` and the aggregated rounds.
-    It replaces `ledger.json`, which 0.4.0 no longer writes (a run frozen before still has one,
-    and it agrees with its round files: 0.4.0 never writes to such a run).
+    It replaces `ledger.json`, which 0.4.0 no longer writes.
 
     Args:
         run: The run directory.

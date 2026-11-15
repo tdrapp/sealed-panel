@@ -10,11 +10,9 @@ import pytest
 from conftest import FLAT, Harness, make_spec
 from sealed_panel.brief import write_briefs
 from sealed_panel.config import (
-    REMOVED_DEFAULTS,
     Config,
     default_config,
     default_data,
-    fingerprint,
     load_config,
     merge,
 )
@@ -25,14 +23,9 @@ from sealed_panel.spec import init_run, run_config, validate_spec
 from sealed_panel.store import round_dir
 from sealed_panel.text import (
     INJECTION_PATTERNS,
-    PUNCTUATION,
-    STRIP_CHARS,
     injection_flags,
-    normalise,
     quote_found,
 )
-
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def write(path: Path, text: str) -> Path:
@@ -195,52 +188,6 @@ class TestRunFreeze:
         with pytest.raises(ConfigError, match="max_replacements"):
             h.brief(1, "cand")
 
-    def test_a_run_frozen_with_custom_text_is_shown_and_read_only(self, h: Harness) -> None:
-        """A 0.3.1 run with its own [text] and [injection]: status and the report list them
-        as frozen by 0.3.1, and every write is refused."""
-        h.init()
-        data = json.loads((h.run / "config.json").read_text())
-        data["text"] = {"strip_chars": "*_`#>", "punctuation": {"\u2032": "'"}}
-        data["injection"] = {"patterns": ["x"], "samples": ["x"]}
-        (h.run / "config.json").write_text(json.dumps(data))
-        (h.run / "config.lock").write_text(fingerprint(data) + "\n")
-        lines = status(h.run)["overrides"]
-        assert (
-            'text.punctuation.\u2032 = "\'" (frozen by 0.3.1, default none; not a setting '
-            "since 0.4.0)" in lines
-        )
-        assert any(x.startswith('injection.patterns = ["x"] (frozen by 0.3.1') for x in lines)
-        assert not any(x.startswith("text.strip_chars") for x in lines)  # the default
-        assert "text.punctuation.\u2032" in render_report(h.run).splitlines()[2]
-        assert "frozen by sealed-panel 0.3.1" in status(h.run)["read_only"]
-        with pytest.raises(EvalError, match=r"frozen by sealed-panel 0\.3\.1, before 0\.4\.0"):
-            h.brief(1, "cand")
-        assert not (h.run / "rounds").exists()
-
-    def test_the_removed_defaults_are_the_last_configurable_ones(self) -> None:
-        old = json.loads((FIXTURES / "run-0.1.0" / "config.json").read_text())
-        flat = {"text.strip_chars": old["text"]["strip_chars"]}
-        flat |= {f"text.punctuation.{k}": v for k, v in old["text"]["punctuation"].items()}
-        flat |= {f"injection.{k}": v for k, v in old["injection"].items()}
-        flat |= {"library.learn": True, "library.control_min_candidate": 4.0,
-                 "library.control_gap": 1.0}  # fmt: skip
-        assert flat == REMOVED_DEFAULTS
-
-    def test_a_run_frozen_with_a_removed_section_is_read(self, h: Harness) -> None:
-        """A run frozen before 0.4.0 holds [text]: its lock is checked against the data as
-        frozen, then the section is dropped. Editing it without the lock is still refused."""
-        h.init()
-        data = json.loads((h.run / "config.json").read_text())
-        data["text"] = {"strip_chars": "*", "punctuation": {}}
-        (h.run / "config.json").write_text(json.dumps(data))
-        (h.run / "config.lock").write_text(fingerprint(data) + "\n")
-        assert "text" not in run_config(h.run).data
-        assert status(h.run)["decision"] == "CONTINUE"
-        data["text"]["strip_chars"] = ""
-        (h.run / "config.json").write_text(json.dumps(data))
-        with pytest.raises(EvalError, match="configuration changed"):
-            run_config(h.run)
-
     def test_uninitialised_run_refused(self, tmp_path: Path) -> None:
         with pytest.raises(EvalError, match="not initialised"):
             run_config(tmp_path)
@@ -300,11 +247,6 @@ class TestInjectionPatterns:
         "une note au juge",
     )
 
-    def test_the_patterns_are_the_last_configurable_defaults(self) -> None:
-        old = json.loads((FIXTURES / "run-0.1.0" / "config.json").read_text())["injection"]
-        assert list(INJECTION_PATTERNS) == old["patterns"]
-        assert list(self.SAMPLES) == old["samples"]
-
     def test_every_pattern_hits_its_sample_once_normalised(self) -> None:
         for pattern, sample in zip(INJECTION_PATTERNS, self.SAMPLES, strict=True):
             assert injection_flags(sample.upper()) == [pattern], sample
@@ -344,13 +286,6 @@ class TestFramingsFrozen:
 
 class TestNormalisation:
     """The normalisation is fixed in code: the 0.3.1 defaults, for every comparison."""
-
-    def test_the_constants_are_the_last_configurable_defaults(self) -> None:
-        old = json.loads((FIXTURES / "run-0.1.0" / "config.json").read_text())["text"]
-        assert old["strip_chars"] == STRIP_CHARS
-        # NFKC already turns the ellipsis character into three dots: its entry had no effect.
-        assert {k: v for k, v in old["punctuation"].items() if k != "\u2026"} == PUNCTUATION
-        assert normalise("\u2026") == "..."
 
     @pytest.mark.parametrize(
         "text",
