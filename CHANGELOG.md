@@ -104,9 +104,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
   versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
   and every command and MCP tool, read or write, refuses a run without it, before creating
-  anything in it, with one message: the run was created by an earlier version, 0.4.0 changed
-  what a run freezes, so finish or read it with the version that created it, installed from its
-  tag. No version before 0.4.0 was published to the package index.
+  anything in it: the run was created by an earlier version, 0.4.0 changed what a run freezes,
+  so finish or read it with the version that created it, installed from its tag (or its init
+  was interrupted: `run.json` is written last, so start again). A `run.json` of a newer format
+  says to upgrade; one that cannot be read says it is damaged. No version before 0.4.0 was
+  published to the package index.
 - **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
   its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
   derives the rounds from the round files (loop rounds first, by number) and the rubric hash

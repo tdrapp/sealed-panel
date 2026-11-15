@@ -8,9 +8,11 @@ sealed-panel [--version] <command> RUN [options]
 `init` accepts `--config PATH` (see [configuration.md](configuration.md)); every later command
 reads the configuration frozen into the run.
 
-`init` writes `run.json` with the run format (`schema_version`). Every command, read or write,
-refuses a run without it, one created by a version before 0.4.0, before creating anything in
-it: finish or read such a run with the version that created it, installed from its tag.
+`init` writes `run.json` with the run format (`schema_version`), last. Every command, read or
+write, refuses a run before creating anything in it when `run.json` is missing (a run created
+by a version before 0.4.0, to finish or read with that version, installed from its tag; or an
+interrupted init, to start again), holds a newer format (upgrade), or cannot be read
+(damaged).
 
 `--round N` is required for a loop round. With `--sealed` it is optional and defaults to 1,
 since a run has one sealed panel.

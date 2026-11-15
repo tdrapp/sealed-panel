@@ -707,7 +707,22 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a run created before 0.4.0 accepted": (
         SPEC,
-        '    if not isinstance(found, dict) or found.get("schema_version") != SCHEMA_VERSION:\n',
+        "    if not marker.exists() and not marker.is_symlink():\n",
+        "    if False:\n",
+    ),
+    "a damaged run marker accepted": (
+        SPEC,
+        "    if isinstance(version, bool) or not isinstance(version, int):\n",
+        "    if False:\n",
+    ),
+    "a run of a newer format accepted": (
+        SPEC,
+        "    if version > SCHEMA_VERSION:\n",
+        "    if False:\n",
+    ),
+    "a run of an older format accepted": (
+        SPEC,
+        "    if version < SCHEMA_VERSION:\n",
         "    if False:\n",
     ),
     "the control compared raw": (

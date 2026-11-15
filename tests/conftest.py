@@ -248,3 +248,31 @@ def slow_tier(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -
 @pytest.fixture
 def h(tmp_path: Path) -> Harness:
     return Harness(tmp_path)
+
+
+MARKERS = {
+    "missing": "this run has no run.json",
+    "older": "created by an earlier version of sealed-panel",
+    "newer": "created by a newer version of sealed-panel",
+    "not json": "is damaged",
+    "a list": "is damaged",
+    "a string version": "is damaged",
+    "a folder": "is damaged",
+}
+
+
+def mark(run: Path, how: str) -> None:
+    """Leave the run's run.json as a run of another version, or a damaged run, would."""
+    marker = run / "run.json"
+    marker.unlink()
+    body = {
+        "older": '{"schema_version": 0}',
+        "newer": '{"schema_version": 2}',
+        "not json": "{not json",
+        "a list": "[1]",
+        "a string version": '{"schema_version": "1"}',
+    }.get(how)
+    if body is not None:
+        marker.write_text(body)
+    elif how == "a folder":
+        marker.mkdir()

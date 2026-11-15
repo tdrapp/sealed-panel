@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import Harness
+from conftest import MARKERS, Harness, mark
 from sealed_panel import library
 from sealed_panel.cli import main
 
@@ -117,16 +117,18 @@ class TestRubricsCli:
         assert run(capsys, "rubrics", "promote", "../../x", "--yes")[0] == 2
 
 
-class TestRunCreatedBefore040:
-    """A run without the run.json of this version (created before 0.4.0) is refused by every
-    command, read or write, with one message, and nothing is created in it."""
+class TestRunOfAnotherFormat:
+    """A run whose run.json is missing (created before 0.4.0, or an interrupted init), of
+    another format, or damaged, is refused by every command, read or write, with the message
+    for its case, and nothing is created in it."""
 
+    @pytest.mark.parametrize("how", list(MARKERS))
     def test_every_command_refuses_it(
-        self, h: Harness, capsys: pytest.CaptureFixture[str], private_library: Path
+        self, h: Harness, how: str, capsys: pytest.CaptureFixture[str], private_library: Path
     ) -> None:
         h.init()
         h.full(1, "cand", {"clarity": 4, "evidence": 4})
-        (h.run / "run.json").unlink()  # as a 0.3.x run: no marker
+        mark(h.run, how)
         before = sorted(p.relative_to(h.run) for p in h.run.rglob("*"))
         art = ["--artefact", h.files["cand"], "--control", h.files["ctrl"]]
         reply = h.tmp / "reply.json"
@@ -144,7 +146,8 @@ class TestRunCreatedBefore040:
             ("feedback", r, "--note", "too kind"),
         ):
             rc, out = run(capsys, *args)
-            assert rc == 2 and "created by an earlier version of sealed-panel" in out, args
-            assert "@v<version>" in out, args
+            assert rc == 2 and MARKERS[how] in out, (how, args)
+        if how in ("missing", "older"):
+            assert "@v<version>" in out
         assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
         assert not private_library.exists()

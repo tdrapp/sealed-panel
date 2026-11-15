@@ -61,14 +61,23 @@ CHOICE_KEYS = frozenset({"choice", "user_said"})
 HOME_OR_RELATIVE = ("~/", "./", "../")
 # The run's salt for the hashes of the judge environment's values, created at init.
 ENV_SALT = "env.salt"
-# The run format, written to run.json at init: a run without it was created before 0.4.0.
+# The run format, written to run.json last at init (a marker, not hashed): a run without it
+# was created before 0.4.0, or its init was interrupted.
 SCHEMA_VERSION = 1
 RUN_FILE = "run.json"
+_FROM_ITS_TAG = (
+    "finish or read it with the version that created it, installed from its tag: pip install "
+    "'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
+)
+NO_MARKER = (
+    f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it (0.4.0 "
+    f"changed what a run freezes, so it neither reads nor writes such a run: {_FROM_ITS_TAG}), "
+    f"or its init was interrupted before writing {RUN_FILE}, which it writes last (start again "
+    "in a new run directory)"
+)
 OLDER_RUN = (
     "this run was created by an earlier version of sealed-panel: 0.4.0 changed what a run "
-    "freezes, so it neither reads nor writes it. Finish or read it with the version that created "
-    "it, installed from its tag: pip install "
-    "'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
+    f"freezes, so it neither reads nor writes it; {_FROM_ITS_TAG}"
 )
 SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
@@ -415,7 +424,8 @@ def init_run(
     digest = rubric_hash(spec)
     write_file(run / "rubric.lock", digest + "\n")
     write_file(run / ENV_SALT, secrets.token_hex(SALT_BYTES) + "\n")
-    dump_json(run / RUN_FILE, {"schema_version": SCHEMA_VERSION})  # written, not hashed
+    # Written last: a run left without it by a crash is refused as incomplete, never read.
+    dump_json(run / RUN_FILE, {"schema_version": SCHEMA_VERSION})
     return digest
 
 
@@ -445,8 +455,25 @@ def refuse_older_run(run: Path) -> None:
     if not (run / "rubric.lock").exists():
         return  # not a run: the step's own check says so
     marker = run / RUN_FILE
-    found = load_json(marker) if marker.is_file() else None
-    if not isinstance(found, dict) or found.get("schema_version") != SCHEMA_VERSION:
+    if not marker.exists() and not marker.is_symlink():
+        raise EvalError(NO_MARKER)
+    try:
+        found = load_json(marker)
+    except (EvalError, OSError):
+        found = None
+    version = found.get("schema_version") if isinstance(found, dict) else None
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise EvalError(
+            f'{marker} is damaged: it must hold {{"schema_version": {SCHEMA_VERSION}}}. A run\'s '
+            "files are written by sealed-panel only: restore it from a copy, or start a new run"
+        )
+    if version > SCHEMA_VERSION:
+        raise EvalError(
+            f"this run was created by a newer version of sealed-panel (run format {version}; "
+            f"this version reads format {SCHEMA_VERSION}): upgrade sealed-panel to read or "
+            "finish it"
+        )
+    if version < SCHEMA_VERSION:
         raise EvalError(OLDER_RUN)
 
 

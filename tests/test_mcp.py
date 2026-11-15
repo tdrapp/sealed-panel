@@ -18,7 +18,7 @@ pytest.importorskip("fastmcp")
 
 from fastmcp import Client
 
-from conftest import BAD, FLAT, Harness, judge_json, make_spec
+from conftest import BAD, FLAT, MARKERS, Harness, judge_json, make_spec, mark
 from sealed_panel import mcp_server
 from sealed_panel.config import Config, load_config
 from sealed_panel.errors import ConfigError, EvalError
@@ -897,22 +897,32 @@ class TestRoundThreeProbes:
                 msg = await error(c, tool, run="run", **args)
                 assert "unknown configuration key 'transcript.tool_block_type'" in msg
 
-    async def test_a_run_created_before_0_4_0_is_refused(self, h: Harness, mode: str) -> None:
+    @pytest.mark.parametrize("how", list(MARKERS))
+    async def test_a_run_of_another_format_is_refused(
+        self, h: Harness, mode: str, how: str
+    ) -> None:
         write_spec(h)
-        async with Client(build_server(h.tmp), mode=mode) as c:
+        host = transcripts_of(h)
+        t = host / "t.jsonl"
+        t.write_text('{"type": "user", "agentId": "a", "message": {"content": "x"}}\n')
+        async with Client(build_server(h.tmp, None, [host]), mode=mode) as c:
             await call(c, "init", run="run", spec="spec.json")
-            (h.run / "run.json").unlink()  # as a 0.3.x run: no marker
+            mark(h.run, how)
             before = sorted(p.relative_to(h.run) for p in h.run.rglob("*"))
+            rec = {"judge": 1, "agent_id": "a", "round": 1}
             for tool, args in (
                 ("status", {}),
                 ("report", {}),
                 ("brief", {"sealed": True, "artefact": "cand.md", "control": "ctrl.md"}),
-                ("record", {"judge": 1, "agent_id": "a", "sealed": True, "reply": "{}"}),
+                ("record", {**rec, "reply": "{}"}),
+                ("record", {**rec, "transcript": str(t)}),
+                ("record", {**rec, "transcript": str(t), "void": True}),
+                ("judge", {"round": 1}),
                 ("measure", {"id": "length", "value": "1", "sealed": True}),
                 ("aggregate", {"round": 1}),
             ):
                 msg = await error(c, tool, run="run", **args)
-                assert "created by an earlier version of sealed-panel" in msg, tool
+                assert MARKERS[how] in msg, (how, tool)
         assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
 
     @pytest.mark.slow
