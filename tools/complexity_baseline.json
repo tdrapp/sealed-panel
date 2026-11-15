@@ -15,7 +15,6 @@
   "src/sealed_panel/learning/candidates.py:side_by_side": 16,
   "src/sealed_panel/learning/learn.py:_judges_disagree": 15,
   "src/sealed_panel/learning/learn.py:user_disagreement": 14,
-  "src/sealed_panel/mcp_server.py:build_server": 11,
   "src/sealed_panel/measure.py:record_measurement": 18,
   "src/sealed_panel/record.py:record_attempt": 30,
   "src/sealed_panel/record.py:record_from": 12,
