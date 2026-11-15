@@ -362,8 +362,8 @@ and the injection patterns are fixed in code). A spec may override the per-run k
 --config PATH` overrides the rest, within hard bounds, and the effective configuration is
 frozen into the run. The brief texts stay in code, because they are the instrument. Every key
 and bound is documented in [docs/configuration.md](docs/configuration.md). The CLI is
-described in [docs/cli.md](docs/cli.md) and the reasoning behind each rule in
-[docs/protocol.md](docs/protocol.md).
+described in [docs/cli.md](docs/cli.md), the Python API in [docs/api.md](docs/api.md), and
+the reasoning behind each rule in [docs/protocol.md](docs/protocol.md).
 
 ## Repository structure
 

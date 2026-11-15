@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .errors import EvalError
-from .model import FORMAT_SINCE, INJECTION_ACK, SCHEMA_VERSION, FrozenSpec
+from .model import FORMAT_SINCE, INJECTION_ACK, SCHEMA_VERSION, FrozenSpec, Spec
 from .rubric import rubric_hash, validate_spec
 from .settings import MISSING_KEY, Config, schema_errors
 from .store import (
@@ -105,7 +105,7 @@ def _check_acknowledgement(spec: dict[str, Any], acknowledge: bool) -> None:
 
 
 def prepare_spec(
-    run: Path, spec_path: Path, cfg: Config, facts_root: Path | None, acknowledge: bool
+    run: Path, spec_path: Path | Spec, cfg: Config, facts_root: Path | None, acknowledge: bool
 ) -> FrozenSpec:
     """The first half of init (see steps.init_run): refuse a run directory that is not new or
     empty, then read and validate the spec, refuse an acknowledgement this caller may not
@@ -113,7 +113,7 @@ def prepare_spec(
 
     Args:
         run: A new or empty directory for the run.
-        spec_path: The spec file.
+        spec_path: The spec file, or a Spec.
         cfg: The configuration.
         facts_root: A folder a `facts_file` must resolve under, or None.
         acknowledge: Whether this caller may freeze a spec that acknowledges injection flags.
@@ -126,14 +126,19 @@ def prepare_spec(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
             "directory, so it never writes over another program's files"
         )
-    spec = load_json(spec_path)  # untrusted until validate_spec passes
+    # Untrusted until validate_spec passes. A Spec has no facts_file to resolve.
+    spec: Any
+    if isinstance(spec_path, Spec):
+        spec, base = spec_path.to_json(), Path.cwd()
+    else:
+        spec, base = load_json(spec_path), Path(spec_path).parent
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
     _check_acknowledgement(spec, acknowledge)
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
-    _freeze_facts(spec, Path(spec_path).parent, facts_root)
+    _freeze_facts(spec, base, facts_root)
     frozen: FrozenSpec = spec  # validated above, its defaults filled
     return frozen
 

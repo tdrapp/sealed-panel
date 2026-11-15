@@ -178,5 +178,6 @@ print(render_report(run))
 `examples/runner/library_usage.py` is this one-shot grade as a script, with a rejected or void
 judge replaced once. A loop run is the same calls with `sealed=False` and a round number,
 revising from `RUN/feedback/after_rN.md` while `status(run)["decision"]` is `CONTINUE`. Every
-refusal raises `EvalError` with its reason. An HTTP transport for the MCP server is not part of
-this release.
+refusal raises `EvalError` with its reason. [api.md](api.md) lists the stable names, a spec
+written in Python (`Spec`) and the exceptions. An HTTP transport for the MCP server is not part
+of this release.

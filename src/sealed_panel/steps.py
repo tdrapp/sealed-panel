@@ -9,7 +9,7 @@ from . import templates
 from .aggregate import aggregate
 from .errors import EvalError
 from .ledger import results_by_judge
-from .model import RoundResult
+from .model import RoundResult, Spec
 from .record import round_keys
 from .report import write_feedback
 from .run import freeze, load_frozen, prepare_spec, run_config
@@ -20,7 +20,7 @@ from .store import dump_json, round_dir, run_lock
 
 def init_run(
     run: Path,
-    spec_path: Path,
+    spec_path: Path | Spec,
     cfg: Config | None = None,
     library: Path | None = None,
     facts_root: Path | None = None,
@@ -31,7 +31,7 @@ def init_run(
 
     Args:
         run: A new or empty directory for the run.
-        spec_path: The spec file.
+        spec_path: The spec file, or a Spec built in Python.
         cfg: The configuration; the packaged defaults when None.
         library: The user rubric library, read for a template the spec names; the default
             one when None.

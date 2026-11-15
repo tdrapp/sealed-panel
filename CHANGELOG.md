@@ -95,8 +95,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
   exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
 
-- **Breaking** for code that imports a module rather than the package. Everything in
-  `sealed_panel.__all__` still imports from `sealed_panel`, unchanged. The package is split into
+- **Breaking** for code that imports a module rather than the package. The package is split into
   one module per job, with no change in behaviour: `spec`, `config`, `library` and `learn` are
   gone, learning lives in the `sealed_panel.learning` subpackage, which the core never imports
   (the commands keep their names), `aggregate` computes a round and writes nothing
@@ -145,6 +144,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the table marks for one and 3 to 6 dimensions, a spec may add `weight` and `personas` and
   has no count bound. What each accepts and every error it gives are unchanged, checked on
   20,000 generated specs and templates against the previous validators.
+- **Breaking:** `sealed_panel.__all__` is the stable API, and smaller. Kept: the step functions
+  (`init_run`, `write_briefs`, `record_reply`, `record_from`, `record_measurement`,
+  `judge_round`, `aggregate_round`, `status`, `render_report`), `Config` and `load_config`,
+  `EvalError` and `ConfigError`, `__version__`. Added: `Spec`, a spec written in Python that
+  `init_run` takes in place of a spec file and checks the same way; `SCHEMA_VERSION`; and the
+  exceptions a caller may catch, `SeatTaken` and `MalformedReply`. No longer imported from
+  `sealed_panel` (import them from their module; unstable until 1.0): `build_brief` (`brief`),
+  `check_output` (`reply`), `decide` (`decide`), `default_config` (`settings`), `judge_seat` and
+  `open_seats` (`runner`), `last_reply` (`transcript`), `load_frozen` (`run`), `normalise` and
+  `quote_found` (`text`), `overrides` (`report`), `validate_spec` (`rubric`). New page
+  `docs/api.md`, whose example a test runs. The package already shipped `py.typed`.
 
 ### Removed
 

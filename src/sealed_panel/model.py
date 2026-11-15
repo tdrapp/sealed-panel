@@ -7,12 +7,15 @@ untrusted input is validated where it enters (`rubric.validate_spec` for a spec,
 `reply.check_output` for a judge's reply, `settings` for a configuration file), and its type is
 given only after that.
 
-These types are not part of the stable API until 1.0: import them from this module.
+These types are not part of the stable API until 1.0: import them from this module. `Spec`,
+the one frozen dataclass, is: it is the input a library user builds (`sealed_panel.Spec`).
 """
 
 from __future__ import annotations
 
-from typing import Final, NotRequired, Required, TypedDict
+import copy
+from dataclasses import dataclass, fields
+from typing import Any, Final, NotRequired, Required, TypedDict
 
 # The spec key that acknowledges the injection flags, frozen and hashed with the rubric.
 INJECTION_ACK: Final = "injection_acknowledged"
@@ -323,3 +326,59 @@ class Decision(TypedDict, total=False):
     feedback: str
     overrides: list[str]
     injection_acknowledged: str
+
+
+# -- the one input type of the API --------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Spec:
+    """A spec written in Python, given to `init_run` in place of a spec file. It goes through
+    the same checks as a file: `init_run` refuses it with every problem `validate_spec` finds.
+    A key left at None (or an empty tuple) is left out of the spec, so the run's defaults
+    apply; give `facts` as text (a spec file's `facts_file` has no equivalent here).
+
+    Args:
+        title: A neutral title; the judges see it.
+        purpose: What a 5 makes happen.
+        personas: Who reads the text, each with an `id` and a `description`.
+        dimensions: What is scored, each with an `id`, a `question` and `anchors` at 1, 3, 5.
+        facts: The facts the judges may trust, as text.
+        measured: Criteria an instrument measures, scored by `record_measurement`.
+        declared_choices: Choices the user declared, each with `choice` and `user_said`.
+        framings: The reading stances rotated across judges.
+        judges_per_persona: Judges per persona in each panel.
+        max_rounds: The loop's round limit.
+        control_max: The highest mean a judge may give the control.
+        good_min: The lowest mean a judge may give the known-good.
+        noise_floor_min: The lowest noise the stop rule uses.
+        template: The template the spec started from (`id` and `version`).
+        injection_acknowledged: Why text addressed to a judge belongs in the candidate.
+    """
+
+    title: str
+    purpose: str
+    personas: tuple[Persona, ...]
+    dimensions: tuple[Dimension, ...]
+    facts: str | None = None
+    measured: tuple[Measured, ...] = ()
+    declared_choices: tuple[DeclaredChoice, ...] = ()
+    framings: tuple[str, ...] = ()
+    judges_per_persona: int | None = None
+    max_rounds: int | None = None
+    control_max: float | None = None
+    good_min: float | None = None
+    noise_floor_min: float | None = None
+    template: TemplateRef | None = None
+    injection_acknowledged: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        """The spec as a spec file holds it: every key given, in field order, sequences as
+        lists, and nothing for a key left at None or empty."""
+        out: dict[str, Any] = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value is None or value == ():
+                continue
+            out[f.name] = [copy.deepcopy(v) for v in value] if isinstance(value, tuple) else value
+        return out
