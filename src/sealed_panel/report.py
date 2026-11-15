@@ -19,7 +19,16 @@ from .decide import (
 )
 from .ledger import other_runs, used_agent_ids
 from .ledger import view as ledger_view
-from .model import INJECTION_ACK, RUNNER
+from .model import (
+    INJECTION_ACK,
+    RUNNER,
+    Attempt,
+    Decision,
+    DimensionResult,
+    FrozenSpec,
+    LedgerView,
+    RoundResult,
+)
 from .rubric import dims_for
 from .run import load_frozen, run_config
 from .settings import NOT_GRADING, Config, default_data
@@ -37,7 +46,7 @@ FEEDBACK_CLOSING = (
 )
 
 
-def feedback_for_author(entry: dict[str, Any]) -> str:
+def feedback_for_author(entry: RoundResult) -> str:
     """What the author reads: the judges' blocking and material reasons, not their numbers.
     Hygiene, not a guarantee: the ledger is readable; the protection is the fresh and sealed
     panels."""
@@ -67,7 +76,7 @@ def feedback_path(run: Path, rnd: int) -> Path:
     return run / "feedback" / f"after_r{rnd}.md"
 
 
-def write_feedback(run: Path, entry: dict[str, Any]) -> Path:
+def write_feedback(run: Path, entry: RoundResult) -> Path:
     """Write the author's findings for a loop round and return their path.
 
     Args:
@@ -79,7 +88,7 @@ def write_feedback(run: Path, entry: dict[str, Any]) -> Path:
     return path
 
 
-def status(run: Path) -> dict[str, Any]:
+def status(run: Path) -> Decision:
     """The decision for the run, read-only. On CONTINUE, names the author's findings file.
 
     Args:
@@ -103,11 +112,11 @@ def status(run: Path) -> dict[str, Any]:
     return d
 
 
-def _cell(e: dict[str, Any]) -> str:
+def _cell(e: DimensionResult) -> str:
     return f"{e['median']:g} ({'/'.join(map(str, e['scores']))})"
 
 
-def acknowledgement_line(spec: dict[str, Any]) -> str:
+def acknowledgement_line(spec: FrozenSpec) -> str:
     """The injection acknowledgement, printed on the grade line when the spec has one."""
     ack = spec.get(INJECTION_ACK)
     return f" Injection flags acknowledged: {ack!r}." if ack else ""
@@ -119,7 +128,7 @@ def model_line(cfg: Config) -> str:
     return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."
 
 
-def _sealed_headline(spec: dict[str, Any], d: dict[str, Any], model: str) -> list[str]:
+def _sealed_headline(spec: FrozenSpec, d: Decision, model: str) -> list[str]:
     f = d["final"]
     dims = [(pid, did, e) for pid, p in f["personas"].items() for did, e in p["dimensions"].items()]
     lows = [f"{pid}/{did}" for pid, did, e in dims if e["median"] < TOP_SCORE]
@@ -155,7 +164,7 @@ def _sealed_headline(spec: dict[str, Any], d: dict[str, Any], model: str) -> lis
     return out
 
 
-def _round_table(spec: dict[str, Any], ledger: dict[str, Any]) -> list[str]:
+def _round_table(spec: FrozenSpec, ledger: LedgerView) -> list[str]:
     cols = [(p["id"], dd["id"]) for p in spec["personas"] for dd in dims_for(spec, p["id"])]
     mids = [m["id"] for m in spec.get("measured") or []]
     hdr = [
@@ -188,7 +197,7 @@ def _round_table(spec: dict[str, Any], ledger: dict[str, Any]) -> list[str]:
     return out
 
 
-def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
+def _notes(run: Path, ledger: LedgerView, d: Decision) -> list[str]:
     out = []
     if sealed_done(d):
         f = d["final"]
@@ -225,8 +234,8 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
             )
         for role, found in sorted(flagged_roles(r).items()):
             out.append(f"- {name}: the {role} item addresses a judge {found}")
-        for x in r.get("rejected_judges") or []:
-            out.append(f"- {name}: judge {x['judge']} rejected: {'; '.join(x['errors'][:3])}")
+        for rj in r.get("rejected_judges") or []:
+            out.append(f"- {name}: judge {rj['judge']} rejected: {'; '.join(rj['errors'][:3])}")
         for v in r.get("voided") or []:
             if v.get("source") == RUNNER:
                 why = f"by the judge runner: {v.get('reason')}"
@@ -241,16 +250,16 @@ def _notes(run: Path, ledger: dict[str, Any], d: dict[str, Any]) -> list[str]:
                 f"- {name}: judge {j}'s prompt carried {n} characters beyond its brief; "
                 "read what was added"
             )
-        for j in r.get("one_quote_judges") or []:
+        for oq in r.get("one_quote_judges") or []:
             out.append(
-                f"- {name}: judge {j} quoted the same words for every dimension of the "
+                f"- {name}: judge {oq} quoted the same words for every dimension of the "
                 "candidate; its scores may not rest on distinct evidence"
             )
         out += _source_notes(name, r)
     return out + _panel_env_note(ledger)
 
 
-def _panel_env_note(ledger: dict[str, Any]) -> list[str]:
+def _panel_env_note(ledger: LedgerView) -> list[str]:
     changed = panel_env_changes(ledger)
     if not changed:
         return []
@@ -261,7 +270,7 @@ def _panel_env_note(ledger: dict[str, Any]) -> list[str]:
     ]
 
 
-def _env_union(rounds: list[dict[str, Any]]) -> dict[str, set[str]] | None:
+def _env_union(rounds: list[RoundResult]) -> dict[str, set[str]] | None:
     found: dict[str, set[str]] | None = None
     for r in rounds:
         hashes = r.get("runner_env_hashes")
@@ -272,7 +281,7 @@ def _env_union(rounds: list[dict[str, Any]]) -> dict[str, set[str]] | None:
     return found
 
 
-def panel_env_changes(ledger: dict[str, Any]) -> list[str]:
+def panel_env_changes(ledger: LedgerView) -> list[str]:
     """The `[judge] env_allow` names whose values differ between the sealed panel and the loop
     rounds, by their salted hashes; empty when either side carries no hashes.
 
@@ -286,7 +295,7 @@ def panel_env_changes(ledger: dict[str, Any]) -> list[str]:
     return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))
 
 
-def _source_notes(name: str, r: dict[str, Any]) -> list[str]:
+def _source_notes(name: str, r: RoundResult) -> list[str]:
     """What the report says about where a round's replies came from."""
     out = []
     if "output" in r.get("sources", []):
@@ -318,7 +327,7 @@ def render_report(run: Path) -> str:
     d = decide(spec, ledger)
     n_ctx = len(used_agent_ids(run))
     changed = overrides(cfg, spec)
-    ref = spec.get("template") or {}
+    ref: Mapping[str, object] = spec.get("template") or {}
     template = (
         f"template {ref.get('id')} v{ref.get('version')}"
         + (" (modified)" if ref.get("modified") else "")
@@ -353,7 +362,7 @@ def render_report(run: Path) -> str:
     return "\n".join(out) + "\n"
 
 
-def outcome_line(r: dict[str, Any]) -> str:
+def outcome_line(r: Attempt) -> str:
     """What `record` and `judge` print for one recorded attempt."""
     if r.get("void"):
         return f"VOID judge {r['judge']}: " + (

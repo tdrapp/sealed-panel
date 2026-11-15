@@ -36,11 +36,11 @@ from typing import Any
 
 from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
-from .model import RUNNER
+from .model import RUNNER, Attempt, Proof, RoundKeys, Started
 from .record import record_attempt, round_keys
 from .run import load_frozen, run_config, run_salt
 from .seat import check_seat, check_void_cap, seat_lock
-from .settings import Config
+from .settings import Config, JudgeSettings
 from .store import dump_json, load_json, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.
@@ -102,13 +102,13 @@ def env_hashes(cfg: Config, env: Mapping[str, str], salt: bytes | None) -> dict[
     }
 
 
-def _runnable(judge: int, prior: list[dict[str, Any]], cfg: Config) -> None:
+def _runnable(judge: int, prior: list[Attempt], cfg: Config) -> None:
     """The refusals `record` would apply to a runner reply, checked before a process starts."""
     check_seat(judge, prior, RUNNER, cfg)
     check_void_cap(judge, prior)
 
 
-def check_judge(cfg: Config, expected: Mapping[str, Any] | None) -> None:
+def check_judge(cfg: Config, expected: JudgeSettings | None) -> None:
     """Refuse a run whose frozen judge settings differ from `expected`, the [judge] section of
     the configuration the user started the MCP server with: the caller never picks its judge."""
     if expected is None:
@@ -122,8 +122,8 @@ def check_judge(cfg: Config, expected: Mapping[str, Any] | None) -> None:
 
 
 def _open_round(
-    run: Path, rnd: int, sealed: bool, expected: Mapping[str, Any] | None = None
-) -> tuple[Config, Path, dict[str, Any]]:
+    run: Path, rnd: int, sealed: bool, expected: JudgeSettings | None = None
+) -> tuple[Config, Path, RoundKeys]:
     load_frozen(run)
     cfg = run_config(run)
     judge_command(cfg)
@@ -137,10 +137,6 @@ def _open_round(
 def _refuse_closed(rdir: Path) -> None:
     if (rdir / "result.json").is_file():
         raise EvalError("this round is already aggregated: the runner fills a round before that")
-
-
-# What a void keeps from a started record: the command and its start time, nothing else.
-STARTED_KEYS = ("argv", "started_at")
 
 
 def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path) -> None:
@@ -157,26 +153,29 @@ def _settle(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _started(path: Path) -> dict[str, Any]:
+def _started(path: Path) -> Started:
     """A started record's content; an unreadable one (cut short by a power loss) is empty, so
     its attempt still becomes a void, with nothing taken from it."""
     try:
-        held = load_json(path)
+        held: Started = load_json(path)
     except EvalError:
         return {}
     return held if isinstance(held, dict) else {}
 
 
-def _record_stale(
-    run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, held: dict[str, Any]
-) -> None:
+def _record_stale(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, held: Started) -> None:
     """A dead runner's attempt, recorded as a void."""
     if any(r["ok"] for r in results_by_judge(rdir).get(judge, [])):
         return
     agent = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
     failure = "the runner that started this judge stopped before recording it"
-    kept = {k: held[k] for k in STARTED_KEYS if k in held}
-    proof = {**kept, "stale": True, "failure": failure}
+    # What a void keeps from a started record: the command and its start time, nothing else.
+    kept: Proof = {}
+    if "argv" in held:
+        kept["argv"] = held["argv"]
+    if "started_at" in held:
+        kept["started_at"] = held["started_at"]
+    proof: Proof = {**kept, "stale": True, "failure": failure}
     try:
         record_attempt(run, rnd, judge, agent, "", sealed, RUNNER, void=True, runner=proof)
     except EvalError:
@@ -212,7 +211,7 @@ def open_seats(
     rnd: int,
     sealed: bool,
     only: list[int] | None = None,
-    expected: Mapping[str, Any] | None = None,
+    expected: JudgeSettings | None = None,
 ) -> list[int]:
     """The judge slots of a round without a valid reply and not held by another call,
     in order (only those in `only` when given). A dead runner's attempt is recorded as a void
@@ -348,8 +347,8 @@ def _launch(
 
 
 def judge_seat(
-    run: Path, rnd: int, judge: int, sealed: bool, expected: Mapping[str, Any] | None = None
-) -> dict[str, Any]:
+    run: Path, rnd: int, judge: int, sealed: bool, expected: JudgeSettings | None = None
+) -> Attempt:
     """Start one fresh judge process on one brief and record what it gave: a reply (valid or
     rejected), or a void when it failed, timed out, wrote nothing or too much, or its reply was
     refused. The seat's lock is held from the check to the record, so two calls never judge it
@@ -370,9 +369,7 @@ def judge_seat(
         return _judge_held(run, rnd, judge, sealed, rdir, cfg)
 
 
-def _judge_held(
-    run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Config
-) -> dict[str, Any]:
+def _judge_held(run: Path, rnd: int, judge: int, sealed: bool, rdir: Path, cfg: Config) -> Attempt:
     """judge_seat, under the seat's lock."""
     _refuse_closed(rdir)  # aggregated since the first check
     _settle(run, rnd, judge, sealed, rdir)
@@ -386,12 +383,12 @@ def _judge_held(
     brief = (rdir / f"brief_j{judge}.md").read_bytes()
     agent_id = f"{RUNNER}-{secrets.token_hex(AGENT_BYTES)}"
     argv = judge_command(cfg)
-    timeout = int(cfg.judge["timeout_s"])
-    cap = int(cfg.judge["max_reply_bytes"])
-    cap_err = int(cfg.judge["max_stderr_bytes"])
+    timeout = cfg.judge["timeout_s"]
+    cap = cfg.judge["max_reply_bytes"]
+    cap_err = cfg.judge["max_stderr_bytes"]
     env = child_env(cfg)
     log = rdir / f"runner_j{judge}_{agent_id}.log"
-    proof: dict[str, Any] = {
+    proof: Proof = {
         "brief_sha256": hashlib.sha256(brief).hexdigest(),
         "argv": argv,
         "timeout_s": timeout,
@@ -459,9 +456,9 @@ def judge_round(
     rnd: int,
     sealed: bool,
     only: list[int] | None = None,
-    expected: Mapping[str, Any] | None = None,
-    on_seat: Callable[[int, dict[str, Any] | None, str], None] | None = None,
-) -> list[dict[str, Any]]:
+    expected: JudgeSettings | None = None,
+    on_seat: Callable[[int, Attempt | None, str], None] | None = None,
+) -> list[Attempt]:
     """Run the judge command once for every open seat of a round, one after the other, and
     return each recorded result. A seat another call takes meanwhile is skipped; any other
     refusal stops the round, and what was recorded stays.

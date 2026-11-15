@@ -4,12 +4,12 @@ the domain modules, so none of them needs another's knowledge."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from . import templates
 from .aggregate import aggregate
 from .errors import EvalError
 from .ledger import results_by_judge
+from .model import RoundResult
 from .record import round_keys
 from .report import write_feedback
 from .run import freeze, load_frozen, prepare_spec, run_config
@@ -46,7 +46,7 @@ def init_run(
     return freeze(run, spec, cfg)
 
 
-def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
+def aggregate_round(run: Path, rnd: int, sealed: bool) -> RoundResult:
     """Aggregate a round once, write it to the round's result.json and return it. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md. Nothing is
     written outside the run: learning is a command of its own. Every
@@ -62,7 +62,7 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         return _aggregate_held(run, rnd, sealed)
 
 
-def _aggregate_held(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
+def _aggregate_held(run: Path, rnd: int, sealed: bool) -> RoundResult:
     """aggregate_round, with every seat held: aggregate the round, store its result, and after
     a loop round write the author's findings."""
     spec = load_frozen(run)

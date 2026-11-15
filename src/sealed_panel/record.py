@@ -10,11 +10,10 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
 
 from .errors import EvalError, MalformedReply
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
-from .model import RUNNER
+from .model import RUNNER, Attempt, Proof, RoundKeys, Seat
 from .reply import check_output, extract_json
 from .rubric import dims_for
 from .run import load_frozen, refuse_older_run, run_config
@@ -46,7 +45,7 @@ def safe_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", s)[:SAFE_NAME_CHARS]
 
 
-def _store(rdir: Path, judge: int, agent_id: str, raw: str, result: dict[str, Any]) -> None:
+def _store(rdir: Path, judge: int, agent_id: str, raw: str, result: Attempt) -> None:
     tag = hashlib.sha256(agent_id.encode("utf-8")).hexdigest()[:AGENT_TAG_CHARS]
     dump_json(
         rdir / f"out_j{judge}_{safe_name(agent_id)}_{tag}.json", {"raw": raw, "result": result}
@@ -57,11 +56,11 @@ def _void(
     rdir: Path,
     judge: int,
     agent_id: str,
-    meta: dict[str, Any],
+    meta: Seat,
     transcript: Path,
-    prior: list[dict[str, Any]],
+    prior: list[Attempt],
     cfg: Config,
-) -> dict[str, Any]:
+) -> Attempt:
     """An agent that received a brief and stopped without a reply: recorded as void so the
     round can be aggregated. A void clears the unrecorded-agent block but never fills a seat.
     Refused when the agent got the whole brief and left any reply: that reply is recorded."""
@@ -75,7 +74,7 @@ def _void(
             "this judge got the brief and replied: record its reply, it cannot be voided"
         )
     check_void_cap(judge, prior)
-    result: dict[str, Any] = {
+    result: Attempt = {
         "ok": False,
         "void": True,
         "replied": replied,
@@ -100,15 +99,15 @@ def _runner_void(
     rdir: Path,
     judge: int,
     agent_id: str,
-    meta: dict[str, Any],
+    meta: Seat,
     raw: str,
-    proof: dict[str, Any],
-    prior: list[dict[str, Any]],
-) -> dict[str, Any]:
+    proof: Proof,
+    prior: list[Attempt],
+) -> Attempt:
     """A judge process that failed or timed out: the brief was delivered, no reply came back.
     Recorded as void, under the void cap; whatever it wrote is kept for a human, never read."""
     check_void_cap(judge, prior)
-    result: dict[str, Any] = {
+    result: Attempt = {
         "ok": False,
         "void": True,
         "replied": bool(raw.strip()),
@@ -126,7 +125,7 @@ def _runner_void(
     return result
 
 
-def round_keys(rdir: Path, rnd: int) -> dict[str, Any]:
+def round_keys(rdir: Path, rnd: int) -> RoundKeys:
     """The round's keys.json, refused when the round is not briefed or the file is damaged.
 
     Args:
@@ -136,13 +135,13 @@ def round_keys(rdir: Path, rnd: int) -> dict[str, Any]:
     path = rdir / "keys.json"
     if not path.exists():
         raise EvalError(f"round {rnd} is not briefed ({path} is missing)")
-    keys = load_json(path)
+    keys: RoundKeys = load_json(path)
     if not isinstance(keys, dict) or not isinstance(keys.get("judges"), list):
         raise EvalError(f"{path} is damaged: no list of judges")
     return keys
 
 
-def _judge_meta(keys: dict[str, Any], judge: int, rdir: Path) -> dict[str, Any]:
+def _judge_meta(keys: RoundKeys, judge: int, rdir: Path) -> Seat:
     meta = next(
         (j for j in keys["judges"] if isinstance(j, dict) and j.get("judge") == judge), None
     )
@@ -171,7 +170,7 @@ def record_reply(
     transcript: Path | None = None,
     void: bool = False,
     malformed: str = "",
-) -> dict[str, Any]:
+) -> Attempt:
     """Validate and store one judge's reply, or a void attempt. Returns the result. A
     non-empty `malformed` records the attempt as rejected with that reason. A runner reply is
     recorded only by the runner itself, which wrote the brief and read the reply.
@@ -211,8 +210,8 @@ def record_attempt(
     transcript: Path | None = None,
     void: bool = False,
     malformed: str = "",
-    runner: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    runner: Proof | None = None,
+) -> Attempt:
     """record_reply, plus the runner's path: `runner` is its proof (source "runner"), and with
     `void` the process gave no reply. Only runner.judge_seat passes a proof. The caller holds
     the seat's lock (seat_lock); the run's lock is taken here, after it, for the run-wide
@@ -263,6 +262,7 @@ def record_attempt(
     dim_ids = [d["id"] for d in dims_for(spec, meta["persona"])]
     texts = {role: read_text(rdir / f"{role}.md") for role in set(meta["key"].values())}
     tools_used = judge_tools(transcript, cfg) if transcript is not None else []
+    result: Attempt
     if tools_used:
         result = {
             "ok": False,
@@ -300,7 +300,7 @@ def record_attempt(
     try:
         _store(rdir, judge, agent_id, raw, result)
     except RecursionError:  # parsed, but too deep to write back: never a reason to lose it
-        result.update(ok=False, errors=["unparseable: nested too deeply"], items={})
+        result.update({"ok": False, "errors": ["unparseable: nested too deeply"], "items": {}})
         _store(rdir, judge, agent_id, raw, result)
     return result
 
@@ -314,7 +314,7 @@ def record_from(
     transcript: Path | None = None,
     output: str | None = None,
     void: bool = False,
-) -> dict[str, Any]:
+) -> Attempt:
     """Record one judge as the `record` command does: from its transcript (or as a void on
     it), or from a pasted reply. The command line and the MCP server both call this.
 

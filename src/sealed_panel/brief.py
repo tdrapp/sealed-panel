@@ -11,12 +11,11 @@ import random
 import re
 import secrets
 from pathlib import Path
-from typing import Any
 
 from .decide import BLOCKED, NEW_RUN, STOP_DECISIONS, decide
 from .errors import EvalError
 from .ledger import view as ledger_view
-from .model import INJECTION_ACK
+from .model import INJECTION_ACK, Decision, Dimension, FrozenSpec, LedgerView, Persona, Seat
 from .rubric import dims_for, rubric_hash
 from .run import load_frozen, run_config, writes_run
 from .settings import Config, resolve
@@ -96,7 +95,7 @@ def _lines(template: str, **values: str) -> list[str]:
     return template.format(**values).splitlines()
 
 
-def anchor_lines(d: dict[str, Any]) -> list[str]:
+def anchor_lines(d: Dimension) -> list[str]:
     """The anchor lines of one dimension, 5 down to 1, with the defaults for 4 and 2.
 
     Args:
@@ -113,8 +112,8 @@ def anchor_lines(d: dict[str, Any]) -> list[str]:
 
 
 def build_brief(
-    spec: dict[str, Any],
-    persona: dict[str, Any],
+    spec: FrozenSpec,
+    persona: Persona,
     framing: str,
     items: list[tuple[str, str]],
     nonce: str = "",
@@ -189,7 +188,7 @@ def build_brief(
     return "\n".join(lines) + "\n"
 
 
-def _refuse_blocked(d: dict[str, Any]) -> None:
+def _refuse_blocked(d: Decision) -> None:
     """Refuse a sealed panel while the ledger says BLOCKED BY FLAG, with its next step."""
     if d["decision"] == BLOCKED:
         raise EvalError(
@@ -198,7 +197,7 @@ def _refuse_blocked(d: dict[str, Any]) -> None:
         )
 
 
-def _check_sealed(run: Path, rnd: int, spec: dict[str, Any], ledger: dict[str, Any]) -> None:
+def _check_sealed(run: Path, rnd: int, spec: FrozenSpec, ledger: LedgerView) -> None:
     loop = [r for r in ledger["rounds"] if not r.get("sealed")]
     if loop:
         d = decide(spec, ledger)
@@ -220,9 +219,7 @@ def _check_sealed(run: Path, rnd: int, spec: dict[str, Any], ledger: dict[str, A
         raise EvalError(f"sealed round {rnd} already exists; use the next number")
 
 
-def _check_loop(
-    rnd: int, spec: dict[str, Any], ledger: dict[str, Any], cand: str, cfg: Config
-) -> None:
+def _check_loop(rnd: int, spec: FrozenSpec, ledger: LedgerView, cand: str, cfg: Config) -> None:
     loop = [r for r in ledger["rounds"] if not r.get("sealed")]
     if rnd > spec["max_rounds"]:
         raise EvalError(f"round {rnd} exceeds max_rounds={spec['max_rounds']}; seal instead")
@@ -250,7 +247,7 @@ def flags_by_role(roles: list[tuple[str, str]]) -> dict[str, list[str]]:
 
 
 def _refuse_a_flagged_seal(
-    spec: dict[str, Any], roles: list[tuple[str, str]], cfg: Config, sealed: bool
+    spec: FrozenSpec, roles: list[tuple[str, str]], cfg: Config, sealed: bool
 ) -> None:
     """Refuse a sealed brief that would carry text addressed to a judge, before anything is
     written: its grade could not stand, and a run has one sealed panel."""
@@ -318,7 +315,9 @@ def write_briefs(
     # Shuffling, not secrecy: the seed comes from `secrets` and is kept in keys.json.
     rng = random.Random(seed)  # noqa: S311
     offset = rng.randrange(len(framings))  # which judge gets which stance changes per round
-    paths, judges, j = [], [], 0
+    paths: list[Path] = []
+    judges: list[Seat] = []
+    j = 0
     for persona in spec["personas"]:
         for k in range(spec["judges_per_persona"]):
             j += 1

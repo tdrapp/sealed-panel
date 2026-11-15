@@ -7,7 +7,7 @@ import json
 import math
 from typing import Any
 
-from .model import INJECTION_ACK
+from .model import INJECTION_ACK, Dimension, FrozenSpec
 from .settings import MAX_JUDGES_PER_PERSONA, RUN_BOUNDS, Config, resolve, run_value_error
 
 REQUIRED_ANCHORS = ("1", "3", "5")
@@ -41,7 +41,7 @@ MEASURED_KEYS = frozenset({"id", "description", "max", "min"})
 CHOICE_KEYS = frozenset({"choice", "user_said"})
 
 
-def dims_for(spec: dict[str, Any], persona_id: str) -> list[dict[str, Any]]:
+def dims_for(spec: FrozenSpec, persona_id: str) -> list[Dimension]:
     """The dimensions a persona is scored on.
 
     Args:
@@ -140,7 +140,7 @@ def shape_errors(spec: Any) -> list[str]:
     return errors
 
 
-def dimensions_sha(dimensions: list[dict[str, Any]]) -> str:
+def dimensions_sha(dimensions: list[Dimension]) -> str:
     """A hash of what a template asks judges: each dimension's id, name, question, anchors."""
     core = [{k: d.get(k) for k in ("id", "name", "question", "anchors")} for d in dimensions or []]
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode("utf-8")).hexdigest()
@@ -248,7 +248,7 @@ def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
     return errors
 
 
-def rubric_hash(spec: dict[str, Any]) -> str:
+def rubric_hash(spec: FrozenSpec) -> str:
     """The sha256 of what the rubric asks: the hashed keys of the spec.
 
     Args:

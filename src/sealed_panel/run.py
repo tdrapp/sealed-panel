@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .errors import EvalError
-from .model import INJECTION_ACK
+from .model import INJECTION_ACK, FrozenSpec
 from .rubric import rubric_hash, validate_spec
 from .settings import Config, schema_errors
 from .store import (
@@ -98,7 +98,7 @@ def _check_acknowledgement(spec: dict[str, Any], acknowledge: bool) -> None:
 
 def prepare_spec(
     run: Path, spec_path: Path, cfg: Config, facts_root: Path | None, acknowledge: bool
-) -> dict[str, Any]:
+) -> FrozenSpec:
     """The first half of init (see steps.init_run): refuse a run directory that is not new or
     empty, then read and validate the spec, refuse an acknowledgement this caller may not
     give, fill the per-run defaults and freeze the facts by content. Writes nothing.
@@ -118,7 +118,7 @@ def prepare_spec(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
             "directory, so it never writes over another program's files"
         )
-    spec: dict[str, Any] = load_json(spec_path)
+    spec = load_json(spec_path)  # untrusted until validate_spec passes
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
@@ -126,10 +126,11 @@ def prepare_spec(
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
     _freeze_facts(spec, Path(spec_path).parent, facts_root)
-    return spec
+    frozen: FrozenSpec = spec  # validated above, its defaults filled
+    return frozen
 
 
-def freeze(run: Path, spec: dict[str, Any], cfg: Config) -> str:
+def freeze(run: Path, spec: FrozenSpec, cfg: Config) -> str:
     """The second half of init: refuse a spec whose own text addresses the judges, then write
     the run's files, `run.json` last, and return the rubric hash.
 
@@ -205,7 +206,7 @@ def refuse_older_run(run: Path) -> None:
         raise EvalError(OLDER_RUN)
 
 
-def load_frozen(run: Path) -> dict[str, Any]:
+def load_frozen(run: Path) -> FrozenSpec:
     """The run's spec, refused when the run is older than 0.4.0 or changed after the freeze.
 
     Args:
@@ -215,7 +216,7 @@ def load_frozen(run: Path) -> dict[str, Any]:
     lock = run / "rubric.lock"
     if not is_run(run):
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    spec: dict[str, Any] = load_json(run / "spec.json")
+    spec: FrozenSpec = load_json(run / "spec.json")
     if rubric_hash(spec) != read_text(lock).strip():
         raise EvalError(
             "the rubric changed after the freeze: scores are no longer comparable. "

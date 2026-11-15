@@ -6,9 +6,9 @@ import contextlib
 import statistics
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 from .errors import EvalError
+from .model import Attempt, FrozenSpec, Seat
 from .settings import Config
 from .store import locked
 
@@ -17,7 +17,7 @@ from .store import locked
 MAX_VOIDS = 3
 
 
-def calibrate(result: dict[str, Any], meta: dict[str, Any], spec: dict[str, Any]) -> None:
+def calibrate(result: Attempt, meta: Seat, spec: FrozenSpec) -> None:
     """Discard a judge whose control is too high or whose known-good is too low."""
     ctrl = result["items"].get("control", {}).get("raw_scores", {})
     if not ctrl:
@@ -46,7 +46,7 @@ def calibrate(result: dict[str, Any], meta: dict[str, Any], spec: dict[str, Any]
         )
 
 
-def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
+def check_void_cap(judge: int, prior: list[Attempt]) -> None:
     """Refuse a further void on a slot that already has MAX_VOIDS of them."""
     voids = [r for r in prior if r.get("void")]
     if len(voids) >= MAX_VOIDS:
@@ -56,7 +56,7 @@ def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
         )
 
 
-def check_seat(judge: int, prior: list[dict[str, Any]], source: str, cfg: Config) -> None:
+def check_seat(judge: int, prior: list[Attempt], source: str, cfg: Config) -> None:
     """Refuse a reply the slot cannot take: a second valid one, a pasted one where the brief
     may have been seen, or one past the replacement cap."""
     if any(r["ok"] for r in prior):

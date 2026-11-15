@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
+from .model import Attempt, LedgerView, RoundResult, StoredAttempt
 from .store import is_run, load_json, read_text
 
 REPLY_GLOB = "*/r*/out_j*.json"
@@ -41,16 +41,17 @@ def used_reply_hashes(run: Path) -> set[str]:
     return _recorded_field(run, "reply_sha256")
 
 
-def results_by_judge(rdir: Path) -> dict[int, list[dict[str, Any]]]:
+def results_by_judge(rdir: Path) -> dict[int, list[Attempt]]:
     """Every recorded reply of one round, per judge slot, in the order they were recorded."""
-    by_judge: dict[int, list[dict[str, Any]]] = {}
+    by_judge: dict[int, list[Attempt]] = {}
     for f in sorted(rdir.glob("out_j*.json"), key=lambda p: p.stat().st_mtime_ns):
-        r = load_json(f)["result"]
+        stored: StoredAttempt = load_json(f)
+        r = stored["result"]
         by_judge.setdefault(r["judge"], []).append(r)
     return by_judge
 
 
-def rounds(run: Path) -> list[dict[str, Any]]:
+def rounds(run: Path) -> list[RoundResult]:
     """Every aggregated round of the run, read from its `result.json`, loop rounds first, each
     group by round number. The round files are the only record of a round: no list is kept
     beside them.
@@ -58,7 +59,7 @@ def rounds(run: Path) -> list[dict[str, Any]]:
     Args:
         run: The run directory.
     """
-    found = [
+    found: list[RoundResult] = [
         load_json(d / "result.json")
         for group in ("rounds", "sealed")
         for d in (run / group).glob("r*")
@@ -67,7 +68,7 @@ def rounds(run: Path) -> list[dict[str, Any]]:
     return sorted(found, key=lambda r: (bool(r.get("sealed", False)), int(r["round"])))
 
 
-def view(run: Path) -> dict[str, Any]:
+def view(run: Path) -> LedgerView:
     """The run's ledger, derived: the rubric hash from `rubric.lock` and the aggregated rounds.
     It replaces `ledger.json`, which 0.4.0 no longer writes.
 

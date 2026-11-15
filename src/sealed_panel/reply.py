@@ -8,6 +8,7 @@ from fractions import Fraction
 from typing import Any
 
 from .errors import EvalError
+from .model import Attempt, ItemScore
 from .settings import Config, resolve
 from .text import normalise, quote_found
 
@@ -38,7 +39,7 @@ def check_output(
     texts: dict[str, str],
     dim_ids: list[str],
     cfg: Config | None = None,
-) -> dict[str, Any]:
+) -> Attempt:
     """Validate one judge's JSON against its label key. Scores are kept per ROLE, never label.
 
     Args:
@@ -51,7 +52,7 @@ def check_output(
     cfg = resolve(cfg)
     caps = cfg.severity_caps
     errors: list[str] = []
-    parsed: dict[str, Any] = {}
+    parsed: dict[str, ItemScore] = {}
     items = out.get("items") if isinstance(out, dict) else None
     if not isinstance(items, dict):
         return {"ok": False, "errors": ["'items' object missing"], "items": {}}

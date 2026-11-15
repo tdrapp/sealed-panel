@@ -6,7 +6,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 from . import __version__, templates
 from .brief import write_briefs
@@ -14,6 +13,7 @@ from .errors import EvalError, user_message
 from .learning import cli as learning_cli
 from .learning.candidates import open_candidates
 from .measure import record_measurement
+from .model import Attempt
 from .record import record_from
 from .report import feedback_path, outcome_line, render_report, status
 from .rubric import TODO_MARKER
@@ -228,7 +228,7 @@ def _record(a: argparse.Namespace) -> str:
     return outcome_line(r)
 
 
-def _print_seat(seat: int, r: dict[str, Any] | None, skipped: str) -> None:
+def _print_seat(seat: int, r: Attempt | None, skipped: str) -> None:
     if r is None:
         print(f"SKIPPED judge {seat}: {skipped}")
         return

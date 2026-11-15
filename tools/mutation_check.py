@@ -1154,8 +1154,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a marker's whole content kept": (
         RUN,
-        "kept = {k: held[k] for k in STARTED_KEYS if k in held}",
-        "kept = dict(held)",
+        '    kept: Proof = {}\n    if "argv" in held:',
+        '    kept: Proof = {**held}\n    if "argv" in held:',
     ),
     "a stale void on a filled seat": (
         RUN,

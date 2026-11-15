@@ -14,9 +14,10 @@ import re
 import sys
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from .errors import ConfigError, EvalError
+from .model import Dimension, FrozenSpec, Measured, Persona
 from .rubric import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
 from .store import dump_json, load_json, outside_runs
 
@@ -90,7 +91,44 @@ MIN_DIMENSIONS, MAX_DIMENSIONS = 3, 6
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-Served = dict[str, Any]  # {"template": ..., "source": ..., "path": Path | None}
+class Provenance(TypedDict):
+    """One change to a template: when, from what, and what changed."""
+
+    date: str
+    source: str
+    change: str
+
+
+class BasedOn(TypedDict):
+    """The built-in version a user template was made from."""
+
+    version: int
+
+
+class Template(TypedDict):
+    """A rubric template, as `template_errors` accepts it."""
+
+    id: str
+    version: int
+    title: str
+    kinds: list[str]
+    keywords: list[str]
+    when_to_use: str
+    personas: list[Persona]
+    dimensions: list[Dimension]
+    measured: list[Measured]
+    provenance: list[Provenance]
+    aliases: NotRequired[list[str]]
+    facts_hint: NotRequired[str]
+    based_on: NotRequired[BasedOn]
+
+
+class Served(TypedDict):
+    """A template the library serves: the template, where it comes from, and its file."""
+
+    template: Template
+    source: str
+    path: Path | None
 
 
 # -- templates ---------------------------------------------------------------------------
@@ -170,16 +208,16 @@ def template_errors(t: Any) -> list[str]:
     return errors
 
 
-def checked_template(t: Any, where: str) -> dict[str, Any]:
+def checked_template(t: Any, where: str) -> Template:
     """The template, refused with every error template_errors finds, named by `where`."""
     errors = template_errors(t)
     if errors:
         raise EvalError(f"{where} is not a valid template:\n  " + "\n  ".join(errors))
-    out: dict[str, Any] = t
+    out: Template = t
     return out
 
 
-def builtin_templates() -> dict[str, dict[str, Any]]:
+def builtin_templates() -> dict[str, Template]:
     """The packaged rubric templates, by id."""
     folder = resources.files("sealed_panel").joinpath("rubrics")
     found = {}
@@ -192,9 +230,9 @@ def builtin_templates() -> dict[str, dict[str, Any]]:
     return found
 
 
-def user_templates(lib: Path) -> tuple[dict[str, tuple[dict[str, Any], Path]], list[str]]:
+def user_templates(lib: Path) -> tuple[dict[str, tuple[Template, Path]], list[str]]:
     """Valid user templates by id with their file, and a warning for each file skipped."""
-    found: dict[str, tuple[dict[str, Any], Path]] = {}
+    found: dict[str, tuple[Template, Path]] = {}
     warnings = []
     if lib.is_dir():
         for path in sorted(lib.glob("*.json")):
@@ -225,7 +263,8 @@ def all_templates(lib: Path) -> tuple[dict[str, Served], list[str]]:
         source = "user"
         if tid in builtin:
             source = f"user (overrides built-in v{builtin[tid]['version']})"
-            base = (t.get("based_on") or {}).get("version")
+            based = t.get("based_on")
+            base = based["version"] if based else None
             if base is not None and builtin[tid]["version"] > base:
                 source += f"; built-in is newer than your base (v{base})"
         out[tid] = {"template": t, "source": source, "path": path}
@@ -245,7 +284,7 @@ def get_template(lib: Path, tid: str) -> Served:
     return found[tid]
 
 
-def check_template_ref(spec: dict[str, Any], lib: Path) -> None:
+def check_template_ref(spec: FrozenSpec, lib: Path) -> None:
     """The template reference must name a template and version the library knows. Its hash is
     the template's own, and `modified` is computed here, never taken from the spec.
 
@@ -287,7 +326,7 @@ def normalise_kind(kind: str) -> str:
     return re.sub(r"[\s_]+", "-", kind.strip().casefold())
 
 
-def _keyword_hits(t: dict[str, Any], text: str) -> list[str]:
+def _keyword_hits(t: Template, text: str) -> list[str]:
     low = text.casefold()
     return sorted(
         {k for k in t["keywords"] if re.search(r"\b" + re.escape(k.casefold()) + r"\b", low)}
@@ -300,7 +339,7 @@ def suggest(lib: Path, kind: str, text: str = "", top: int = 3) -> list[dict[str
     if top < 1:
         raise EvalError("--top must be at least 1")
     wanted = normalise_kind(kind)
-    rows = []
+    rows: list[dict[str, Any]] = []
     for tid, served in all_templates(lib)[0].items():
         t = served["template"]
         names = {normalise_kind(k) for k in [*t["kinds"], *t.get("aliases", [])]}
@@ -328,7 +367,7 @@ def _todo(text: str) -> str:
     return f"{TODO_MARKER}: {text}"
 
 
-def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def instantiate(t: Template, personas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """A spec skeleton from a template. Title, purpose, facts and every suggested instrument
     threshold are TODO markers, and so are the persona descriptions unless personas are given;
     `init` refuses until they are filled."""
@@ -339,12 +378,12 @@ def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None)
         ]
     measured = []
     for m in t["measured"]:
-        row = dict(m)
+        row: dict[str, object] = dict(m)
         for bound in ("max", "min"):
             if bound in row:
                 row[bound] = _todo(f"your {bound} (suggested {row[bound]})")
         measured.append(row)
-    dims = [
+    dims: list[Dimension] = [
         {"id": d["id"], "name": d["name"], "question": d["question"], "anchors": dict(d["anchors"])}
         for d in t["dimensions"]
     ]

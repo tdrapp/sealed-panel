@@ -35,13 +35,14 @@ from . import __version__, templates
 from .brief import write_briefs
 from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .measure import record_measurement
+from .model import Attempt
 from .record import record_from
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .rubric import TODO_MARKER
 from .run import run_config
 from .runner import judge_seat, open_seats
-from .settings import Config, config_differences, load_config
+from .settings import Config, JudgeSettings, config_differences, load_config
 from .steps import aggregate_round, resolve_round
 from .steps import init_run as init_any_run
 from .store import INIT_LOCK, contained, locked
@@ -209,9 +210,7 @@ def _calling(fn: Callable[[], T]) -> T:
         raise ToolError(message) from exc
 
 
-def _seat(
-    run: Path, rnd: int, seat: int, sealed: bool, expected: dict[str, Any]
-) -> dict[str, Any] | None:
+def _seat(run: Path, rnd: int, seat: int, sealed: bool, expected: JudgeSettings) -> Attempt | None:
     """One seat judged by the runner, or None when another call took it meanwhile. A judge
     started before a cancelled call ends still finishes and is recorded, in this thread."""
     try:
@@ -220,7 +219,7 @@ def _seat(
         return None
 
 
-def _record_result(r: dict[str, Any]) -> RecordResult:
+def _record_result(r: Attempt) -> RecordResult:
     state: Literal["VALID", "REJECTED", "VOID"] = (
         "VOID" if r.get("void") else "VALID" if r["ok"] else "REJECTED"
     )

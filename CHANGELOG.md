@@ -125,6 +125,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 | `spec` (gone) | `init_run` | `steps` |
 | `store` | `resolve_round` | `steps` |
 
+- The records a run writes are typed: `sealed_panel.model` declares each one as a `TypedDict`
+  (the frozen spec, a round's keys and seats, an attempt and its item scores, the runner's
+  proof, a round's result, the ledger view, the decision), and `settings.JudgeSettings` types
+  the `[judge]` section. mypy checks every read and write of them; no conversion code runs and
+  the files on disk are the same JSON, byte for byte. The step functions return these types
+  (`record_reply` an `Attempt`, `aggregate_round` a `RoundResult`, `status` a `Decision`).
+  `RUNNER` moved from `record` to `model`, and the template reference check from `steps` to
+  `templates.check_template_ref`.
+
 ### Removed
 
 - The fallbacks for runs of earlier versions, dead now that 0.4.0 refuses those runs: a run

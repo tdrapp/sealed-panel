@@ -26,6 +26,7 @@ from ..decide import BLOCKED, decide
 from ..errors import EvalError
 from ..ledger import results_by_judge
 from ..ledger import view as ledger_view
+from ..model import Attempt, FrozenSpec, LedgerView, RoundResult
 from ..rubric import TODO_MARKER
 from ..run import load_frozen, run_config
 from ..settings import Config
@@ -47,7 +48,7 @@ def _todo(text: str) -> str:
     return f"{TODO_MARKER}: {text}"
 
 
-def _valid(run: Path, rnd: int, sealed: bool) -> list[dict[str, Any]]:
+def _valid(run: Path, rnd: int, sealed: bool) -> list[Attempt]:
     rdir = round_dir(run, rnd, sealed)
     return [
         next(r for r in rs if r["ok"])
@@ -56,7 +57,7 @@ def _valid(run: Path, rnd: int, sealed: bool) -> list[dict[str, Any]]:
     ]
 
 
-def _quotes(results: list[dict[str, Any]], did: str) -> list[dict[str, Any]]:
+def _quotes(results: list[Attempt], did: str) -> list[dict[str, Any]]:
     """Each judge's quote on the candidate for one dimension, and whether code verified it."""
     out = []
     for r in results:
@@ -72,7 +73,7 @@ def _quotes(results: list[dict[str, Any]], did: str) -> list[dict[str, Any]]:
     return out
 
 
-def _run_info(run: Path, spec: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
+def _run_info(run: Path, spec: FrozenSpec, ledger: LedgerView) -> dict[str, Any]:
     return {
         "rubric_sha256": ledger["rubric_sha256"],
         "template": spec.get("template"),
@@ -80,15 +81,15 @@ def _run_info(run: Path, spec: dict[str, Any], ledger: dict[str, Any]) -> dict[s
     }
 
 
-def _anchors_of(spec: dict[str, Any], did: str) -> dict[str, str]:
-    found: dict[str, Any] = next((d for d in spec["dimensions"] if d["id"] == did), {})
-    return dict(found.get("anchors", {}))
+def _anchors_of(spec: FrozenSpec, did: str) -> dict[str, str]:
+    found = next((d for d in spec["dimensions"] if d["id"] == did), None)
+    return dict(found["anchors"]) if found else {}
 
 
 def _judges_disagree(
     run: Path,
-    spec: dict[str, Any],
-    sealed: dict[str, Any],
+    spec: FrozenSpec,
+    sealed: RoundResult,
     info: dict[str, Any],
     cfg: Config,
 ) -> list[dict[str, Any]]:
@@ -147,14 +148,14 @@ def _judges_disagree(
     return proposals
 
 
-def _raw_mean(results: list[dict[str, Any]], role: str, did: str) -> float | None:
+def _raw_mean(results: list[Attempt], role: str, did: str) -> float | None:
     raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]
     values = [float(x) for x in raw if x is not None]
     return statistics.mean(values) if values else None
 
 
 def _control_too_close(
-    run: Path, spec: dict[str, Any], sealed: dict[str, Any], info: dict[str, Any]
+    run: Path, spec: FrozenSpec, sealed: RoundResult, info: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """A dimension that does not discriminate: the sealed panel scores a strong candidate and
     the bad control close together. A weak candidate never triggers it: a low candidate next to

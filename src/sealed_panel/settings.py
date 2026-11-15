@@ -17,7 +17,7 @@ from fractions import Fraction
 from functools import cache
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from .errors import ConfigError
 
@@ -56,6 +56,18 @@ REPLY_BYTES_BOUNDS = (1024, 16 << 20)
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # Characters a declared judge model id may hold: one printable line.
 MODEL_ID_MAX_CHARS = 200
+
+
+class JudgeSettings(TypedDict):
+    """The [judge] section: the judge command (empty in host mode), its bounds, the environment
+    names it may get, and the model id the run declares."""
+
+    command: list[str]
+    timeout_s: int
+    max_reply_bytes: int
+    max_stderr_bytes: int
+    env_allow: list[str]
+    model_id: str
 
 
 def _type_ok(default: Any, value: Any) -> bool:
@@ -332,9 +344,10 @@ class Config:
         return self.section("transcript")
 
     @property
-    def judge(self) -> dict[str, Any]:
+    def judge(self) -> JudgeSettings:
         """The [judge] section."""
-        return self.section("judge")
+        judge: JudgeSettings = self.data["judge"]  # its shape checked against the defaults
+        return judge
 
 
 @cache
