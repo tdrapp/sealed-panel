@@ -57,17 +57,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **Breaking** for code that imports a module rather than the package: the package is split into
-  one module per job, with no change in behaviour. `record.py` becomes `transcript`, `reply`,
-  `seat`, `measure` and `record`; `spec.py` becomes `rubric` and `run`; `config.py` becomes
-  `settings` (the override display moves to `report`); `library.py` becomes `templates` and the
-  `sealed_panel.learning` subpackage, which holds learning (`learn`, the candidates, the
-  git-tree refusal, its commands' handlers) and which the core never imports; the commands keep
-  their names. `aggregate` computes a round and writes nothing: `steps.aggregate_round` takes
-  the locks and stores the result, beside `steps.init_run` and `steps.resolve_round`. The MCP
-  server's `build_server` is one function per concern. The import contract keeps each layer
-  above the ones it uses and forbids siblings joined by `|` to import each other. The names in
-  `sealed_panel.__all__` are unchanged.
 - **Breaking:** Refusals that the MCP tools also raise no longer name command-line flags: "a
   void needs the agent's transcript", "the round number is required for a loop round", "the
   agent id ...", "say whether it passed". A stop decision's `next` is "brief the sealed panel"
@@ -106,6 +95,36 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
   exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
 
+- **Breaking** for code that imports a module rather than the package. Everything in
+  `sealed_panel.__all__` still imports from `sealed_panel`, unchanged. The package is split into
+  one module per job, with no change in behaviour: `spec`, `config`, `library` and `learn` are
+  gone, learning lives in the `sealed_panel.learning` subpackage, which the core never imports
+  (the commands keep their names), `aggregate` computes a round and writes nothing
+  (`steps.aggregate_round` takes the locks and stores the result), and the MCP server's
+  `build_server` is one function per concern. The import contract keeps each layer above the
+  ones it uses and forbids siblings joined by `|` to import each other. A public name that no
+  longer imports from its 0.3 module, and where it is now (from an AST scan of both trees):
+
+| Old module | Names | Now in |
+|---|---|---|
+| `aggregate` | `aggregate_round` | `steps` |
+| `config` (gone) | `REMOVED_SECTIONS`, `SEVERITY_NAMES`, `RUN_BOUNDS`, `MIN_VALID_JUDGES_FLOOR`, `MAX_REPLACEMENTS_CEILING`, `MIN_QUOTE_CHARS_FLOOR`, `MIN_FRAGMENT_CHARS_FLOOR`, `MAX_BAD_SHARE_CEILING`, `SEVERITY_CEILINGS`, `MAX_JUDGES_PER_PERSONA`, `OPTIONAL_TRANSCRIPT_KEYS`, `JUDGE_TIMEOUT_BOUNDS`, `REPLY_BYTES_BOUNDS`, `ENV_NAME`, `MODEL_ID_MAX_CHARS`, `merge`, `removed_message`, `run_value_error`, `bound_errors`, `default_data`, `fingerprint`, `Config`, `default_config`, `load_config`, `resolve`, `NOT_GRADING`, `config_differences`, `schema_errors` | `settings` |
+| `config` (gone) | `LIBRARY_ENV`, `default_library_dir`, `guard_library`, `library_dir` | `templates` |
+| `config` (gone) | `writable_library` | `learning.location` |
+| `config` (gone) | `SHOW_LIMIT`, `SHOW_IN_FULL`, `overrides` | `report` |
+| `learn` (gone) | `DISAGREE_SPREAD`, `CONTROL_MIN_CANDIDATE`, `CONTROL_GAP`, `proposals_after_seal`, `learn_after_seal`, `user_disagreement` | `learning.learn` |
+| `library` (gone) | `TEMPLATE_KEYS`, `OPTIONAL_TEMPLATE_KEYS`, `DIMENSION_KEYS`, `PROVENANCE_KEYS`, `MIN_DIMENSIONS`, `MAX_DIMENSIONS`, `ID_PATTERN`, `Served`, `template_errors`, `builtin_templates`, `user_templates`, `all_templates`, `get_template`, `normalise_kind`, `suggest`, `instantiate`, `write_skeleton` | `templates` |
+| `library` (gone) | `CANDIDATE_KINDS`, `ACTIONS`, `CANDIDATE_ID`, `COLUMN`, `inbox_dir`, `history_dir`, `check_candidate_id`, `dedup_key`, `open_candidates`, `add_candidate`, `closed_status`, `apply_change`, `side_by_side`, `plan_promotion`, `apply_promotion`, `promote`, `reject` | `learning.candidates` |
+| `record` | `SCORE_MIN`, `SCORE_MAX`, `FENCE_OPENING` | `reply` |
+| `record` | `AGENT_ID_SCAN_CHARS`, `handback_messages` | `transcript` |
+| `record` | `MAX_VOIDS` | `seat` |
+| `record` | `outcome_line` | `report` |
+| `record` | `record_measurement` | `measure` |
+| `spec` (gone) | `REQUIRED_ANCHORS`, `ANCHOR_LEVELS`, `RUBRIC_KEYS`, `OPTIONAL_HASH_KEYS`, `TODO_MARKER`, `TEMPLATE_REF_KEYS`, `SPEC_KEYS`, `PERSONA_KEYS`, `DIMENSION_KEYS`, `MEASURED_KEYS`, `CHOICE_KEYS`, `dims_for`, `shape_errors`, `dimensions_sha`, `todo_paths`, `validate_spec`, `rubric_hash` | `rubric` |
+| `spec` (gone) | `HOME_OR_RELATIVE`, `ENV_SALT`, `SCHEMA_VERSION`, `RUN_FILE`, `NO_MARKER`, `OLDER_RUN`, `SALT_BYTES`, `FACTS_EXTENSIONS`, `looks_like_path`, `run_salt`, `refuse_older_run`, `load_frozen`, `writes_run`, `run_config` | `run` |
+| `spec` (gone) | `init_run` | `steps` |
+| `store` | `resolve_round` | `steps` |
+
 ### Removed
 
 - The fallbacks for runs of earlier versions, dead now that 0.4.0 refuses those runs: a run
@@ -117,10 +136,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** the `Config` properties of the removed settings: `strip_chars`, `punctuation`,
   `injection_patterns` and `library` (`Config` is in `__all__`). Before: they read `[text]`,
   `[injection]` and `[library]`. After: use `text.STRIP_CHARS`, `text.PUNCTUATION`,
-  `text.INJECTION_PATTERNS`, and `config.library_dir()` for the library; the thresholds are
-  `learn.CONTROL_MIN_CANDIDATE` and `learn.CONTROL_GAP`. `normalise` and `injection_flags` lost
-  their `cfg` argument, and `fixed_normalise`, `normalise_with` and `library_dir`'s `cfg`
-  argument are gone.
+  `text.INJECTION_PATTERNS`, and `templates.library_dir()` for the library; the thresholds are
+  `learning.learn.CONTROL_MIN_CANDIDATE` and `learning.learn.CONTROL_GAP`. `normalise` and
+  `injection_flags` lost their `cfg` argument, and `fixed_normalise`, `normalise_with` and
+  `library_dir`'s `cfg` argument are gone.
 - **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
   versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
   and every command and MCP tool, read or write, refuses a run without it, before creating

@@ -241,7 +241,7 @@ def init_run(
     facts_root: Path | None = None,
 ) -> str:
     """`init` for the MCP caller, who is the author: a spec that acknowledges injection flags
-    is refused, since acknowledging one is a person's decision (see spec.init_run).
+    is refused, since acknowledging one is a person's decision (see steps.init_run).
 
     Args:
         run: A new or empty directory for the run.
