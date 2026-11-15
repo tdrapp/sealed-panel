@@ -475,18 +475,15 @@ def _show(value: Any, where: str, key: str = "") -> str:
 _ABSENT = object()
 
 
-def _differences(
-    left: Mapping[str, Any], right: Mapping[str, Any], default: Mapping[str, Any], prefix: str
-) -> list[str]:
+def _differences(left: Mapping[str, Any], right: Mapping[str, Any], prefix: str) -> list[str]:
     found = []
     for key in sorted(set(left) | set(right)):
         name = f"{prefix}{key}"
         if name in NOT_GRADING:
             continue
-        here = default.get(key, _ABSENT) if isinstance(default, Mapping) else _ABSENT
-        lv, rv = left.get(key, here), right.get(key, here)
+        lv, rv = left.get(key, _ABSENT), right.get(key, _ABSENT)
         if isinstance(lv, Mapping) and isinstance(rv, Mapping):
-            found += _differences(lv, rv, here if isinstance(here, Mapping) else {}, name + ".")
+            found += _differences(lv, rv, name + ".")
         elif lv != rv:
             found.append(name)
     return found
@@ -494,9 +491,9 @@ def _differences(
 
 def config_differences(run: Config, server: Config) -> list[str]:
     """The settings of a run that differ from a server's, section by section (never through a
-    flattened view a dotted key could shadow). A key the run lacks, frozen by an older version,
-    counts as its default; the settings that only place files are left aside."""
-    return _differences(run.data, server.data, default_data(), "")
+    flattened view a dotted key could shadow); the settings that only place files are left
+    aside. Both hold every key: a run's frozen configuration is refused when it lacks one."""
+    return _differences(run.data, server.data, "")
 
 
 def schema_errors(
@@ -533,8 +530,6 @@ def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
             continue
         if key in NOT_GRADING:
             continue  # where files are, not how a text is graded
-        if key not in current:
-            continue  # a key newer than the run's frozen configuration keeps its default
         if current.get(key) != defaults.get(key):
             now = _show(current.get(key), "config.json", key)
             was = _show(defaults.get(key), "defaults", key)

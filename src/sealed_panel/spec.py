@@ -430,9 +430,9 @@ def init_run(
 
 
 def run_salt(run: Path) -> bytes | None:
-    """The run's random salt for hashing the judge environment's values, or None when the
-    run has none (frozen before 0.3.1) or it cannot be read: then no hash is stored and no
-    environment is compared, which the docs say; it never stops a judge.
+    """The run's random salt for hashing the judge environment's values, or None when it
+    cannot be read (a run file damaged by hand): then no hash is stored and no environment is
+    compared; it never stops a judge.
 
     Args:
         run: The run directory.

@@ -617,8 +617,6 @@ def _record_reply(
     if void and runner is None:
         if transcript is None:
             raise EvalError("a void needs the agent's transcript, to show it never replied")
-        if not meta.get("nonce"):
-            raise EvalError("this run's briefs carry no brief id: a void cannot be checked")
         if meta["nonce"] not in read_text(transcript):
             raise EvalError(f"this transcript never saw brief j{judge}: nothing to void")
     elif transcript is not None:

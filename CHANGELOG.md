@@ -91,9 +91,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The fallbacks for runs of earlier versions, dead now that 0.4.0 refuses those runs: a run
   without `[judge]` read as host mode, the default output caps and an undeclared model for a
-  `[judge]` without them, and a round's candidate-only injection flags. A frozen configuration
-  missing a key is refused ("missing configuration key ..."), since every 0.4.0 run froze them
-  all.
+  `[judge]` without them, a round's candidate-only injection flags, a key a frozen configuration
+  lacks counted as its default, and a void refused for briefs without a brief id (every 0.4.0
+  brief has one). A frozen configuration missing a key is refused ("missing configuration key
+  ..."), since every 0.4.0 run froze them all.
 - **Breaking:** the `Config` properties of the removed settings: `strip_chars`, `punctuation`,
   `injection_patterns` and `library` (`Config` is in `__all__`). Before: they read `[text]`,
   `[injection]` and `[library]`. After: use `text.STRIP_CHARS`, `text.PUNCTUATION`,

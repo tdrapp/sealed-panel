@@ -141,8 +141,7 @@ def env_changes(by_judge: dict[int, list[dict[str, Any]]]) -> list[str]:
     """The `[judge] env_allow` names whose value differed between the round's runner attempts.
 
     Every attempt counts, rejected and void ones included: a judge replaced after a rejection
-    may have run another model. An attempt without hashes (host mode, or recorded by an older
-    version) is left out.
+    may have run another model. An attempt without hashes (host mode) is left out.
 
     Args:
         by_judge: The round's recorded attempts, per judge slot.

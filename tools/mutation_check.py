@@ -118,7 +118,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if meta["nonce"] not in read_text(transcript):',
         "if False:",
     ),
-    "void without any brief id": (REC, 'if not meta.get("nonce"):', "if False:"),
     "a pasted reply can be voided": (REC, "if pasted and replied:", "if False:"),
     "void label hides a reply": (
         REC,
@@ -555,11 +554,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         SPEC,
         "if k not in OPTIONAL_HASH_KEYS or k in spec",
         "if k not in OPTIONAL_HASH_KEYS",
-    ),
-    "keys missing from an old run reported": (
-        CFG,
-        "        if key not in current:\n            continue",
-        "        if False:\n            continue",
     ),
     "promoted key reopened": (
         LIB,
@@ -1118,11 +1112,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         CFG,
         "        if key not in shape:\n",
         "        if False:\n",
-    ),
-    "a key an older run lacks read as a difference": (
-        CFG,
-        "here = default.get(key, _ABSENT) if isinstance(default, Mapping) else _ABSENT",
-        "here = _ABSENT",
     ),
     "a frozen configuration not checked for its shape": (
         SPEC,
