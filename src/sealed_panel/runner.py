@@ -34,12 +34,12 @@ from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
-from .config import Config
 from .errors import EvalError, SeatTaken
 from .ledger import results_by_judge
 from .record import RUNNER, record_attempt, round_keys
+from .run import load_frozen, run_config, run_salt
 from .seat import check_seat, check_void_cap, seat_lock
-from .spec import load_frozen, run_config, run_salt
+from .settings import Config
 from .store import dump_json, load_json, round_dir
 
 # Variables every judge process gets when the parent has them; `[judge] env_allow` adds names.

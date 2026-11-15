@@ -16,7 +16,7 @@ from sealed_panel.brief import write_briefs
 from sealed_panel.decide import decide
 from sealed_panel.ledger import view as ledger_view
 from sealed_panel.record import record_reply
-from sealed_panel.spec import init_run
+from sealed_panel.steps import init_run
 from sealed_panel.store import round_dir
 
 CAND = (

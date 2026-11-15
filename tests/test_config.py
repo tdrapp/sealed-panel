@@ -9,18 +9,14 @@ import pytest
 
 from conftest import FLAT, Harness, make_spec
 from sealed_panel.brief import write_briefs
-from sealed_panel.config import (
-    Config,
-    default_config,
-    default_data,
-    load_config,
-    merge,
-)
 from sealed_panel.errors import ConfigError, EvalError
 from sealed_panel.record import record_reply
 from sealed_panel.reply import check_output
 from sealed_panel.report import render_report, status
-from sealed_panel.spec import init_run, run_config, validate_spec
+from sealed_panel.rubric import validate_spec
+from sealed_panel.run import run_config
+from sealed_panel.settings import Config, default_config, default_data, load_config, merge
+from sealed_panel.steps import init_run
 from sealed_panel.store import round_dir
 from sealed_panel.text import (
     INJECTION_PATTERNS,

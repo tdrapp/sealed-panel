@@ -8,18 +8,21 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import __version__, library
+from . import __version__, templates
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import LIBRARY_ENV, library_dir, load_config
 from .errors import EvalError, user_message
-from .learn import learn_after_seal, user_disagreement
+from .learning import cli as learning_cli
+from .learning.candidates import open_candidates
 from .measure import record_measurement
 from .record import record_from
 from .report import feedback_path, outcome_line, render_report, status
+from .rubric import TODO_MARKER
 from .runner import judge_round
-from .spec import TODO_MARKER, init_run
-from .store import load_json, resolve_round
+from .settings import load_config
+from .steps import init_run
+from .store import resolve_round
+from .templates import LIBRARY_ENV, library_dir
 
 # The usual exit status of a command stopped by Ctrl-C.
 INTERRUPTED = 130
@@ -167,69 +170,40 @@ def _warn(warnings: list[str]) -> None:
         print(f"sealed-panel: warning: {w}", file=sys.stderr)
 
 
-def _confirm(a: argparse.Namespace, plan: dict[str, object]) -> None:
-    for line in library.side_by_side(plan["current"], plan["updated"]):  # type: ignore[arg-type]
-        print(line)
-    print(f"writes {plan['target']}")
-    if a.yes:
-        return
-    if not sys.stdin.isatty():
-        raise EvalError("promote needs a person: run it in a terminal, or pass --yes")
-    try:
-        answer = input(f"type the candidate id ({a.candidate}) to promote it: ").strip()
-    except EOFError:
-        answer = ""
-    if answer != a.candidate:
-        raise EvalError("not confirmed: nothing was written")
-
-
 def _rubrics(a: argparse.Namespace) -> None:
     lib = library_dir(a.library)
     if a.rcmd == "list":
         print(f"library: {lib}")
-        served, warnings = library.all_templates(lib)
+        served, warnings = templates.all_templates(lib)
         for tid, srv in served.items():
             t = srv["template"]
             print(f"{tid:18} v{t['version']:<3} {srv['source']:30} {t['title']}")
-        cands, more = library.open_candidates(lib)
+        cands, more = open_candidates(lib)
         _warn(warnings + more)
-        print(f"inbox: {len(cands)} open candidate(s)")
-        for c in cands:
-            tpl = c.get("template") or {}
-            name = f"{tpl.get('id')} v{tpl.get('version')}" if tpl else "-"
-            print(
-                f"  {c['id']}  {c['kind']:19} template {name:18} {c['dimension']} (x{c['count']})"
-            )
-            for before in c.get("rejected_before") or []:
-                version = (before.get("template") or {}).get("version")
-                print(f"      rejected before (v{version}): {before.get('reason')}")
+        learning_cli.print_inbox(cands)
     elif a.rcmd == "suggest":
         text = a.text.read_text(encoding="utf-8") if a.text else ""
-        rows = library.suggest(lib, a.kind, text, a.top)
+        rows = templates.suggest(lib, a.kind, text, a.top)
         if not rows:
             print(f"no template for kind {a.kind!r}. The templates and when to use each:")
-            for tid, srv in library.all_templates(lib)[0].items():
+            for tid, srv in templates.all_templates(lib)[0].items():
                 print(f"  {tid}: {srv['template']['when_to_use']}")
         for row in rows:
             print(f"{row['id']} v{row['version']} ({row['source']}): {row['when_to_use']}")
             for did, question in row["dimensions"]:
                 print(f"  {did:14} {question}")
     elif a.rcmd == "show":
-        srv = library.get_template(lib, a.id)
+        srv = templates.get_template(lib, a.id)
         t = srv["template"]
         print(f"# {a.id} v{t['version']}, {srv['source']}")
         print(json.dumps(t, ensure_ascii=False, indent=2))
     elif a.rcmd == "use":
-        out = library.write_skeleton(lib, a.id, a.out, a.persona_file)
+        out = templates.write_skeleton(lib, a.id, a.out, a.persona_file)
         print(f"wrote {out}: fill every {TODO_MARKER} marker, then run init")
     elif a.rcmd == "promote":
-        plan = library.plan_promotion(lib, a.candidate, a.into)
-        _confirm(a, plan)
-        path = library.apply_promotion(lib, plan)
-        print(f"promoted {a.candidate} into {path} (v{load_json(path)['version']})")
+        learning_cli.promote(a, lib)
     elif a.rcmd == "reject":
-        path = library.reject(lib, a.candidate, a.reason)
-        print(f"rejected {a.candidate}: moved to {path}")
+        learning_cli.reject(a, lib)
 
 
 def _mcp(a: argparse.Namespace) -> None:
@@ -292,13 +266,9 @@ def _run(a: argparse.Namespace) -> None:
     elif a.cmd == "report":
         print(render_report(a.run), end="")
     elif a.cmd == "feedback":
-        lib = library_dir(a.library) if a.library else None
-        path = user_disagreement(a.run, a.note, a.dimension, lib)
-        print(f"recorded your read as candidate {path.stem} in {path.parent}")
+        learning_cli.feedback(a)
     elif a.cmd == "learning":
-        lib = library_dir(a.library)
-        paths = learn_after_seal(a.run, lib)
-        print(f"{len(paths)} rubric candidate(s) in {lib / 'inbox'}")
+        learning_cli.learn(a)
     elif a.cmd == "rubrics":
         _rubrics(a)
     elif a.cmd == "mcp":

@@ -12,10 +12,10 @@ import pytest
 from conftest import BAD, FLAT, Harness, judge_json
 from sealed_panel.aggregate import aggregate_round
 from sealed_panel.cli import main
-from sealed_panel.config import default_config
 from sealed_panel.errors import EvalError
 from sealed_panel.record import record_reply
 from sealed_panel.report import render_report
+from sealed_panel.settings import default_config
 from sealed_panel.store import round_dir
 
 

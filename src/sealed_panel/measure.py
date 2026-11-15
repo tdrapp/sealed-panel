@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .errors import EvalError
-from .spec import load_frozen, run_config, writes_run
+from .run import load_frozen, run_config, writes_run
 from .store import dump_json, load_json, round_dir, under_run_lock
 
 

@@ -110,6 +110,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "S", "T20", "D1", "D417"]
 "tests/orphan_judge.py" = ["T20"]
 # The command line prints its results.
 "src/sealed_panel/cli.py" = ["T20"]
+"src/sealed_panel/learning/cli.py" = ["T20"]
 # Mutation anchors are verbatim lines of code; another change owns this tool's engine.
 "tools/mutation_check.py" = ["E501", "D1"]
 # Developer tools print, and start the interpreter or the command under test.
@@ -145,7 +146,7 @@ layers = [
     "__main__",
     "cli",
     "mcp_server",
-    "aggregate : brief : config : decide : learn : ledger : library : measure : record : reply : report : runner : seat : spec : text : transcript",
+    "aggregate : brief : decide : learning : ledger : measure : model : record : reply : report : rubric : run : runner : seat : settings : steps : templates : text : transcript",
     "store",
     "errors",
 ]

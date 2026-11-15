@@ -11,8 +11,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .config import Config, resolve
 from .errors import EvalError, MalformedReply
+from .settings import Config, resolve
 from .store import read_text
 
 # Characters searched for the agent id, from the start of a transcript.

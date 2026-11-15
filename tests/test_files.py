@@ -23,11 +23,19 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import brief as brief_module
-from sealed_panel import cli, library, record, runner, store
+from sealed_panel import cli, record, runner, store, templates
 from sealed_panel.aggregate import aggregate_round
-from sealed_panel.config import (
+from sealed_panel.errors import ConfigError, EvalError, SeatTaken
+from sealed_panel.learning import candidates, learn
+from sealed_panel.ledger import results_by_judge
+from sealed_panel.record import record_from, record_reply
+from sealed_panel.reply import extract_json
+from sealed_panel.report import render_report
+from sealed_panel.run import run_config
+from sealed_panel.runner import judge_round, judge_seat, open_seats
+from sealed_panel.seat import seat_lock
+from sealed_panel.settings import (
     Config,
-    ConfigError,
     config_differences,
     default_config,
     default_data,
@@ -35,14 +43,7 @@ from sealed_panel.config import (
     load_config,
     merge,
 )
-from sealed_panel.errors import EvalError, SeatTaken
-from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import record_from, record_reply
-from sealed_panel.reply import extract_json
-from sealed_panel.report import render_report
-from sealed_panel.runner import judge_round, judge_seat, open_seats
-from sealed_panel.seat import seat_lock
-from sealed_panel.spec import init_run, run_config
+from sealed_panel.steps import init_run
 from sealed_panel.store import contained, dump_json, locked, round_dir, write_file
 
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
@@ -165,7 +166,15 @@ class TestWrites:
             dump_json(folder / "adir", {"a": 1})
         assert sorted(p.name for p in folder.iterdir()) == ["a.md", "adir"]
 
-    @pytest.mark.parametrize("name", ["brief.py", "report.py", "spec.py", "record.py"])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "brief.py",
+            "report.py",
+            *("rubric.py", "run.py", "steps.py"),  # spec.py before 0.4.0
+            *("record.py", "transcript.py", "reply.py", "seat.py", "measure.py"),  # record.py
+        ],
+    )
     def test_a_run_is_written_through_the_one_helper(self, name: str) -> None:
         if not SRC.is_dir():
             pytest.skip("the package is not here")
@@ -207,7 +216,7 @@ class TestLibraryLinks:
         lib.mkdir()
         (lib / name).symlink_to(self.outside(tmp_path))
         with pytest.raises(EvalError, match="symbolic link"):
-            (library.inbox_dir if name == "inbox" else library.history_dir)(lib)
+            (candidates.inbox_dir if name == "inbox" else candidates.history_dir)(lib)
 
     @pytest.mark.slow
     def test_no_candidate_is_written_through_a_linked_inbox(self, h: Harness) -> None:
@@ -220,17 +229,17 @@ class TestLibraryLinks:
         outside = self.outside(h.tmp)
         (lib / "inbox").symlink_to(outside)
         with pytest.raises(EvalError, match="symbolic link"):
-            cli.user_disagreement(h.run, "the user reads this differently", None, lib)
+            learn.user_disagreement(h.run, "the user reads this differently", None, lib)
         assert list(outside.iterdir()) == []
 
     def test_a_linked_template_is_not_served(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()
-        template = {**library.builtin_templates()["message"], "id": "outside-tpl"}
+        template = {**templates.builtin_templates()["message"], "id": "outside-tpl"}
         outside = self.outside(tmp_path) / "t.json"
         outside.write_text(json.dumps(template))
         (lib / "outside-tpl.json").symlink_to(outside)
-        found, warnings = library.user_templates(lib)
+        found, warnings = templates.user_templates(lib)
         assert "outside-tpl" not in found
         assert any("symbolic link" in w for w in warnings)
 
@@ -240,10 +249,10 @@ class TestLibraryLinks:
         outside = self.outside(tmp_path) / "c.json"
         outside.write_text(json.dumps({"kind": "user_disagreement", "status": "open"}))
         (lib / "inbox" / "c-0123456789ab.json").symlink_to(outside)
-        rows, warnings = library.open_candidates(lib)
+        rows, warnings = candidates.open_candidates(lib)
         assert rows == [] and any("symbolic link" in w for w in warnings)
         with pytest.raises(EvalError, match="symbolic link"):
-            library._open_candidate(lib, "c-0123456789ab")
+            candidates._open_candidate(lib, "c-0123456789ab")
 
 
 class TestRunnerStreams:
@@ -969,7 +978,7 @@ class TestLibraryMoved:
         outside.mkdir()
         lib = tmp_path / "lib"
         lib.symlink_to(outside)
-        for folder in (library.inbox_dir, library.history_dir):
+        for folder in (candidates.inbox_dir, candidates.history_dir):
             with pytest.raises(EvalError, match="symbolic link"):
                 folder(lib)
 

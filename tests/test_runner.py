@@ -19,11 +19,11 @@ from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import runner
 from sealed_panel.aggregate import aggregate_round, env_changes
 from sealed_panel.cli import main
-from sealed_panel.config import Config, ConfigError, default_data, load_config, merge
-from sealed_panel.errors import EvalError, SeatTaken
+from sealed_panel.errors import ConfigError, EvalError, SeatTaken
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import record_attempt, record_from, record_reply
 from sealed_panel.report import render_report, status
+from sealed_panel.run import run_config, run_salt
 from sealed_panel.runner import (
     child_env,
     env_hashes,
@@ -32,7 +32,8 @@ from sealed_panel.runner import (
     open_seats,
 )
 from sealed_panel.seat import MAX_VOIDS, seat_lock
-from sealed_panel.spec import init_run, run_config, run_salt
+from sealed_panel.settings import Config, default_data, load_config, merge
+from sealed_panel.steps import init_run
 from sealed_panel.store import round_dir
 
 # Every test here starts a judge command or a model endpoint.

@@ -8,8 +8,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from .config import Config
 from .errors import EvalError
+from .settings import Config
 from .store import locked
 
 # Void attempts allowed per judge slot and round. A void never fills a seat, so voids have

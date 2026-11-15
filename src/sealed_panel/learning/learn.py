@@ -22,14 +22,17 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from . import library
-from .config import Config, library_dir, writable_library
-from .decide import BLOCKED, decide
-from .errors import EvalError
-from .ledger import results_by_judge
-from .ledger import view as ledger_view
-from .spec import TODO_MARKER, load_frozen, run_config
-from .store import round_dir
+from ..decide import BLOCKED, decide
+from ..errors import EvalError
+from ..ledger import results_by_judge
+from ..ledger import view as ledger_view
+from ..rubric import TODO_MARKER
+from ..run import load_frozen, run_config
+from ..settings import Config
+from ..store import round_dir
+from ..templates import library_dir
+from . import candidates
+from .location import writable_library
 
 # A spread of scores across a dimension's valid sealed judges that shows they disagree.
 DISAGREE_SPREAD = 2
@@ -223,7 +226,7 @@ def learn_after_seal(run: Path, lib: Path) -> list[Path]:
         lib: The user library, resolved by library_dir.
     """
     writable_library(lib)  # refused even when the run proposes nothing
-    paths = [library.add_candidate(lib, p) for p in proposals_after_seal(run)]
+    paths = [candidates.add_candidate(lib, p) for p in proposals_after_seal(run)]
     return sorted({p for p in paths if p is not None})
 
 
@@ -291,9 +294,9 @@ def user_disagreement(
         "proposed_change": change,
     }
     target = lib or library_dir()
-    path = library.add_candidate(target, proposal)
+    path = candidates.add_candidate(target, proposal)
     if path is None:
-        if library.closed_status(target, proposal) == "promoted":
+        if candidates.closed_status(target, proposal) == "promoted":
             raise EvalError(
                 "this disagreement was already promoted into a newer version of the template: "
                 "start a run from that version to record a new read"

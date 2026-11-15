@@ -1,0 +1,259 @@
+"""The rubric: validate a spec's shape and values, and hash what it asks."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from typing import Any
+
+from .model import INJECTION_ACK
+from .settings import MAX_JUDGES_PER_PERSONA, RUN_BOUNDS, Config, resolve, run_value_error
+
+REQUIRED_ANCHORS = ("1", "3", "5")
+ANCHOR_LEVELS = frozenset({"1", "2", "3", "4", "5"})
+RUBRIC_KEYS = (
+    "title",
+    "purpose",
+    "personas",
+    "dimensions",
+    "framings",
+    "measured",
+    "facts",
+    "declared_choices",
+    "judges_per_persona",
+    "max_rounds",
+    "control_max",
+    "good_min",
+    "noise_floor_min",
+    "template",
+    INJECTION_ACK,
+)
+# Keys hashed only when present, so a spec without them keeps the hash it had before.
+OPTIONAL_HASH_KEYS = frozenset({"template", INJECTION_ACK})
+# A string a skeleton leaves for the user to fill; `init` refuses a spec that still holds one.
+TODO_MARKER = "TODO(sealed-panel)"
+TEMPLATE_REF_KEYS = frozenset({"id", "version", "sha256", "modified"})
+SPEC_KEYS = frozenset({*RUBRIC_KEYS, "facts_file"})
+PERSONA_KEYS = frozenset({"id", "description"})
+DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors", "weight", "personas"})
+MEASURED_KEYS = frozenset({"id", "description", "max", "min"})
+CHOICE_KEYS = frozenset({"choice", "user_said"})
+
+
+def dims_for(spec: dict[str, Any], persona_id: str) -> list[dict[str, Any]]:
+    """The dimensions a persona is scored on.
+
+    Args:
+        spec: The spec.
+        persona_id: The persona's id.
+    """
+    return [
+        d
+        for d in spec.get("dimensions") or []
+        if not d.get("personas") or persona_id in d["personas"]
+    ]
+
+
+def _is_number(value: Any) -> bool:
+    """A finite int or float; JSON's NaN and Infinity are refused."""
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _unknown(obj: dict[str, Any], allowed: frozenset[str], where: str) -> list[str]:
+    return [f"{where}: unknown key {k!r}" for k in sorted(set(obj) - allowed)]
+
+
+def _list_of_dicts(spec: dict[str, Any], key: str) -> list[dict[str, Any]] | None:
+    value = spec.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(x, dict) for x in value):
+        return None
+    return value
+
+
+def shape_errors(spec: Any) -> list[str]:
+    """Types and keys. A spec with shape errors is not checked further."""
+    if not isinstance(spec, dict):
+        return ["the spec must be a JSON object"]
+    errors = _unknown(spec, SPEC_KEYS, "spec")
+    for key in ("title", "purpose", "facts", "facts_file", INJECTION_ACK):
+        if key in spec and not isinstance(spec[key], str):
+            errors.append(f"spec.{key} must be a string")
+    for key in ("personas", "dimensions", "measured", "declared_choices"):
+        if _list_of_dicts(spec, key) is None:
+            errors.append(f"spec.{key} must be a list of objects")
+    if errors:
+        return errors
+    for p in spec.get("personas") or []:
+        errors += _unknown(p, PERSONA_KEYS, f"persona {p.get('id')}")
+        for key in ("id", "description"):
+            if key in p and not isinstance(p[key], str):
+                errors.append(f"persona {p.get('id')}: {key} must be a string")
+    for d in spec.get("dimensions") or []:
+        where = f"dimension {d.get('id')}"
+        errors += _unknown(d, DIMENSION_KEYS, where)
+        for key in ("id", "name", "question"):
+            if key in d and not isinstance(d[key], str):
+                errors.append(f"{where}: {key} must be a string")
+        anchors = d.get("anchors", {})
+        if not isinstance(anchors, dict):
+            errors.append(f"{where}: anchors must be an object")
+        else:
+            errors += _unknown(anchors, ANCHOR_LEVELS, f"{where} anchors")
+            if not all(isinstance(v, str) for v in anchors.values()):
+                errors.append(f"{where}: every anchor must be a string")
+        personas = d.get("personas", [])
+        if not isinstance(personas, list) or not all(isinstance(x, str) for x in personas):
+            errors.append(f"{where}: personas must be a list of persona ids")
+    for m in spec.get("measured") or []:
+        errors += _unknown(m, MEASURED_KEYS, f"measured {m.get('id')}")
+        for key in ("id", "description"):
+            if key in m and not isinstance(m[key], str):
+                errors.append(f"measured {m.get('id')}: {key} must be a string")
+    for c in spec.get("declared_choices") or []:
+        errors += _unknown(c, CHOICE_KEYS, "declared choice")
+        for key in ("choice", "user_said"):
+            if key in c and not isinstance(c[key], str):
+                errors.append(f"declared choice: {key} must be a string")
+    ref = spec.get("template")
+    if ref is not None:
+        if not isinstance(ref, dict):
+            errors.append("spec.template must be an object with id and version")
+        else:
+            errors += _unknown(ref, TEMPLATE_REF_KEYS, "spec.template")
+            version = ref.get("version")
+            if (
+                not isinstance(ref.get("id"), str)
+                or isinstance(version, bool)
+                or not isinstance(version, int)
+            ):
+                errors.append("spec.template needs a string id and an integer version")
+    framings = spec.get("framings")
+    if framings is not None and (
+        not isinstance(framings, list)
+        or not framings
+        or not all(isinstance(f, str) and f.strip() for f in framings)
+    ):
+        errors.append("spec.framings must be a list of non-empty strings")
+    return errors
+
+
+def dimensions_sha(dimensions: list[dict[str, Any]]) -> str:
+    """A hash of what a template asks judges: each dimension's id, name, question, anchors."""
+    core = [{k: d.get(k) for k in ("id", "name", "question", "anchors")} for d in dimensions or []]
+    return hashlib.sha256(json.dumps(core, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def todo_paths(value: Any, where: str = "spec") -> list[str]:
+    """Where a skeleton's TODO markers are still in place."""
+    if isinstance(value, str):
+        return [where] if TODO_MARKER in value else []
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in todo_paths(v, f"{where}.{k}")]
+    if isinstance(value, list):
+        return [p for i, v in enumerate(value) for p in todo_paths(v, f"{where}[{i}]")]
+    return []
+
+
+def validate_spec(spec: Any, cfg: Config | None = None) -> list[str]:
+    """Every problem with a spec, in shape and in values; empty when it can be frozen.
+
+    Args:
+        spec: The spec as loaded from JSON.
+        cfg: The configuration; the packaged defaults when None.
+    """
+    cfg = resolve(cfg)
+    errors = shape_errors(spec)
+    if errors:
+        return errors
+    todo = todo_paths(spec)
+    if todo:
+        errors.append(f"fill the {TODO_MARKER} markers first: {', '.join(todo)}")
+    for key in ("title", "purpose", "personas", "dimensions"):
+        if not spec.get(key):
+            errors.append(f"spec.{key} is missing or empty")
+    personas = spec.get("personas") or []
+    pids = [p.get("id") for p in personas]
+    if len(set(pids)) != len(pids) or not all(pids):
+        errors.append("every persona needs a unique id")
+    for p in personas:
+        if not p.get("description"):
+            errors.append(f"persona {p.get('id')}: description missing")
+    dids = []
+    for d in spec.get("dimensions") or []:
+        did = d.get("id")
+        dids.append(did)
+        anchors = d.get("anchors") or {}
+        for lvl in REQUIRED_ANCHORS:
+            if not str(anchors.get(lvl, "")).strip():
+                errors.append(f"dimension {did}: anchor {lvl} missing (1/3/5 are required)")
+        if not d.get("question"):
+            errors.append(f"dimension {did}: question missing")
+        w = d.get("weight", 1)
+        if not _is_number(w) or w <= 0:
+            errors.append(f"dimension {did}: weight must be a finite number > 0")
+        for pid in d.get("personas") or []:
+            if pid not in pids:
+                errors.append(f"dimension {did}: unknown persona {pid}")
+    if len(set(dids)) != len(dids) or not all(dids):
+        errors.append("every dimension needs a unique id")
+    for p in personas:
+        if p.get("id") and not dims_for(spec, p["id"]):
+            errors.append(f"persona {p['id']}: no dimension applies to it")
+    run_defaults = cfg.run_defaults
+    jp = spec.get("judges_per_persona", run_defaults["judges_per_persona"])
+    if (
+        isinstance(jp, bool)
+        or not isinstance(jp, int)
+        or not cfg.min_judges_per_persona <= jp <= MAX_JUDGES_PER_PERSONA
+    ):
+        errors.append(
+            f"judges_per_persona must be an integer between {cfg.min_judges_per_persona} "
+            f"and {MAX_JUDGES_PER_PERSONA}"
+        )
+    mr = spec.get("max_rounds", run_defaults["max_rounds"])
+    if isinstance(mr, bool) or not isinstance(mr, int) or mr < cfg.min_max_rounds:
+        errors.append(f"max_rounds must be an integer >= {cfg.min_max_rounds}")
+    for key in RUN_BOUNDS:
+        if key in spec:
+            problem = run_value_error(key, spec[key])
+            if problem:
+                errors.append(problem)
+    mids = [m.get("id") for m in spec.get("measured") or []]
+    if len(set(mids)) != len(mids):
+        errors.append("every measured criterion needs a unique id")
+    for m in spec.get("measured") or []:
+        if not m.get("id") or not m.get("description"):
+            errors.append("every measured criterion needs an id and a description")
+        for bound in ("max", "min"):
+            if bound in m and not _is_number(m[bound]):
+                errors.append(f"measured {m.get('id')}: {bound} must be a finite number")
+        if _is_number(m.get("min")) and _is_number(m.get("max")) and m["min"] > m["max"]:
+            errors.append(f"measured {m.get('id')}: min must not exceed max")
+    for c in spec.get("declared_choices") or []:
+        if not isinstance(c, dict) or not c.get("choice") or not c.get("user_said"):
+            errors.append(
+                "every declared choice needs `choice` and `user_said` (the user's own words): "
+                "the author may not exempt a weakness by declaring it"
+            )
+    if "facts" in spec and "facts_file" in spec:
+        errors.append("give either facts (text) or facts_file (a path), not both")
+    if INJECTION_ACK in spec and not spec[INJECTION_ACK].strip():
+        errors.append(
+            f"spec.{INJECTION_ACK} must say why a text addressed to a judge belongs in the "
+            "candidate; leave the key out otherwise"
+        )
+    return errors
+
+
+def rubric_hash(spec: dict[str, Any]) -> str:
+    """The sha256 of what the rubric asks: the hashed keys of the spec.
+
+    Args:
+        spec: The spec.
+    """
+    core = {k: spec.get(k) for k in RUBRIC_KEYS if k not in OPTIONAL_HASH_KEYS or k in spec}
+    canon = json.dumps(core, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()

@@ -16,10 +16,11 @@ import pytest
 
 from conftest import Harness, make_spec
 from sealed_panel.aggregate import aggregate_round
-from sealed_panel.config import load_config
 from sealed_panel.report import render_report
+from sealed_panel.run import run_salt
 from sealed_panel.runner import judge_round
-from sealed_panel.spec import init_run, run_salt
+from sealed_panel.settings import load_config
+from sealed_panel.steps import init_run
 
 # Every test here starts a judge command or a model endpoint.
 pytestmark = pytest.mark.slow

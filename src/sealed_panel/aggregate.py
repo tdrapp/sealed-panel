@@ -6,14 +6,15 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from .config import Config
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
 from .ledger import results_by_judge
 from .record import round_keys
 from .report import write_feedback
+from .rubric import dims_for
+from .run import load_frozen, run_config
 from .runner import every_seat
-from .spec import dims_for, load_frozen, run_config
+from .settings import Config
 from .store import dump_json, load_json, round_dir, run_lock
 from .transcript import transcript_agent_id
 

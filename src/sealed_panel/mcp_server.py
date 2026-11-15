@@ -31,20 +31,21 @@ from fastmcp.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from . import __version__
-from . import library as rubrics_lib
+from . import __version__, templates
 from .aggregate import aggregate_round
 from .brief import write_briefs
-from .config import Config, config_differences, library_dir, load_config
 from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .measure import record_measurement
 from .record import record_from
 from .report import feedback_path, render_report
 from .report import status as run_status
+from .rubric import TODO_MARKER
+from .run import run_config
 from .runner import judge_seat, open_seats
-from .spec import TODO_MARKER, run_config
-from .spec import init_run as init_any_run
+from .settings import Config, config_differences, load_config
+from .steps import init_run as init_any_run
 from .store import INIT_LOCK, contained, locked, resolve_round
+from .templates import library_dir
 
 # The longest a `judge` call may run. A judge process already started when it expires still
 # finishes and is recorded; `status` shows the round.
@@ -579,13 +580,13 @@ def build_server(
         def call() -> SuggestResult:
             lib = library_dir(opt(library))
             body = path(text).read_text("utf-8") if text else ""
-            rows = rubrics_lib.suggest(lib, kind, body, top)
+            rows = templates.suggest(lib, kind, body, top)
             every = (
                 {}
                 if rows
                 else {
                     tid: str(s["template"]["when_to_use"])
-                    for tid, s in rubrics_lib.all_templates(lib)[0].items()
+                    for tid, s in templates.all_templates(lib)[0].items()
                 }
             )
             return SuggestResult(
@@ -619,7 +620,7 @@ def build_server(
 
         def call() -> UseResult:
             lib = library_dir(opt(library))
-            written = rubrics_lib.write_skeleton(lib, id, path(out), opt(persona_file))
+            written = templates.write_skeleton(lib, id, path(out), opt(persona_file))
             return UseResult(path=str(written), template=id, todo_marker=TODO_MARKER)
 
         return _calling(call)

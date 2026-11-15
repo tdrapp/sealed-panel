@@ -7,8 +7,8 @@ import re
 from fractions import Fraction
 from typing import Any
 
-from .config import Config, resolve
 from .errors import EvalError
+from .settings import Config, resolve
 from .text import normalise, quote_found
 
 SCORE_MIN, SCORE_MAX = 1, 5

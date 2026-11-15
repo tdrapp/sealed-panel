@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .config import Config, overrides
 from .decide import (
     BLOCKED,
-    INJECTION_ACK,
     SUSPECT_JUMP,
     TOP_SCORE,
     decide,
@@ -18,8 +19,11 @@ from .decide import (
 )
 from .ledger import other_runs, used_agent_ids
 from .ledger import view as ledger_view
+from .model import INJECTION_ACK
 from .record import RUNNER
-from .spec import dims_for, load_frozen, run_config
+from .rubric import dims_for
+from .run import load_frozen, run_config
+from .settings import NOT_GRADING, Config, default_data
 from .store import write_file
 
 # Hex characters of the rubric hash shown in the report.
@@ -363,3 +367,60 @@ def outcome_line(r: dict[str, Any]) -> str:
         + f" judge {r['judge']}"
         + ("" if r["ok"] else ": " + "; ".join(r["errors"][:3]))
     )
+
+
+def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
+    flat: dict[str, Any] = {}
+    for key, value in data.items():
+        name = f"{prefix}{key}"
+        if isinstance(value, dict):
+            flat.update(_flatten(value, name + "."))
+        else:
+            flat[name] = value
+    return flat
+
+
+SHOW_LIMIT = 80
+
+
+# Settings always shown in full: what runs as the judge is never reduced to a hash.
+SHOW_IN_FULL = frozenset({"judge.command", "judge.env_allow"})
+
+
+def _show(value: Any, where: str, key: str = "") -> str:
+    """A value in full, or, when it is long, its size and short hash and where to read it."""
+    text = json.dumps(value, ensure_ascii=True)
+    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:
+        return text
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    return f"<{len(text)} characters, sha256 {digest}, see {where}>"
+
+
+def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
+    """Every setting that differs from the packaged defaults, as `key = value (default x)`.
+
+    Per-run keys are read from the frozen spec when one is given, since that is the value
+    the run uses; the other keys come from the configuration.
+
+    Args:
+        cfg: The configuration.
+        spec: The frozen spec, or None.
+    """
+    defaults = _flatten(default_data())
+    current = _flatten(cfg.data)
+    out = []
+    for key in sorted(set(defaults) | set(current)):
+        if key.startswith("run.") and spec is not None:
+            continue
+        if key in NOT_GRADING:
+            continue  # where files are, not how a text is graded
+        if current.get(key) != defaults.get(key):
+            now = _show(current.get(key), "config.json", key)
+            was = _show(defaults.get(key), "defaults", key)
+            out.append(f"{key} = {now} (default {was})")
+    if spec is not None:
+        for key, default in default_data()["run"].items():
+            if key in spec and spec[key] != default:
+                now, was = _show(spec[key], "spec.json"), _show(default, "defaults")
+                out.append(f"spec.{key} = {now} (default {was})")
+    return out
