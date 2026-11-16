@@ -398,8 +398,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "control compared on capped scores": (
         LEARN,
-        'raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]',
-        'raw = [r["items"].get(role, {}).get("scores", {}).get(did) for r in results]',
+        'raw = [r["items"].get(role, no_item()).get("raw_scores", {}).get(did) for r in results]',
+        'raw = [r["items"].get(role, no_item()).get("scores", {}).get(did) for r in results]',
     ),
     "loop rounds read for the control": (
         LEARN,

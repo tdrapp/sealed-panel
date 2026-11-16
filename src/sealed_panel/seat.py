@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from .errors import EvalError
-from .model import Attempt, FrozenSpec, Seat
+from .model import Attempt, FrozenSpec, Seat, no_item
 from .settings import Config
 from .store import locked
 
@@ -19,7 +19,7 @@ MAX_VOIDS = 3
 
 def calibrate(result: Attempt, meta: Seat, spec: FrozenSpec) -> None:
     """Discard a judge whose control is too high or whose known-good is too low."""
-    ctrl = result["items"].get("control", {}).get("raw_scores", {})
+    ctrl = result["items"].get("control", no_item()).get("raw_scores", {})
     if not ctrl:
         result["ok"] = False
         result["errors"].append("the control has no verified score")
@@ -32,7 +32,7 @@ def calibrate(result: Attempt, meta: Seat, spec: FrozenSpec) -> None:
                 f"control scored {mean_ctrl:.2f} > {spec['control_max']}: this judge does "
                 "not discriminate; brief a replacement on the same brief file"
             )
-    good = result["items"].get("known_good", {}).get("raw_scores", {})
+    good = result["items"].get("known_good", no_item()).get("raw_scores", {})
     has_good = "known_good" in meta["key"].values()
     if (
         result["ok"]

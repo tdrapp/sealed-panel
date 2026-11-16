@@ -26,7 +26,7 @@ from ..decide import BLOCKED, decide
 from ..errors import EvalError
 from ..ledger import results_by_judge
 from ..ledger import view as ledger_view
-from ..model import Attempt, FrozenSpec, LedgerView, RoundResult
+from ..model import Attempt, FrozenSpec, LedgerView, RoundResult, no_item
 from ..rubric import TODO_MARKER
 from ..run import load_frozen, run_config
 from ..settings import Config
@@ -61,7 +61,7 @@ def _quotes(results: list[Attempt], did: str) -> list[dict[str, Any]]:
     """Each judge's quote on the candidate for one dimension, and whether code verified it."""
     out = []
     for r in results:
-        cand = r["items"].get("candidate", {})
+        cand = r["items"].get("candidate", no_item())
         if did in cand.get("quotes", {}):
             out.append(
                 {
@@ -105,7 +105,7 @@ def _judges_disagree(
             for r in results:
                 if r["persona"] != pid:
                     continue
-                cand = r["items"].get("candidate", {})
+                cand = r["items"].get("candidate", no_item())
                 raw, sev = cand.get("raw_scores", {}).get(did), cand.get("severity", {}).get(did)
                 if raw is None or sev is None:
                     continue
@@ -149,7 +149,7 @@ def _judges_disagree(
 
 
 def _raw_mean(results: list[Attempt], role: str, did: str) -> float | None:
-    raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]
+    raw = [r["items"].get(role, no_item()).get("raw_scores", {}).get(did) for r in results]
     values = [float(x) for x in raw if x is not None]
     return statistics.mean(values) if values else None
 

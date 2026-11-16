@@ -16,6 +16,7 @@ from .model import (
     PersonaResult,
     RoundKeys,
     RoundResult,
+    no_item,
 )
 from .rubric import dims_for
 from .settings import Config
@@ -54,7 +55,7 @@ def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> Dime
     cand = [
         r["items"]["candidate"]["scores"][did]
         for r in pv
-        if did in r["items"].get("candidate", {}).get("scores", {})
+        if did in r["items"].get("candidate", no_item()).get("scores", {})
     ]
     if len(cand) < cfg.min_valid_judges:
         raise EvalError(
@@ -63,7 +64,7 @@ def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> Dime
     sevs = [
         r["items"]["candidate"]["severity"][did]
         for r in pv
-        if did in r["items"].get("candidate", {}).get("severity", {})
+        if did in r["items"].get("candidate", no_item()).get("severity", {})
     ]
     entry: DimensionResult = {
         "median": statistics.median(cand),
@@ -73,8 +74,8 @@ def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> Dime
     }
     gains = []
     for r in pv:
-        c = r["items"].get("candidate", {}).get("scores", {}).get(did)
-        p = r["items"].get("previous", {}).get("scores", {}).get(did)
+        c = r["items"].get("candidate", no_item()).get("scores", {}).get(did)
+        p = r["items"].get("previous", no_item()).get("scores", {}).get(did)
         if c is not None and p is not None:
             gains.append(c - p)
     if gains:
@@ -82,14 +83,14 @@ def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> Dime
     control = [
         x
         for r in pv
-        if (x := r["items"].get("control", {}).get("raw_scores", {}).get(did)) is not None
+        if (x := r["items"].get("control", no_item()).get("raw_scores", {}).get(did)) is not None
     ]
     if control:
         entry["control_median"] = statistics.median(control)
     baseline = [
         x
         for r in pv
-        if (x := r["items"].get("baseline", {}).get("scores", {}).get(did)) is not None
+        if (x := r["items"].get("baseline", no_item()).get("scores", {}).get(did)) is not None
     ]
     if baseline:
         entry["baseline_median"] = statistics.median(baseline)
@@ -99,7 +100,7 @@ def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> Dime
 def _findings(pv: list[Attempt], cfg: Config) -> list[Finding]:
     findings: list[Finding] = []
     for r in pv:
-        for did, sev in r["items"].get("candidate", {}).get("severity", {}).items():
+        for did, sev in r["items"].get("candidate", no_item()).get("severity", {}).items():
             if sev in cfg.findings:
                 wp = r["items"]["candidate"]["weakest_point"]
                 text = wp["text"] if wp.get("dimension") == did else ""
@@ -281,7 +282,7 @@ def aggregate(
             str(r["judge"]): r["prompt_extra_chars"] for r in valid if r.get("prompt_extra_chars")
         },
         "one_quote_judges": sorted(
-            r["judge"] for r in valid if r["items"].get("candidate", {}).get("one_quote")
+            r["judge"] for r in valid if r["items"].get("candidate", no_item()).get("one_quote")
         ),
     }
     if (rdir / "measured.json").exists():

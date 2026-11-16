@@ -151,11 +151,10 @@ class WeakPoint(TypedDict):
     severity: str
 
 
-class ItemScore(TypedDict, total=False):
+class ItemScore(TypedDict):
     """One judge's reading of one item (by role, never by label): the scores kept after the
     quote check and the severity caps, and what the judge wrote. `check_output` writes every
-    key; they are not marked required so that a reader can take a role the brief did not have
-    as `{}` (`items.get("previous", {})`)."""
+    key; a reader takes a role the brief did not have as `no_item()`."""
 
     scores: dict[str, int]
     raw_scores: dict[str, int]
@@ -167,6 +166,23 @@ class ItemScore(TypedDict, total=False):
     retell: object
     weakest_point: WeakPoint
     reasoning: dict[str, object]
+
+
+def no_item() -> ItemScore:
+    """The reading of a role the brief did not have (no previous version in round 1, no
+    known-good): every key empty, so a reader needs no special case. A new one each call."""
+    return {
+        "scores": {},
+        "raw_scores": {},
+        "severity": {},
+        "unverified": [],
+        "capped": [],
+        "one_quote": False,
+        "quotes": {},
+        "retell": "",
+        "weakest_point": {"text": "", "dimension": None, "quote": "", "severity": "unknown"},
+        "reasoning": {},
+    }
 
 
 class Proof(TypedDict, total=False):
