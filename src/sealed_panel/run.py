@@ -33,25 +33,27 @@ HOME_OR_RELATIVE = ("~/", "./", "../")
 # The run's salt for the hashes of the judge environment's values, created at init.
 ENV_SALT = "env.salt"
 # The run format (SCHEMA_VERSION, see model.py for the rule a later release follows) is written
-# to run.json last at init (a marker, not hashed): a run without it was created by a
-# development version before the first release, or its init was interrupted.
+# to run.json last at init (a marker, not hashed): a run without it was created before the
+# first release of the first format, or its init was interrupted.
 RUN_FILE = "run.json"
 # A release from 0.4.0 on is tagged, so a run of one of its formats can be finished with it.
 _INSTALL_TAG = "pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
 _FROM_ITS_TAG = (
     f"finish or read it with the version that created it, installed from its tag: {_INSTALL_TAG}"
 )
-# No version before the first release of the first format was published or tagged: a run it
-# created can only be started again.
+# The first release of the first format changed what a run freezes: no later version continues
+# a run created before it. No version before it was published to the package index, so the
+# refusal names no install line; the user may still finish the run with the version that
+# created it.
 _FIRST_RELEASE = FORMAT_SINCE[min(FORMAT_SINCE)]
-DEVELOPMENT_RUN = (
-    f"a development version of sealed-panel before {_FIRST_RELEASE} created it, and such a run "
-    f"cannot be continued: no version before {_FIRST_RELEASE} was published, and "
-    f"{_FIRST_RELEASE} changed what a run freezes. Start a new run with this version"
+BEFORE_FIRST_RELEASE = (
+    f"This version cannot continue a run created before {_FIRST_RELEASE}: start a new run with "
+    "this version, or finish the old one with the version that created it"
 )
 NO_MARKER = (
-    f"this run has no {RUN_FILE}: either {DEVELOPMENT_RUN}; or its init was interrupted before "
-    f"writing {RUN_FILE}, which it writes last: start again in a new run directory"
+    f"this run has no {RUN_FILE}: either it was created before {_FIRST_RELEASE}, or its init "
+    f"was interrupted before writing {RUN_FILE}, which it writes last (then start again in a new "
+    f"run directory). {BEFORE_FIRST_RELEASE}"
 )
 SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
@@ -197,7 +199,7 @@ def format_releases(version: int) -> str:
 
 def other_format(version: int) -> str:
     """Why a run of another format is refused, naming the releases of each format from
-    FORMAT_SINCE; a format older than the table was made by a development version.
+    FORMAT_SINCE; a format older than the table was created before 0.4.0.
 
     Args:
         version: The run's format, not this version's.
@@ -210,7 +212,10 @@ def other_format(version: int) -> str:
             f"writes format {version} to read or finish it"
         )
     if version < min(FORMAT_SINCE):
-        return f"this run has run format {version}: {DEVELOPMENT_RUN}"
+        return (
+            f"this run has run format {version}, from before {_FIRST_RELEASE}. "
+            f"{BEFORE_FIRST_RELEASE}"
+        )
     return (
         f"this run was created by an earlier version of sealed-panel (run format {version}, "
         f"written by {format_releases(version)}); this version reads and writes format "
@@ -220,9 +225,9 @@ def other_format(version: int) -> str:
 
 def refuse_older_run(run: Path) -> None:
     """Refuse a run of another format, for every command, read or write, before anything is
-    created in it. A run without `run.json`, or of a format older than the table, was made by a
-    development version before 0.4.0: it cannot be continued. A run of an earlier or newer
-    release's format names the releases to use, from FORMAT_SINCE.
+    created in it. A run without `run.json`, or of a format older than the table, was created
+    before 0.4.0, and this version cannot continue it. A run of an earlier or newer release's
+    format names the releases to use, from FORMAT_SINCE.
 
     Args:
         run: The run directory.

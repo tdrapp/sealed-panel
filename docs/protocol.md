@@ -245,8 +245,8 @@ creates anything in it: a run of an earlier release's format is finished with th
 installed from its tag, a newer one needs an upgrade. Both refusals name the releases that
 write each format, from one table (`FORMAT_SINCE` in `sealed_panel/model.py`: each format and
 the first release that writes it). A run without `run.json`, or of a format older than the
-table, was made by a development version before 0.4.0, the first published release: it cannot
-be continued, and the refusal says to start a new run.
+table, was created before 0.4.0. This version cannot continue a run created before 0.4.0: start
+a new run with this version, or finish the old one with the version that created it.
 
 A later release that adds a setting frozen into every run (a key of `defaults.toml`) does one
 of two things, so that a run frozen before it keeps its grade:

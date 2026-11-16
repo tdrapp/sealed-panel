@@ -9,19 +9,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.0] - 2026-11-16
 
-0.4.0 changes how the package is built more than what it does. Each module has one job, and
-the import layers between them are checked in CI. The records a run writes are typed. The
-threat model stops at the run directory, and the code and `SECURITY.md` say the same thing.
-The MCP server has 10 tools instead of 14, `defaults.toml` has 96 lines instead of 149, and the
-most complex function has a complexity of 43 instead of 58. The package is larger than 0.3.1:
-7,110 lines of Python in `src/sealed_panel` against 6,108, in 29 files against 18. It grew by
-1,002 lines, of which 578 are type declarations and module headers: 406 in `model.py`, the type
+0.4.0 changes how the package is built more than what it does. Each module has one job, and the
+import layers between them are checked in CI. The records a run writes are typed. The threat
+model stops at the run directory, and the code and `SECURITY.md` say the same thing. The MCP
+server has 10 tools instead of 14, `defaults.toml` has 96 lines instead of 149, and the most
+complex function has a complexity of 43 instead of 58. The package is larger than 0.3.1: 7,115
+lines of Python in `src/sealed_panel` against 6,108, in 29 files against 18. It grew by 1,007
+lines, of which 578 are type declarations and module headers: 406 in `model.py`, the type
 declarations, and 172 more in the headers (docstrings and imports) of the other modules; the
-rest is spread over the new and split modules. 0.4.0 is the first published release. It
-refuses to read or write runs created by the development versions before it, which cannot be
-continued, and code that imported names now gone from `sealed_panel.__all__` or from the old
-modules breaks; `sealed-panel learn` is now `sealed-panel learning learn`. Every such change is
-an entry marked **Breaking** below, first under Changed and Removed.
+rest is spread over the new and split modules. 0.4.0 is the first release published to the
+package index. It refuses to read or write runs created before it (start a new run, or finish
+the old one with the version that created it), code that imported names now gone from
+`sealed_panel.__all__` or from the old modules breaks, and `sealed-panel learn` is now
+`sealed-panel learning learn`. Every such change is an entry marked **Breaking** below, first
+under Changed and Removed.
 
 ### Changed
 
@@ -163,11 +164,12 @@ an entry marked **Breaking** below, first under Changed and Removed.
 - **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
   versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
   and every command and MCP tool, read or write, refuses a run without it, before creating
-  anything in it: a development version before 0.4.0 created it, and such a run cannot be
-  continued, since no version before 0.4.0 was published or tagged and 0.4.0 changed what a run
-  freezes, so start a new run (or its init was interrupted: `run.json` is written last, so
-  start again). A `run.json` of a newer format says to upgrade; one that cannot be read says it
-  is damaged. No version before 0.4.0 was published to the package index.
+  anything in it, since 0.4.0 changed what a run freezes (or its init was interrupted:
+  `run.json` is written last, so start again). The refusal says: "This version cannot continue
+  a run created before 0.4.0: start a new run with this version, or finish the old one with the
+  version that created it." A `run.json` of a newer format says to upgrade; one that cannot be
+  read says it is damaged. No version before 0.4.0 was published to the package index; 0.3.0
+  and 0.3.1 were never tagged.
 - **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
   its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
   derives the rounds from the round files (loop rounds first, by number) and the rubric hash

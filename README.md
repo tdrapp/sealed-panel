@@ -472,9 +472,9 @@ skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
-A run is finished with the version that started it. 0.4.0 is the first published release, and
-it refuses every run created before it: such a run was made by a development version, which was
-never published, so it cannot be continued. Start a new run with 0.4.0.
+A run is finished with the version that started it, and 0.4.0 refuses every run created before
+it. This version cannot continue a run created before 0.4.0: start a new run with this version,
+or finish the old one with the version that created it.
 
 A configuration file that sets `[text]`, `[injection]` or `[library]` is refused, naming the
 key: those settings are fixed in code since 0.4.0. Code that imports from the package: the

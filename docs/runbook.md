@@ -108,11 +108,11 @@ the record.
   as a duplicate, and a round already aggregated is refused, so a second run cannot count
   anything twice.
 - A machine that went away mid-run: `status` reads the run's rounds and says what comes next.
-- A run created before 0.4.0, refused by every command ("a development version of
-  sealed-panel before 0.4.0 created it"): it cannot be continued, since no version before
-  0.4.0 was published; start a new run with 0.4.0. Do not add a `run.json` by hand: 0.4.0
-  changed what a run freezes. A run of a later release's format names the releases to finish
-  it with, each installed from its tag.
+- A run created before 0.4.0, refused by every command: this version cannot continue a run
+  created before 0.4.0: start a new run with this version, or finish the old one with the
+  version that created it. Do not add a `run.json` by hand: 0.4.0 changed what a run freezes.
+  A run of a later release's format names the releases to finish it with, each installed from
+  its tag.
 
 Never edit, move or delete a run's files by hand to get past a refusal: the refusals are the
 protocol, and a hand edit is out of the threat model, not a way around it.

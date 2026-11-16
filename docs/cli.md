@@ -9,13 +9,14 @@ sealed-panel [--version] <command> RUN [options]
 reads the configuration frozen into the run.
 
 `init` writes `run.json` with the run format (`schema_version`), last. Every command, read or
-write, refuses a run before creating anything in it when `run.json` is missing (a run created by
-a development version before 0.4.0, which was never published and cannot be continued, so start
-a new run; or an interrupted init, to start again), holds a newer format (upgrade), or cannot be
-read (damaged). Within a format, a run whose frozen configuration lacks a setting this release
-has no value for was frozen by an earlier release: it is refused with the releases to finish it
-with; one holding a setting this release does not know was frozen by a newer release: it is
-refused with the advice to upgrade ([protocol.md](protocol.md), section 11).
+write, refuses a run before creating anything in it when `run.json` is missing (a run created
+before 0.4.0: this version cannot continue a run created before 0.4.0: start a new run with this
+version, or finish the old one with the version that created it; or an interrupted init, to
+start again), holds a newer format (upgrade), or cannot be read (damaged). Within a format, a
+run whose frozen configuration lacks a setting this release has no value for was frozen by an
+earlier release: it is refused with the releases to finish it with; one holding a setting this
+release does not know was frozen by a newer release: it is refused with the advice to upgrade
+([protocol.md](protocol.md), section 11).
 
 `--round N` is required for a loop round. With `--sealed` it is optional and defaults to 1,
 since a run has one sealed panel.
