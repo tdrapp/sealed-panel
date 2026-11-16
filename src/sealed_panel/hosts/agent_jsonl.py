@@ -252,13 +252,14 @@ def _calls(entries: list[dict[str, Any]]) -> list[tuple[str, str]]:
     ]
 
 
-def read(path: Path) -> Transcript:
+def read(path: Path, limit: int | None = None) -> Transcript:
     """Read one subagent transcript; one this adapter does not recognise raises FormatError.
 
     Args:
         path: The transcript file.
+        limit: Read only the file's first bytes, up to the last whole line; None for all.
     """
-    lines = read_lines(path)
+    lines = read_lines(path, limit)
     entries = lines.entries
     _check(path, entries)
     first = _first_output(entries)
@@ -310,24 +311,6 @@ def _sessions(path: Path) -> set[Path]:
     return {tree.parent.parent / f"{i}.jsonl" for i in ids if _plain(i)}
 
 
-def _parents(path: Path) -> set[Path]:
-    """The subagents that launched this one, at any depth, from the `parentAgentId` of each
-    one's meta file (measured: 281 of 281 name a transcript of the same tree)."""
-    tree, current = _tree(path), path
-    found: set[Path] = set()
-    while True:
-        try:
-            meta = json.loads(current.with_name(current.stem + ".meta.json").read_text("utf-8"))
-        except (OSError, ValueError, RecursionError):
-            return found
-        parent = meta.get("parentAgentId") if isinstance(meta, dict) else None
-        nxt = next(tree.rglob(f"agent-{parent}.jsonl"), None) if _plain(parent) else None
-        if nxt is None or nxt in found:
-            return found
-        found.add(nxt)
-        current = nxt
-
-
 def siblings(paths: list[Path], since: float) -> list[Path]:
     """Every file under the `subagents/` folder of each recorded transcript's session, at any
     depth, the host's side files left out, and the main session file each belongs to, last
@@ -346,13 +329,12 @@ def siblings(paths: list[Path], since: float) -> list[Path]:
     )
 
 
-def launchers(paths: list[Path], candidates: list[Path]) -> set[Path]:
-    """The files of the sessions that launched the recorded judges: each one's main session and
-    the subagents above it.
+def roots(paths: list[Path], candidates: list[Path]) -> set[Path]:
+    """The top-level session the recorded judges were launched from: each one's main session.
 
     Args:
         paths: The recorded transcripts.
-        candidates: The files the scan reads (unused: the launchers are found from the
+        candidates: The files the scan reads (unused: the main session is found from the
             recorded transcripts alone).
     """
-    return {f for p in paths for f in _sessions(p) | _parents(p)}
+    return {f for p in paths for f in _sessions(p)}

@@ -24,18 +24,25 @@ from .settings import Config
 from .store import load_json
 from .transcript import Transcript
 
-# Files larger than this are skipped when looking for briefed but unrecorded agents.
+# Bytes of a transcript the scan parses at most: a larger one holding a brief id is refused,
+# and only the start of the top-level session's file is parsed, for its prompt.
 MAX_SCAN_BYTES = 20_000_000
+# Characters read at a time when looking for brief ids in a transcript.
+SCAN_CHUNK = 1 << 20
 # Transcripts the scan for unrecorded agents reads at most; past it, aggregation is refused.
 MAX_SIBLINGS = 1000
 # Seconds before the round's briefs a transcript may have been last written and still be read:
 # one written earlier cannot hold a brief id of this round.
 BRIEF_SLACK_S = 60
 
+# (judge, agent id) of an unrecorded session holding a brief id.
+Found = list[tuple[int, str]]
+
 
 def _scanned(proofs: set[Path], cfg: Config, since: float) -> list[Path]:
     """The transcripts beside the recorded ones that the scan reads, as the run's format lists
-    them; refused past MAX_SIBLINGS, so the scan stays bounded and never stops short."""
+    them, the recorded ones left out; refused past MAX_SIBLINGS, so the scan stays bounded and
+    never stops short."""
     found = sorted(adapter(cfg).siblings(sorted(proofs), since))
     if len(found) > MAX_SIBLINGS:
         raise EvalError(
@@ -43,14 +50,27 @@ def _scanned(proofs: set[Path], cfg: Config, since: float) -> list[Path]:
             f"was briefed, more than the {MAX_SIBLINGS} the scan for unrecorded judges reads: "
             "launch judges where the host writes few other transcripts"
         )
-    return [f for f in found if f.is_file() and f.stat().st_size <= MAX_SCAN_BYTES]
+    return [f for f in found if f.is_file() and f not in proofs]  # a recorded one is known
 
 
-def _transcript_of(f: Path, cfg: Config) -> Transcript:
+def _holds(f: Path, nonces: dict[str, int]) -> dict[str, int]:
+    """The brief ids a file holds anywhere, searched a chunk at a time, whatever its size."""
+    width = max(map(len, nonces), default=1)
+    found: dict[str, int] = {}
+    tail = ""
+    with f.open(encoding="utf-8", errors="replace") as fh:
+        while chunk := fh.read(SCAN_CHUNK):
+            window = tail + chunk
+            found |= {nonce: judge for nonce, judge in nonces.items() if nonce in window}
+            tail = window[-width:]
+    return found
+
+
+def _transcript_of(f: Path, cfg: Config, limit: int | None = None) -> Transcript:
     """A transcript holding a brief id, read; one that cannot be read is refused, since it
     could be a judge launched and kept quiet."""
     try:
-        return read_transcript(f, cfg)
+        return read_transcript(f, cfg, limit)
     except EvalError as exc:
         raise EvalError(
             f"{f} holds a brief id of this round but cannot be read ({exc}): every agent that "
@@ -58,47 +78,80 @@ def _transcript_of(f: Path, cfg: Config) -> Transcript:
         ) from exc
 
 
+def _top_level(f: Path, hits: dict[str, int], cfg: Config) -> Found:
+    """The top-level session the recorded judges were launched from, holding brief ids: a judge
+    only when one is in its prompt. Its prompt sits at the start of its file; past the cap only
+    that start is read, and a file whose first output lies past the cap is refused, since its
+    prompt cannot be checked."""
+    big = f.stat().st_size > MAX_SCAN_BYTES
+    t = _head_of(f, cfg) if big else _transcript_of(f, cfg)
+    if t is None or (big and not t.replied):
+        raise EvalError(
+            f"{f}, the session the judges were launched from, is larger than {MAX_SCAN_BYTES} "
+            "bytes and shows no output before that: its prompt cannot be checked for a brief "
+            "id; launch the judges from a fresh top-level session"
+        )
+    return [(judge, t.agent_id or f.stem) for nonce, judge in hits.items() if nonce in t.prompt]
+
+
+def _head_of(f: Path, cfg: Config) -> Transcript | None:
+    """The start of a large file, up to the cap, read; None when that start cannot be read."""
+    try:
+        return read_transcript(f, cfg, MAX_SCAN_BYTES)
+    except EvalError:
+        return None
+
+
+def _other(f: Path, hits: dict[str, int], cfg: Config) -> tuple[Found, Found]:
+    """Any other session holding a brief id: as a judge when the id is in its prompt, otherwise
+    as an agent that handled a brief. One too large to parse is refused."""
+    if f.stat().st_size > MAX_SCAN_BYTES:
+        raise EvalError(
+            f"{f} holds a brief id of this round and is larger than {MAX_SCAN_BYTES} bytes: it "
+            "cannot be read whole to tell which agent it is; every agent that received a brief "
+            "must be recorded"
+        )
+    t = _transcript_of(f, cfg)
+    aid = t.agent_id or f.stem
+    briefed = [(judge, aid) for nonce, judge in hits.items() if nonce in t.prompt]
+    return briefed, [] if briefed else [(judge, aid) for judge in hits.values()]
+
+
 def unrecorded_agents(
     keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config, since: float = 0.0
-) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+) -> tuple[Found, Found]:
     """Sessions (as the run's transcript format lists them, written since `since`) that hold
     one of this round's brief ids and were never recorded: launching several judges and
     keeping the best. Two lists of (judge, agent id). Judges: a brief id in the session's
-    prompt, its inputs before its first output; a session that launched a recorded judge is one
-    too when its prompt holds a brief id. Others: a brief id elsewhere, in a session that
-    launched no recorded judge."""
-    nonces = {j.get("nonce"): j["judge"] for j in keys["judges"] if j.get("nonce")}
+    prompt, its inputs before its first output. Others: a brief id anywhere else, in any session
+    but the top-level one the recorded judges were launched from, which is exempt unless its
+    prompt holds one."""
+    nonces = {j["nonce"]: j["judge"] for j in keys["judges"] if j.get("nonce")}
     recorded = {r["agent_id"] for rs in by_judge.values() for r in rs}
     proofs = {Path(p) for rs in by_judge.values() for r in rs if (p := r.get("transcript"))}
     found = _scanned(proofs, cfg, since)
-    launchers = adapter(cfg).launchers(sorted(proofs), found)
-    judges: list[tuple[int, str]] = []
-    others: list[tuple[int, str]] = []
+    tops = adapter(cfg).roots(sorted(proofs), found)
+    judges: Found = []
+    others: Found = []
     for f in found:
-        text = f.read_text(encoding="utf-8", errors="replace")
-        hits = {nonce: judge for nonce, judge in nonces.items() if nonce in text}
-        if not hits:
-            continue
-        briefed, elsewhere = _sorted_out(_transcript_of(f, cfg), hits, recorded, f in launchers)
+        briefed, handled = _one(f, f in tops, nonces, cfg)
         judges += briefed
-        others += elsewhere
-    return sorted(set(judges)), sorted(set(others))
+        others += handled
+    return _not_in(judges, recorded), _not_in(others, recorded)
 
 
-def _sorted_out(
-    t: Transcript, hits: dict[str, int], recorded: set[str], launcher: bool
-) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
-    """One session holding brief ids: a judge when one is in its prompt, launcher or not;
-    otherwise another session, unless it launched a recorded judge; nothing when recorded."""
-    aid = t.agent_id or t.path.stem
-    briefed = [judge for nonce, judge in hits.items() if nonce in t.prompt]
-    if aid in recorded:
+def _not_in(found: Found, recorded: set[str]) -> Found:
+    """The sessions found that were never recorded, sorted, once each."""
+    return sorted({(judge, aid) for judge, aid in found if aid not in recorded})
+
+
+def _one(f: Path, top: bool, nonces: dict[str, int], cfg: Config) -> tuple[Found, Found]:
+    """What one scanned session counts as: the top-level session, a judge only through its
+    prompt; any other, by the brief ids it holds anywhere."""
+    hits = _holds(f, nonces)
+    if not hits:
         return [], []
-    if briefed:
-        return [(judge, aid) for judge in briefed], []
-    if launcher:
-        return [], []
-    return [], [(judge, aid) for judge in hits.values()]
+    return (_top_level(f, hits, cfg), []) if top else _other(f, hits, cfg)
 
 
 def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> DimensionResult:
@@ -195,25 +248,24 @@ def _refuse_unrecorded(
     keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config, briefed_at: float
 ) -> None:
     """Refuse a round some session received a brief of and was never recorded: a judge kept
-    quiet (record it), or a session holding a brief elsewhere (record it if it judged, else
-    launch judges from the session that briefs them)."""
+    quiet (record it), or an agent that handled a brief (judges come from the top-level session
+    only)."""
     judges, others = unrecorded_agents(keys, by_judge, cfg, briefed_at - BRIEF_SLACK_S)
     if judges:
         raise EvalError(
             "agents received a brief of this round in their prompt but were never recorded: "
             + ", ".join(f"j{j} {aid}" for j, aid in judges)
             + "; record every agent you briefed, rejected or not (a void for one that never "
-            "replied). An agent given a brief's text only to pass it on is a judge too: give it "
-            "the brief's path instead"
+            "replied), and launch each judge from the top-level session as a fresh subagent"
         )
     if others:
         raise EvalError(
-            "sessions hold a brief id of this round outside their prompt and launched no "
-            "recorded judge: "
+            "agents other than the top-level session hold a brief id of this round outside "
+            "their prompt and were never recorded: "
             + ", ".join(f"j{j} {aid}" for j, aid in others)
-            + "; one that judged (it read a brief) must be recorded, as a void if it never "
-            "replied; otherwise start each judge as a subagent of the session that briefs it, "
-            "and pass a brief by its path"
+            + "; record one that judged (a void if it never replied). Launch each judge from "
+            "the top-level session as a fresh subagent: a helper or standby agent that handles "
+            "a brief blocks the round"
         )
 
 

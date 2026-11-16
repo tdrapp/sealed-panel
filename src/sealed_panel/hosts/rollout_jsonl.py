@@ -34,9 +34,9 @@ Measured on 10 rollouts (structure and counts only):
 
 The scan for unrecorded judges reads every rollout under the sessions root changed since the
 round was briefed, whatever its date folder or parent session (a judge started by a helper
-subagent, or a session started days before it got the brief). The sessions that launched the
-recorded judges (each one's parent, that parent's parent, and so on) are exempt only when no
-brief id is in their prompt (the rule is the core's, `aggregate.unrecorded_agents`).
+subagent, or a session started days before it got the brief). The top-level session of the
+recorded judges is the session at the top of each one's parent chain, with no parent; the core
+exempts it alone, when no brief id is in its prompt (`aggregate.unrecorded_agents`).
 """
 
 from __future__ import annotations
@@ -172,13 +172,14 @@ def _forked(meta: dict[str, Any], entries: list[dict[str, Any]]) -> bool:
     return any(k in meta for k in FORK_KEYS) or sessions > 1
 
 
-def read(path: Path) -> Transcript:
+def read(path: Path, limit: int | None = None) -> Transcript:
     """Read one rollout; one this adapter does not recognise raises FormatError.
 
     Args:
         path: The rollout file.
+        limit: Read only the file's first bytes, up to the last whole line; None for all.
     """
-    lines = read_lines(path)
+    lines = read_lines(path, limit)
     meta = _session(path, lines.entries)
     items = _items(path, lines.entries)
     me = _own_path(meta)
@@ -219,17 +220,17 @@ def _root(folder: Path) -> Path:
     return folder.parent.parent.parent
 
 
-def _launchers(paths: list[Path], records: dict[Path, dict[str, Any] | None]) -> set[str]:
-    """The ids of the sessions that launched the recorded judges, at any depth: each judge's
-    parent, its parent's parent, and so on."""
-    parents = {m["id"]: m.get("parent_thread_id") for m in records.values() if m and "id" in m}
-    found: set[str] = set()
-    for path in paths:
-        current = (_session_of(path) or {}).get("parent_thread_id")
-        while isinstance(current, str) and current not in found:
-            found.add(current)
-            current = parents.get(current)
-    return found
+def _top(path: Path, parents: dict[str, Any]) -> str | None:
+    """The id of the top-level session a recorded rollout was launched from: the end of its
+    parent chain, a session with no parent; None when the chain leaves the candidates."""
+    current = (_session_of(path) or {}).get("parent_thread_id")
+    seen: set[str] = set()
+    while isinstance(current, str) and current in parents and current not in seen:
+        seen.add(current)
+        if parents[current] is None:
+            return current
+        current = parents[current]
+    return None
 
 
 def siblings(paths: list[Path], since: float) -> list[Path]:
@@ -250,13 +251,14 @@ def siblings(paths: list[Path], since: float) -> list[Path]:
     )
 
 
-def launchers(paths: list[Path], candidates: list[Path]) -> set[Path]:
-    """Among the candidates, the sessions that launched the recorded judges, at any depth.
+def roots(paths: list[Path], candidates: list[Path]) -> set[Path]:
+    """Among the candidates, the top-level sessions the recorded rollouts were launched from.
 
     Args:
         paths: The recorded rollouts.
         candidates: The rollouts the scan reads.
     """
     records = {f: _session_of(f) for f in candidates}
-    ids = _launchers(paths, records)
-    return {f for f, m in records.items() if m and m.get("id") in ids}
+    parents = {m["id"]: m.get("parent_thread_id") for m in records.values() if m and "id" in m}
+    tops = {_top(p, parents) for p in paths}
+    return {f for f, m in records.items() if m and m.get("id") in tops - {None}}

@@ -16,8 +16,8 @@ from . import agent_jsonl, rollout_jsonl
 # Every format sealed-panel reads, by the id `[transcript] format` takes. Closed: a format is
 # added in code, with its tests, never by a setting.
 FORMATS: dict[str, Adapter] = {
-    "agent-jsonl": Adapter(agent_jsonl.read, agent_jsonl.siblings, agent_jsonl.launchers),
-    "rollout-jsonl": Adapter(rollout_jsonl.read, rollout_jsonl.siblings, rollout_jsonl.launchers),
+    "agent-jsonl": Adapter(agent_jsonl.read, agent_jsonl.siblings, agent_jsonl.roots),
+    "rollout-jsonl": Adapter(rollout_jsonl.read, rollout_jsonl.siblings, rollout_jsonl.roots),
 }
 
 
@@ -30,11 +30,12 @@ def adapter(cfg: Config | None = None) -> Adapter:
     return FORMATS[resolve(cfg).transcript_format]
 
 
-def read_transcript(path: Path, cfg: Config | None = None) -> Transcript:
+def read_transcript(path: Path, cfg: Config | None = None, limit: int | None = None) -> Transcript:
     """Read a judge's transcript with the adapter of the configuration's format.
 
     Args:
         path: The transcript file.
         cfg: The run's configuration, or None for the defaults.
+        limit: Read only the file's first bytes, up to the last whole line; None for all.
     """
-    return adapter(cfg).read(path)
+    return adapter(cfg).read(path, limit)

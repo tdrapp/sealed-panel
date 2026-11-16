@@ -16,11 +16,13 @@ from sealed_panel import aggregate
 from sealed_panel.errors import EvalError, FormatError
 from sealed_panel.hosts import agent_jsonl, read_transcript
 from sealed_panel.ledger import results_by_judge
-from sealed_panel.record import record_from
+from sealed_panel.record import record_from, record_reply
 from sealed_panel.steps import aggregate_round
 from sealed_panel.store import round_dir
 
 AGENT = "a7c41d09e2b35f86"
+# The start of the refusal of an agent that handled a brief outside its prompt.
+ELSEWHERE = "agents other than the top-level session hold a brief id of this round"
 
 
 def base(agent: str = AGENT) -> dict[str, Any]:
@@ -343,14 +345,17 @@ class TestSiblingScan:
             assert record_from(h.run, 1, meta["judge"], agent, False, t)["ok"]
         return rdir
 
-    def main_session(self, h: Harness, prompt: str, later: str = "") -> Path:
+    def main_session(self, h: Harness, prompt: str, later: str = "", tail: str = "") -> Path:
         """The session's main file, beside its folder: no agent id; `later` goes in a call
-        after its first output."""
+        after its first output, `tail` in a tool result after that."""
         rows = [{"type": "user", "sessionId": "s", "message": {"content": prompt}}]
         if later:
             rows.append(
                 {"type": "assistant", "message": {"content": [call("Agent", prompt=later)]}}
             )
+        if tail:
+            done = {"type": "tool_result", "tool_use_id": "toolu_01", "content": tail}
+            rows.append({"type": "user", "message": {"content": [done]}})
         path = h.tmp / "projects" / "-tmp-judges" / "session-1.jsonl"
         path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
         return path
@@ -369,33 +374,148 @@ class TestSiblingScan:
         ):
             aggregate_round(h.run, 1, False)
 
-    def test_a_parent_subagent_given_the_brief_text_is_a_judge(self, h: Harness) -> None:
+    def test_a_helper_given_the_brief_text_is_a_judge(self, h: Harness) -> None:
         self.record_all(h, parent="helper1")
         write(h, [user(f"brief {self.nonce(h)}", "helper1")], "helper1")
-        with pytest.raises(EvalError, match=r"never recorded: j1 helper1.*the brief's path"):
+        with pytest.raises(
+            EvalError, match=r"never recorded: j1 helper1.*from the top-level session"
+        ):
             aggregate_round(h.run, 1, False)
 
-    def test_a_parent_subagent_given_the_path_is_exempt(self, h: Harness) -> None:
+    def test_a_helper_that_launched_the_judges_blocks_the_round(self, h: Harness) -> None:
         self.record_all(h, parent="helper1")
         rows = [
             user("Brief judges from the files in the round folder.", "helper1"),
             assistant(call("Agent", prompt=f"brief {self.nonce(h)}"), agent="helper1"),
         ]
         write(h, rows, "helper1")
+        with pytest.raises(
+            EvalError,
+            match=ELSEWHERE + r".*: j1 helper1.*helper or standby agent",
+        ):
+            aggregate_round(h.run, 1, False)
+
+    @pytest.mark.parametrize("how", ["later-input", "tool-output"])
+    def test_a_standby_agent_shown_the_brief_blocks_the_round(self, h: Harness, how: str) -> None:
+        """Launched with "stand by", it answers, then gets the brief: by a later message, or
+        through a tool."""
+        self.record_all(h)
+        brief = f"brief {self.nonce(h)}"
+        shown = (
+            user(brief, "standby", isMeta=True, origin={"kind": "coordinator"})
+            if how == "later-input"
+            else user([{"type": "tool_result", "tool_use_id": "t1", "content": brief}], "standby")
+        )
+        rows = [user("Stand by.", "standby"), assistant(text("ok"), agent="standby"), shown]
+        write(h, rows, "standby")
+        with pytest.raises(
+            EvalError,
+            match=ELSEWHERE + r".*: j1 standby",
+        ):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_main_session_that_read_the_briefs_through_a_tool_is_exempt(self, h: Harness) -> None:
+        self.record_all(h)
+        path = self.main_session(h, "Grade the text.", later="read the round folder")
+        result = {"type": "tool_result", "tool_use_id": "t1", "content": f"brief {self.nonce(h)}"}
+        line = json.dumps({"type": "user", "message": {"content": [result]}})
+        path.write_text(path.read_text() + line + "\n")
         aggregate_round(h.run, 1, False)
 
-    def test_a_grandparent_subagent_given_the_path_is_exempt(self, h: Harness) -> None:
-        self.record_all(h, parent="helper1")
-        folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents"
-        side = {"agentType": "helper", "parentAgentId": "helper0"}
-        (folder / "agent-helper1.meta.json").write_text(json.dumps(side))
-        for agent in ("helper1", "helper0"):
-            rows = [
-                user("Pass the briefs on by path.", agent),
-                assistant(call("Agent", prompt=f"brief {self.nonce(h)}"), agent=agent),
-            ]
-            write(h, rows, agent)
+    def test_a_large_main_session_is_read_from_its_start(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Past the cap, only the start is read: its prompt, up to its first output."""
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SCAN_BYTES", 400)
+        self.main_session(h, "Grade.", later="go", tail=f"brief {self.nonce(h)}" + "x" * 800)
         aggregate_round(h.run, 1, False)
+
+    def test_a_large_main_session_with_a_brief_in_its_prompt_is_a_judge(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SCAN_BYTES", 400)
+        self.main_session(h, f"brief {self.nonce(h)}", later="go", tail="x" * 800)
+        with pytest.raises(EvalError, match="never recorded: j1 session-1"):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_main_session_with_no_output_within_the_cap_blocks(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SCAN_BYTES", 400)
+        self.main_session(h, "x" * 800, later=f"brief {self.nonce(h)}")
+        with pytest.raises(
+            EvalError,
+            match=r"session-1\.jsonl, the session the judges were launched from, is larger",
+        ):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_main_session_whose_start_shows_no_output_blocks(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SCAN_BYTES", 400)
+        path = self.main_session(h, "Grade.", later=f"brief {self.nonce(h)}")
+        lines = path.read_text().splitlines()
+        pad = json.dumps({"type": "user", "message": {"content": "y" * 800}})
+        path.write_text("\n".join([lines[0], pad, *lines[1:]]) + "\n")
+        with pytest.raises(EvalError, match="shows no output before that"):
+            aggregate_round(h.run, 1, False)
+
+    def test_an_agent_recorded_from_a_pasted_reply_is_recorded(self, h: Harness) -> None:
+        """A judge recorded with its reply pasted, whose transcript sits in the tree."""
+        h.init()
+        h.brief(1, "cand")
+        rdir = round_dir(h.run, 1)
+        for meta in h.keys(1)["judges"]:
+            agent = f"judge{meta['judge']}"
+            raw = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
+            brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
+            rows = [{**r, "agentId": agent} if "agentId" in r else r for r in answered(brief, raw)]
+            t = write(h, rows, agent)
+            if meta["judge"] == 3:
+                assert record_reply(h.run, 1, 3, agent, raw, False)["ok"]
+            else:
+                assert record_from(h.run, 1, meta["judge"], agent, False, t)["ok"]
+        aggregate_round(h.run, 1, False)
+
+    def test_a_large_subagent_holding_a_brief_blocks(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SCAN_BYTES", 2000)
+        write(h, [user("x" * 3000, "big"), user(f"brief {self.nonce(h)}", "big")], "big")
+        with pytest.raises(
+            EvalError, match="holds a brief id of this round and is larger than 2000"
+        ):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_large_subagent_without_a_brief_is_skipped(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SCAN_BYTES", 2000)
+        monkeypatch.setattr(aggregate, "SCAN_CHUNK", 64)
+        write(h, [user("x" * 3000, "big")], "big")
+        aggregate_round(h.run, 1, False)
+
+    def test_a_brief_id_split_across_two_chunks_is_found(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "SCAN_CHUNK", 7)
+        rows = [
+            user("Look around.", "a-reader"),
+            assistant(text(f"saw {self.nonce(h)}"), agent="a-reader"),
+        ]
+        write(h, rows, "a-reader")
+        with pytest.raises(
+            EvalError,
+            match=ELSEWHERE + r".*: j1 a-reader",
+        ):
+            aggregate_round(h.run, 1, False)
 
     def test_a_main_session_named_by_the_entries_session_id_is_read(self, h: Harness) -> None:
         self.record_all(h)
@@ -411,9 +531,7 @@ class TestSiblingScan:
         (h.tmp / "projects" / "p" / "other.jsonl").write_text("{}")
         t = folder / "agent-a.jsonl"
         t.write_text(json.dumps({"type": "user", "sessionId": "../p/other"}) + "\n")
-        (folder / "agent-a.meta.json").write_text(json.dumps({"parentAgentId": "*"}))
-        (folder / "agent-b.jsonl").write_text("{}")
-        assert {f.name for f in agent_jsonl.launchers([t], [])} == {"s.jsonl"}
+        assert {f.name for f in agent_jsonl.roots([t], [])} == {"s.jsonl"}
 
     def test_another_subagent_holding_a_brief_elsewhere_blocks(self, h: Harness) -> None:
         self.record_all(h)
@@ -423,7 +541,8 @@ class TestSiblingScan:
         ]
         write(h, rows, "a-reader")
         with pytest.raises(
-            EvalError, match="outside their prompt and launched no recorded judge: j1 a-reader"
+            EvalError,
+            match=ELSEWHERE + r".*: j1 a-reader",
         ):
             aggregate_round(h.run, 1, False)
 

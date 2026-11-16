@@ -23,6 +23,8 @@ from sealed_panel.steps import aggregate_round, init_run
 from sealed_panel.store import round_dir
 
 SESSION = "019a7c41-d09e-7b35-8f86-000000000001"
+# The start of the refusal of an agent that handled a brief outside its prompt.
+ELSEWHERE = "agents other than the top-level session hold a brief id of this round"
 PARENT = "019a7c41-d09e-7b35-8f86-000000000000"
 STAMP = "2026-11-16T10:00:00.000Z"
 
@@ -332,9 +334,7 @@ class TestSiblingScan:
     def test_another_session_holding_a_brief_elsewhere_blocks_the_round(self, h: Harness) -> None:
         self.record_all(h)
         self.hidden(h, later=True, sid="a-reader", parent=PARENT)
-        with pytest.raises(
-            EvalError, match="outside their prompt and launched no recorded judge: j1 a-reader"
-        ):
+        with pytest.raises(EvalError, match=ELSEWHERE + ".*: j1 a-reader"):
             aggregate_round(h.run, 1, False)
 
     def test_a_judge_started_by_a_helper_subagent_blocks_the_round(self, h: Harness) -> None:
@@ -359,21 +359,50 @@ class TestSiblingScan:
             rows = [*opening(brief, sid=sid, parent="a-helper"), *closing(raw)]
             assert record_from(h.run, 1, meta["judge"], sid, False, write(h, rows, sid))["ok"]
 
-    def test_every_launcher_without_the_brief_in_its_prompt_is_exempt(self, h: Harness) -> None:
-        """The judges' parent, and its parent, passed the briefs down after their first output."""
+    def test_a_helper_that_launched_the_judges_blocks_the_round(self, h: Harness) -> None:
+        """Only the top-level session may hand briefs on: a helper that did blocks the round,
+        even when it got them after its first output; the top-level session above it is
+        exempt."""
         self.record_under_a_helper(h)
         self.hidden(h, later=True, sid="a-helper", parent=PARENT)
         self.hidden(h, later=True, sid=PARENT)
-        aggregate_round(h.run, 1, False)
+        with pytest.raises(EvalError, match=ELSEWHERE + r".*: j1 a-helper.*helper or standby"):
+            aggregate_round(h.run, 1, False)
 
     def test_a_helper_given_the_brief_text_blocks_the_round(self, h: Harness) -> None:
         self.record_under_a_helper(h)
         self.hidden(h, sid="a-helper", parent=PARENT)
         self.hidden(h, later=True, sid=PARENT)
         with pytest.raises(
-            EvalError, match=r"never recorded: j1 a-helper.*give it the brief's path"
+            EvalError, match=r"never recorded: j1 a-helper.*from the top-level session"
         ):
             aggregate_round(h.run, 1, False)
+
+    @pytest.mark.parametrize("how", ["later-input", "tool-output"])
+    def test_a_standby_agent_shown_the_brief_blocks_the_round(self, h: Harness, how: str) -> None:
+        """Launched with "stand by", it answers, then gets the brief: by a later message, or
+        through a tool."""
+        self.record_all(h)
+        brief = f"brief {h.keys(1)['judges'][0]['nonce']}"
+        shown = (
+            message("user", brief)
+            if how == "later-input"
+            else item("function_call_output", call_id="c1", output=brief)
+        )
+        rows = [*opening("Stand by.", sid="standby", parent=PARENT), *closing("ok"), shown]
+        write(h, rows, "standby")
+        with pytest.raises(EvalError, match=ELSEWHERE + ".*: j1 standby"):
+            aggregate_round(h.run, 1, False)
+
+    def test_the_top_level_session_is_found_above_a_helper(self, tmp_path: Path) -> None:
+        folder = tmp_path / "2026" / "11" / "16"
+        folder.mkdir(parents=True)
+        files = {}
+        for sid, parent in (("top", None), ("helper", "top"), ("judge", "helper")):
+            files[sid] = folder / f"rollout-{sid}.jsonl"
+            files[sid].write_text(json.dumps(session(sid, parent)) + "\n")
+        found = rollout_jsonl.siblings([files["judge"]], 0.0)
+        assert rollout_jsonl.roots([files["judge"]], found) == {files["top"]}
 
     def test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round(self, h: Harness) -> None:
         self.record_all(h)

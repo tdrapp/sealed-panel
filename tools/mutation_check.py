@@ -226,49 +226,40 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "every sibling parsed, a brief id or not": (
         AGG,
-        "        if not hits:\n            continue\n",
+        "    if not hits:\n        return [], []\n",
         "",
     ),
     # A session that launched a recorded judge is exempt only without a brief id in its prompt.
-    "a launcher with a brief in its prompt exempt": (
+    "the top-level session with a brief in its prompt exempt": (
         AGG,
-        "    if briefed:\n        return [(judge, aid) for judge in briefed], []\n",
-        "    if briefed and not launcher:\n        return [(judge, aid) for judge in briefed], []\n",
+        "    return [(judge, t.agent_id or f.stem) for nonce, judge in hits.items() if nonce in "
+        "t.prompt]\n",
+        "    return []\n",
     ),
-    "a launcher without a brief in its prompt refused": (
+    "the top-level session without a brief in its prompt refused": (
         AGG,
-        "    if launcher:\n        return [], []\n",
-        "",
+        "(_top_level(f, hits, cfg), []) if top else _other(f, hits, cfg)",
+        "_other(f, hits, cfg)",
     ),
     "a session holding a brief elsewhere passed": (
         AGG,
-        "    return [], [(judge, aid) for judge in hits.values()]\n",
-        "    return [], []\n",
+        "return briefed, [] if briefed else [(judge, aid) for judge in hits.values()]",
+        "return briefed, []",
     ),
     "a recorded session counted as unrecorded": (
         AGG,
-        "    if aid in recorded:\n        return [], []\n",
-        "",
+        "for judge, aid in found if aid not in recorded}",
+        "for judge, aid in found}",
     ),
     "the main session not scanned": (
         AGENT_JSONL,
         "    mains = {f for p in paths for f in _sessions(p)}\n",
         "    mains: set[Path] = set()\n",
     ),
-    "the main session not a launcher": (
+    "the main session not taken for the top-level session": (
         AGENT_JSONL,
-        "return {f for p in paths for f in _sessions(p) | _parents(p)}",
-        "return {f for p in paths for f in _parents(p)}",
-    ),
-    "a parent subagent not a launcher": (
-        AGENT_JSONL,
-        "return {f for p in paths for f in _sessions(p) | _parents(p)}",
-        "return {f for p in paths for f in _sessions(p)}",
-    ),
-    "only the direct parent subagent a launcher": (
-        AGENT_JSONL,
-        "        found.add(nxt)\n        current = nxt\n",
-        "        found.add(nxt)\n        return found\n",
+        "    return {f for p in paths for f in _sessions(p)}\n",
+        "    return set()\n",
     ),
     "the session id of the entries ignored": (
         AGENT_JSONL,
@@ -285,10 +276,31 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'return {tree.parent.parent / f"{i}.jsonl" for i in ids if _plain(i)}',
         'return {tree.parent.parent / f"{i}.jsonl" for i in ids if isinstance(i, str)}',
     ),
-    "a parent id with a pattern read as a file name": (
-        AGENT_JSONL,
-        "if _plain(parent) else None",
-        "if isinstance(parent, str) else None",
+    # The scan: brief ids searched a chunk at a time; the cap fails closed.
+    "a brief id across two chunks missed": (
+        AGG,
+        "            tail = window[-width:]\n",
+        '            tail = ""\n',
+    ),
+    "the top-level session read whole past the cap": (
+        AGG,
+        "    big = f.stat().st_size > MAX_SCAN_BYTES\n",
+        "    big = False\n",
+    ),
+    "a top-level session with no output in its start exempt": (
+        AGG,
+        "if t is None or (big and not t.replied):",
+        "if t is None:",
+    ),
+    "an unreadable start of a top-level session read": (
+        AGG,
+        "    if t is None or (big and not t.replied):\n",
+        "    if big and not t.replied:\n",
+    ),
+    "a large session holding a brief read anyway": (
+        AGG,
+        "    if f.stat().st_size > MAX_SCAN_BYTES:\n        raise EvalError(\n",
+        "    if False:\n        raise EvalError(\n",
     ),
     "the sibling scan unbounded": (AGG, "    if len(found) > MAX_SIBLINGS:\n", "    if False:\n"),
     "transcripts older than the briefs scanned": (
@@ -307,15 +319,15 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    return folder.parent.parent.parent\n",
         "    return folder\n",
     ),
-    "the sessions that launched the judges counted as judges": (
+    "the top-level session not found": (
         ROLLOUT_JSONL,
-        'return {f for f, m in records.items() if m and m.get("id") in ids}',
+        'return {f for f, m in records.items() if m and m.get("id") in tops - {None}}',
         "return set()",
     ),
-    "only the judges' parent left out": (
+    "a helper taken for the top-level session": (
         ROLLOUT_JSONL,
-        "            current = parents.get(current)\n",
-        "            current = None\n",
+        "        if parents[current] is None:\n            return current\n",
+        "        return current\n",
     ),
     "a nested subagents folder not scanned": (AGENT_JSONL, 'root.rglob("*")', 'root.glob("*")'),
     "the subagents tree not found": (
@@ -1549,8 +1561,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a line separator inside a string splits the line": (
         TRANSCRIPT,
-        'read_text(path).split("\\n")',
-        "read_text(path).splitlines()",
+        'enumerate(text.split("\\n"), start=1)',
+        "enumerate(text.splitlines(), start=1)",
     ),
     # A candidate that addresses a judge: blocked unless the spec acknowledges it.
     "a flagged candidate converges": (
