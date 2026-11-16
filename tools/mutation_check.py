@@ -50,7 +50,7 @@ RUBRIC, FROZEN, STEPS = (f"{PKG}/{m}.py" for m in ("rubric", "run", "steps"))
 SETTINGS, TEMPLATES = f"{PKG}/settings.py", f"{PKG}/templates.py"
 CANDIDATES, LOCATION = f"{PKG}/learning/candidates.py", f"{PKG}/learning/location.py"
 LEARNING_CLI = f"{PKG}/learning/cli.py"
-REPORT = f"{PKG}/report.py"
+REPORT, RESULT = f"{PKG}/report.py", f"{PKG}/result.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -973,11 +973,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "long values cut in the report": (
-        REPORT,
+        RESULT,
         "    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:\n        return text",
         "    if True:\n        return text[:57]",
     ),
-    "overrides hidden": (REPORT, "if current.get(key) != defaults.get(key):", "if False:"),
+    "overrides hidden": (RESULT, "if current.get(key) != defaults.get(key):", "if False:"),
     # The judge runner.
     "runner without a command": (RUN, "if not command:", "if False:"),
     "runner after aggregation": (RUN, 'if (rdir / "result.json").is_file():', "if False:"),
@@ -1029,7 +1029,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    if False:",
     ),
     "judge command shown as a hash": (
-        REPORT,
+        RESULT,
         "if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:",
         "if len(text) <= SHOW_LIMIT:",
     ),
@@ -1636,9 +1636,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "the acknowledgement left off the grade line": (
-        f"{PKG}/report.py",
-        "out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))",
-        "out += _sealed_headline(spec, d, model_line(cfg))",
+        REPORT,
+        "out += _sealed_headline(view, model_line(view) + acknowledgement_line(view))",
+        "out += _sealed_headline(view, model_line(view))",
     ),
     # The judge environment: salted per run, and compared between the loop and the seal.
     "the environment hash unsalted": (
@@ -1647,7 +1647,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'hashlib.sha256(env[n].encode("utf-8")).hexdigest()',
     ),
     "the sealed panel's environment not compared with the loop's": (
-        f"{PKG}/report.py",
+        RESULT,
         "return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))",
         "return []",
     ),
@@ -1783,6 +1783,35 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/store.py",
         "    return name.casefold() in RESERVED_NAMES or name.casefold() == GIT_MARKER\n",
         "    return name.casefold() in RESERVED_NAMES\n",
+    ),
+    # The result file: derived from the round files after the sealed round is stored, written
+    # from the view the report prints, and read back only in a format this release knows.
+    "result file written before the seal": (
+        STEPS,
+        '    dump_json(rdir / "result.json", entry)\n'
+        "    if sealed:  # derived from the round files, so written after the round's own result\n"
+        "        write_result(run)\n",
+        '    if sealed:\n        write_result(run)\n    dump_json(rdir / "result.json", entry)\n',
+    ),
+    "the result file says a blocked grade stands": (
+        RESULT,
+        "    dump_json(path, view)\n",
+        '    dump_json(path, {**view, "stands": True})\n',
+    ),
+    "a result file of a later format read": (
+        RESULT,
+        "        if version > RESULT_SCHEMA_VERSION:\n",
+        "        if False:\n",
+    ),
+    "a damaged result file read": (
+        RESULT,
+        "        if set(data) != expected:\n",
+        "        if False:\n",
+    ),
+    "a result file without a format read": (
+        RESULT,
+        "        if type(version) is not int or version < 1:\n",
+        "        if False:\n",
     ),
 }
 

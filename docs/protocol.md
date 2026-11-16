@@ -289,3 +289,11 @@ Within one format, a run and the release that opens it can differ in both direct
 A configuration that both lacks a key and holds an unknown one is not explained by any one
 release, and is refused as damaged. The rule is written next to `SCHEMA_VERSION` in
 `sealed_panel/model.py`.
+
+The result file, `RUN/grade.json`, has a format of its own (`schema_version`, 1 since 0.4.1),
+separate from the run format. The sealed aggregate step writes it once the sealed round's
+result is stored, derived from the run's files by the same function the report prints its
+sealed grade from ([api.md](api.md) lists its fields). A reader accepts every result format up
+to its own and refuses a later one with the advice to upgrade. A release that adds, removes or
+changes the meaning of a key raises the result format, and its reader reads the earlier formats
+too, so a comparison across runs reads every file written since 0.4.1.

@@ -12,6 +12,7 @@ from .ledger import results_by_judge
 from .model import RoundResult, Spec
 from .record import round_keys
 from .report import write_feedback
+from .result import write_result
 from .run import freeze, load_frozen, prepare_spec, run_config
 from .runner import every_seat
 from .settings import Config, resolve
@@ -74,6 +75,8 @@ def _aggregate_held(run: Path, rnd: int, sealed: bool) -> RoundResult:
     by_judge = results_by_judge(rdir)
     entry = aggregate(spec, cfg, rdir, keys, by_judge, rnd, sealed)
     dump_json(rdir / "result.json", entry)
+    if sealed:  # derived from the round files, so written after the round's own result
+        write_result(run)
     if not sealed:
         write_feedback(run, entry)
     return entry

@@ -152,7 +152,7 @@ layers = [
     "learning",
     "steps",
     "runner | report",
-    "aggregate",
+    "aggregate | result",
     "record | measure",
     "reply | seat | brief | hosts",
     "run | templates | transcript",
