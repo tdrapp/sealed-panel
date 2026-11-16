@@ -574,6 +574,24 @@ class TestSiblingScan:
         (folder / "agent-judge1.meta.json").write_text(json.dumps(meta))
         aggregate_round(h.run, 1, False)
 
+    def test_the_workflow_journal_is_not_scanned(self, h: Harness) -> None:
+        """The workflow runtime's log stores each agent's result, a brief id included."""
+        self.record_all(h)
+        folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents" / "workflows"
+        (folder / "wf_1").mkdir(parents=True)
+        rows = [{"type": "started"}, {"type": "result", "result": f"brief {self.nonce(h)}"}]
+        (folder / "wf_1" / "journal.jsonl").write_text("\n".join(map(json.dumps, rows)) + "\n")
+        aggregate_round(h.run, 1, False)
+
+    def test_another_unknown_file_holding_a_brief_id_blocks(self, h: Harness) -> None:
+        self.record_all(h)
+        folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents" / "workflows"
+        (folder / "wf_1").mkdir(parents=True)
+        rows = [{"type": "result", "result": f"brief {self.nonce(h)}"}]
+        (folder / "wf_1" / "notes.jsonl").write_text("\n".join(map(json.dumps, rows)) + "\n")
+        with pytest.raises(EvalError, match="holds a brief id of this round but cannot be read"):
+            aggregate_round(h.run, 1, False)
+
     def test_a_file_older_than_the_briefs_is_not_scanned(self, h: Harness) -> None:
         self.record_all(h)
         old = write(h, [user(f"brief {self.nonce(h)}", "old")], "old")

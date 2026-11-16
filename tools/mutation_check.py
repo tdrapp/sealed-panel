@@ -309,6 +309,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "and True",
     ),
     "the host side files scanned": (AGENT_JSONL, "not f.name.endswith(SIDE_FILES)", "True"),
+    "the workflow journal scanned": (AGENT_JSONL, "f.name not in HOST_LOGS", "True"),
     "rollouts older than the briefs scanned": (
         ROLLOUT_JSONL,
         "            if f.stat().st_mtime >= since\n",

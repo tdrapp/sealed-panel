@@ -244,7 +244,9 @@ written by versions 2.1.219 to 2.1.325:
   transcripts read without a structure refusal.
 
 The scan for unrecorded judges reads every file under the session's `subagents/` folder, at any
-depth, but the host's side files (`*.meta.json`, `*.prefix.json`), and the session's main file,
+depth, but the host's side files (`*.meta.json`, `*.prefix.json`) and the workflow runtime's log
+(`journal.jsonl`, one in each `workflows/wf_<id>/` folder, which stores each agent's result),
+and the session's main file,
 `~/.claude/projects/<project>/<session>.jsonl`, named by the `sessionId` every entry of a
 subagent's transcript carries (measured: one session per transcript, whose file exists, 3,564 of
 3,564; the folder above `subagents/` has the same name in 3,563, and both names are tried). That

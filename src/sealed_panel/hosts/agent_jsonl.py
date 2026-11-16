@@ -281,8 +281,12 @@ def read(path: Path, limit: int | None = None) -> Transcript:
     )
 
 
-# Files the host writes beside a subagent's transcript that are not transcripts.
+# Files the host writes beside a subagent's transcript that are not transcripts: its side
+# files, by ending, and the workflow runtime's log in each `workflows/wf_<id>/` folder (10 of 10
+# measured), by exact name. Any other file holding a brief id is read, and blocks when it cannot
+# be.
 SIDE_FILES = (".meta.json", ".prefix.json")
+HOST_LOGS = frozenset({"journal.jsonl"})
 # A session or agent id read from a file, before it names another file.
 PLAIN_NAME = re.compile(r"[A-Za-z0-9_-]+")
 
@@ -313,8 +317,8 @@ def _sessions(path: Path) -> set[Path]:
 
 def siblings(paths: list[Path], since: float) -> list[Path]:
     """Every file under the `subagents/` folder of each recorded transcript's session, at any
-    depth, the host's side files left out, and the main session file each belongs to, last
-    changed at or after `since`. A purged folder lists nothing.
+    depth, the host's side files and workflow logs left out, and the main session file each
+    belongs to, last changed at or after `since`. A purged folder lists nothing.
 
     Args:
         paths: The recorded transcripts.
@@ -322,10 +326,16 @@ def siblings(paths: list[Path], since: float) -> list[Path]:
     """
     tree = {f for root in {_tree(p) for p in paths} for f in root.rglob("*")}
     mains = {f for p in paths for f in _sessions(p)}
-    return sorted(
-        f
-        for f in tree | mains
-        if f.is_file() and not f.name.endswith(SIDE_FILES) and f.stat().st_mtime >= since
+    return sorted(f for f in tree | mains if _listed(f, since))
+
+
+def _listed(f: Path, since: float) -> bool:
+    """A file the scan reads: a transcript, not a side file or a host log, changed since."""
+    return (
+        f.is_file()
+        and not f.name.endswith(SIDE_FILES)
+        and f.name not in HOST_LOGS
+        and f.stat().st_mtime >= since
     )
 
 

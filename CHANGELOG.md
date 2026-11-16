@@ -36,19 +36,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The scan for unrecorded judges reads the transcripts the run's adapter lists for the recorded
   ones, last changed since the round was briefed (minus 60 seconds), and refuses the aggregation
   past 1000 rather than stop short. For `agent-jsonl`, every file under the session's
-  `subagents/` folder at any depth, the host's `*.meta.json` and `*.prefix.json` side files
-  excepted; for `rollout-jsonl`, every session file under the sessions root, whatever its date
-  folder or parent. `agent-jsonl` also reads each recorded judge's main session file. A session
-  holding a brief id of the round anywhere and not recorded refuses the aggregation, as a judge
-  when the id is in its prompt (its inputs before its first output), with its own message
-  otherwise. The one exception is the top-level session the recorded judges were launched from,
-  when no brief id is in its prompt: judges are launched by it, each as a fresh subagent, and a
-  helper or standby agent that handles a brief blocks the round. Files are searched for brief
-  ids whatever their size; one holding a brief id that cannot be read, or is larger than 20 MB,
-  refuses the aggregation, and the top-level session's prompt is read from the start of its
-  file, refusing when its first 20 MB show no output. A file without a brief id is never parsed.
-  Before: every file of the recorded transcripts' own folders under 20 MB was read, larger ones
-  were skipped, and every agent holding a brief id was refused alike.
+  `subagents/` folder at any depth, the host's `*.meta.json` and `*.prefix.json` side files and
+  workflow `journal.jsonl` logs excepted; for `rollout-jsonl`, every session file under the
+  sessions root, whatever its date folder or parent. `agent-jsonl` also reads each recorded
+  judge's main session file. A session holding a brief id of the round anywhere and not recorded
+  refuses the aggregation, as a judge when the id is in its prompt (its inputs before its first
+  output), with its own message otherwise. The one exception is the top-level session the
+  recorded judges were launched from, when no brief id is in its prompt: judges are launched by
+  it, each as a fresh subagent, and a helper or standby agent that handles a brief blocks the
+  round. Files are searched for brief ids whatever their size; one holding a brief id that
+  cannot be read, or is larger than 20 MB, refuses the aggregation, and the top-level session's
+  prompt is read from the start of its file, refusing when its first 20 MB show no output. A
+  file without a brief id is never parsed. Before: every file of the recorded transcripts' own
+  folders under 20 MB was read, larger ones were skipped, and every agent holding a brief id was
+  refused alike.
 - A run frozen by 0.4.0 holds the transcript field names and no `format`: after its
   `config.lock` is checked as written, it reads as `agent-jsonl` when they hold the 0.4.0
   defaults (docs/protocol.md section 11).
