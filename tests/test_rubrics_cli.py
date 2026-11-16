@@ -118,7 +118,7 @@ class TestRubricsCli:
 
 
 class TestRunOfAnotherFormat:
-    """A run whose run.json is missing (created before 0.4.0, or an interrupted init), of
+    """A run whose run.json is missing (made by a development version, or an interrupted init), of
     another format, or damaged, is refused by every command, read or write, with the message
     for its case, and nothing is created in it."""
 
@@ -148,6 +148,7 @@ class TestRunOfAnotherFormat:
             rc, out = run(capsys, *args)
             assert rc == 2 and MARKERS[how] in out, (how, args)
         if how in ("missing", "older"):
-            assert "@v<version>" in out
+            # No version before 0.4.0 was published: nothing to install, start a new run.
+            assert "Start a new run with this version" in out and "@v<version>" not in out
         assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
         assert not private_library.exists()

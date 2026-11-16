@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 340 mutations, 338
+bound or boundary at a time and requires the suite to fail on each. Of its 342 mutations, 340
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -377,6 +377,7 @@ sealed-panel/
     cli.py               the sealed-panel command, including `rubrics` and `feedback`
     mcp_server.py        the MCP server (the mcp extra)
     learning/            rubric candidates from sealed runs; the core never imports it
+      __init__.py        the subpackage
       learn.py           the two signals after a seal, and the user's own read
       candidates.py      the inbox, its history, promotion and rejection
       location.py        where learning may write: never in a git working tree
@@ -430,6 +431,7 @@ sealed-panel/
     judge_template.py    a judge command to adapt to your model (command line or HTTP)
     judge.toml           its [judge] configuration
     library_usage.py     a one-shot sealed grade from Python
+    README.md            the runner examples explained
   docs/
     api.md               the stable Python API, with an example a test runs
     configuration.md     every setting and its bounds
@@ -448,7 +450,7 @@ sealed-panel/
     workflows/mutation-nightly.yml  every mutation on the whole suite, each night
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
-  pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig, .gitleaks.toml
+  pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig, .gitleaks.toml, .gitignore
   README.md, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md, LICENSE, NOTICE
   AGENTS.md              the rules for a coding agent, each with what enforces it
 ```
@@ -470,9 +472,9 @@ skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
-A run is finished with the version that started it. 0.4.0 refuses every run created before it.
-To finish an older run, install its version from its tag: `pip install 'sealed-panel @
-git+https://github.com/tdrapp/sealed-panel@v<version>'`.
+A run is finished with the version that started it. 0.4.0 is the first published release, and
+it refuses every run created before it: such a run was made by a development version, which was
+never published, so it cannot be continued. Start a new run with 0.4.0.
 
 A configuration file that sets `[text]`, `[injection]` or `[library]` is refused, naming the
 key: those settings are fixed in code since 0.4.0. Code that imports from the package: the

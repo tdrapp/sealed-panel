@@ -33,19 +33,25 @@ HOME_OR_RELATIVE = ("~/", "./", "../")
 # The run's salt for the hashes of the judge environment's values, created at init.
 ENV_SALT = "env.salt"
 # The run format (SCHEMA_VERSION, see model.py for the rule a later release follows) is written
-# to run.json last at init (a marker, not hashed): a run without it was created before 0.4.0,
-# or its init was interrupted.
+# to run.json last at init (a marker, not hashed): a run without it was created by a
+# development version before the first release, or its init was interrupted.
 RUN_FILE = "run.json"
+# A release from 0.4.0 on is tagged, so a run of one of its formats can be finished with it.
 _INSTALL_TAG = "pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
 _FROM_ITS_TAG = (
     f"finish or read it with the version that created it, installed from its tag: {_INSTALL_TAG}"
 )
+# No version before the first release of the first format was published or tagged: a run it
+# created can only be started again.
+_FIRST_RELEASE = FORMAT_SINCE[min(FORMAT_SINCE)]
+DEVELOPMENT_RUN = (
+    f"a development version of sealed-panel before {_FIRST_RELEASE} created it, and such a run "
+    f"cannot be continued: no version before {_FIRST_RELEASE} was published, and "
+    f"{_FIRST_RELEASE} changed what a run freezes. Start a new run with this version"
+)
 NO_MARKER = (
-    f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it "
-    f"({FORMAT_SINCE[min(FORMAT_SINCE)]} changed what a run freezes, so it neither reads nor "
-    f"writes such a run: {_FROM_ITS_TAG}), "
-    f"or its init was interrupted before writing {RUN_FILE}, which it writes last (start again "
-    "in a new run directory)"
+    f"this run has no {RUN_FILE}: either {DEVELOPMENT_RUN}; or its init was interrupted before "
+    f"writing {RUN_FILE}, which it writes last: start again in a new run directory"
 )
 SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
@@ -176,16 +182,12 @@ def run_salt(run: Path) -> bytes | None:
 
 
 def format_releases(version: int) -> str:
-    """The releases that write a run format, from FORMAT_SINCE: the first one, and the last one
-    when a later format exists. A format older than the table is written by a release before
-    its first entry.
+    """The releases that write a run format of the table, from FORMAT_SINCE: the first one, and
+    the last one when a later format exists.
 
     Args:
-        version: The run format.
+        version: The run format, one FORMAT_SINCE holds or a later one.
     """
-    first = min(FORMAT_SINCE)
-    if version < first:
-        return f"a release before sealed-panel {FORMAT_SINCE[first]}"
     since = FORMAT_SINCE[max(v for v in FORMAT_SINCE if v <= version)]
     later = [FORMAT_SINCE[v] for v in sorted(FORMAT_SINCE) if v > version]
     if later:
@@ -193,10 +195,34 @@ def format_releases(version: int) -> str:
     return f"sealed-panel {since} or later"
 
 
+def other_format(version: int) -> str:
+    """Why a run of another format is refused, naming the releases of each format from
+    FORMAT_SINCE; a format older than the table was made by a development version.
+
+    Args:
+        version: The run's format, not this version's.
+    """
+    if version > SCHEMA_VERSION:
+        return (
+            f"this run was created by a newer version of sealed-panel (run format {version}; "
+            f"this version reads format {SCHEMA_VERSION}, written by "
+            f"{format_releases(SCHEMA_VERSION)}): upgrade sealed-panel to a release that "
+            f"writes format {version} to read or finish it"
+        )
+    if version < min(FORMAT_SINCE):
+        return f"this run has run format {version}: {DEVELOPMENT_RUN}"
+    return (
+        f"this run was created by an earlier version of sealed-panel (run format {version}, "
+        f"written by {format_releases(version)}); this version reads and writes format "
+        f"{SCHEMA_VERSION} only, so it neither reads nor writes the run: {_FROM_ITS_TAG}"
+    )
+
+
 def refuse_older_run(run: Path) -> None:
-    """Refuse a run created before 0.4.0, for every command, read or write: such a run has no
-    `run.json` holding this version's schema. 0.4.0 changed what a run freezes, so it neither
-    reads nor writes an older one.
+    """Refuse a run of another format, for every command, read or write, before anything is
+    created in it. A run without `run.json`, or of a format older than the table, was made by a
+    development version before 0.4.0: it cannot be continued. A run of an earlier or newer
+    release's format names the releases to use, from FORMAT_SINCE.
 
     Args:
         run: The run directory.
@@ -216,19 +242,8 @@ def refuse_older_run(run: Path) -> None:
             f'{marker} is damaged: it must hold {{"schema_version": {SCHEMA_VERSION}}}. A run\'s '
             "files are written by sealed-panel only: restore it from a copy, or start a new run"
         )
-    if version > SCHEMA_VERSION:
-        raise EvalError(
-            f"this run was created by a newer version of sealed-panel (run format {version}; "
-            f"this version reads format {SCHEMA_VERSION}, written by "
-            f"{format_releases(SCHEMA_VERSION)}): upgrade sealed-panel to a release that "
-            f"writes format {version} to read or finish it"
-        )
-    if version < SCHEMA_VERSION:
-        raise EvalError(
-            f"this run was created by an earlier version of sealed-panel (run format {version}, "
-            f"written by {format_releases(version)}); this version reads and writes format "
-            f"{SCHEMA_VERSION} only, so it neither reads nor writes the run: {_FROM_ITS_TAG}"
-        )
+    if version != SCHEMA_VERSION:
+        raise EvalError(other_format(version))
 
 
 def load_frozen(run: Path) -> FrozenSpec:

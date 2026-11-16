@@ -944,7 +944,7 @@ class TestFrozenConfiguration:
         )
         assert "a release that writes format 3" in str(newer.value)
         (h.run / "run.json").write_text('{"schema_version": 0}')
-        with pytest.raises(EvalError, match=r"written by a release before sealed-panel 0\.4\.0"):
+        with pytest.raises(EvalError, match=r"run format 0: a development version .* cannot be"):
             run_module.refuse_older_run(h.run)
 
     def test_an_unknown_key_is_refused(self, h: Harness) -> None:

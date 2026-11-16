@@ -14,12 +14,14 @@ the import layers between them are checked in CI. The records a run writes are t
 threat model stops at the run directory, and the code and `SECURITY.md` say the same thing.
 The MCP server has 10 tools instead of 14, `defaults.toml` has 96 lines instead of 149, and the
 most complex function has a complexity of 43 instead of 58. The package is larger than 0.3.1:
-7,095 lines of Python in `src/sealed_panel` against 6,108, in 29 files against 18. Of the 987
-added lines, 406 are `model.py`, the type declarations, and 188 are module headers (docstrings
-and imports); the rest is spread over the new and split modules. 0.4.0 refuses to read or write
-runs created by earlier versions, and code that imported names now gone from
-`sealed_panel.__all__` or from the old modules breaks: every such change is an entry marked
-**Breaking** below, first under Changed and Removed.
+7,110 lines of Python in `src/sealed_panel` against 6,108, in 29 files against 18. It grew by
+1,002 lines, of which 578 are type declarations and module headers: 406 in `model.py`, the type
+declarations, and 172 more in the headers (docstrings and imports) of the other modules; the
+rest is spread over the new and split modules. 0.4.0 is the first published release. It
+refuses to read or write runs created by the development versions before it, which cannot be
+continued, and code that imported names now gone from `sealed_panel.__all__` or from the old
+modules breaks; `sealed-panel learn` is now `sealed-panel learning learn`. Every such change is
+an entry marked **Breaking** below, first under Changed and Removed.
 
 ### Changed
 
@@ -44,7 +46,7 @@ runs created by earlier versions, and code that imported names now gone from
 - **Breaking** for code that imports a module rather than the package. The package is split into
   one module per job, with no change in behaviour: `spec`, `config`, `library` and `learn` are
   gone, learning lives in the `sealed_panel.learning` subpackage, which the core never imports
-  (the commands keep their names), `aggregate` computes a round and writes nothing
+  (its command moved too: see Removed), `aggregate` computes a round and writes nothing
   (`steps.aggregate_round` takes the locks and stores the result), and the MCP server's
   `build_server` is one function per concern. The import contract keeps each layer above the
   ones it uses and forbids siblings joined by `|` to import each other. A public name that no
@@ -146,6 +148,11 @@ runs created by earlier versions, and code that imported names now gone from
 
 ### Removed
 
+- **Breaking:** the command `sealed-panel learn RUN`: it is `sealed-panel learning learn RUN
+  [--library DIR]`, and `sealed-panel learn` no longer exists. The `--run` flag of `rubrics
+  list`, `suggest`, `show`, `use`, `promote` and `reject` is gone: the library comes from
+  `--library` or `$SEALED_PANEL_RUBRICS`. No other command or flag was renamed or removed (every
+  command's arguments compared between 0.3.1 and 0.4.0).
 - **Breaking:** the `Config` properties of the removed settings: `strip_chars`, `punctuation`,
   `injection_patterns` and `library` (`Config` is in `__all__`). Before: they read `[text]`,
   `[injection]` and `[library]`. After: use `text.STRIP_CHARS`, `text.PUNCTUATION`,
@@ -156,11 +163,11 @@ runs created by earlier versions, and code that imported names now gone from
 - **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
   versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
   and every command and MCP tool, read or write, refuses a run without it, before creating
-  anything in it: the run was created by an earlier version, 0.4.0 changed what a run freezes,
-  so finish or read it with the version that created it, installed from its tag (or its init
-  was interrupted: `run.json` is written last, so start again). A `run.json` of a newer format
-  says to upgrade; one that cannot be read says it is damaged. No version before 0.4.0 was
-  published to the package index.
+  anything in it: a development version before 0.4.0 created it, and such a run cannot be
+  continued, since no version before 0.4.0 was published or tagged and 0.4.0 changed what a run
+  freezes, so start a new run (or its init was interrupted: `run.json` is written last, so
+  start again). A `run.json` of a newer format says to upgrade; one that cannot be read says it
+  is damaged. No version before 0.4.0 was published to the package index.
 - **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
   its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
   derives the rounds from the round files (loop rounds first, by number) and the rubric hash
@@ -200,8 +207,8 @@ runs created by earlier versions, and code that imported names now gone from
   brief has one). A frozen configuration missing a key is refused ("missing configuration key
   ..."), since every 0.4.0 run froze them all.
 - The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
-  the judge's process group): the package declares POSIX only and never ran there. No change on
-  macOS or Linux.
+  the judge's process group): the package declares POSIX only and was never tested there. No
+  change on macOS or Linux.
 - The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
   rename-to-stale step and its re-read, replaced by the seat lock.
 - The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
@@ -257,6 +264,8 @@ runs created by earlier versions, and code that imported names now gone from
   `docs/decisions/2026-11-10-threat-model-stops-at-the-run-directory.md`.
 
 ## [0.3.1] - 2026-11-09
+
+Not tagged and not published: a development milestone, held by commit `5ec3e76`.
 
 ### Fixed
 
@@ -358,6 +367,8 @@ runs created by earlier versions, and code that imported names now gone from
   kill. In CI the check went from 55 to 81 min to about 6 min.
 
 ## [0.3.0] - 2026-11-07
+
+Not tagged and not published: a development milestone, held by commit `92199c7`.
 
 ### Added
 
@@ -512,9 +523,9 @@ runs created by earlier versions, and code that imported names now gone from
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
 [Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/tdrapp/sealed-panel/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/tdrapp/sealed-panel/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...v0.3.0
+[0.4.0]: https://github.com/tdrapp/sealed-panel/compare/5ec3e76...v0.4.0
+[0.3.1]: https://github.com/tdrapp/sealed-panel/compare/92199c7...5ec3e76
+[0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...92199c7
 [0.2.1]: https://github.com/tdrapp/sealed-panel/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tdrapp/sealed-panel/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tdrapp/sealed-panel/releases/tag/v0.1.0

@@ -29,20 +29,26 @@ Releases go to the package index through trusted publishing, so no token exists 
 workflows pin every action by commit, with the version in a trailing comment that Dependabot
 keeps up to date.
 
-The first release, in this order:
+No version before 0.4.0 was published to the package index. The tags `v0.1.0`, `v0.2.0` and
+`v0.2.1` mark early commits and published nothing; 0.3.0 and 0.3.1 are development milestones,
+neither tagged nor published (`CHANGELOG.md` names the commit that holds each). 0.4.0 is the
+first published release.
 
-1. Make the repository public: the plugin marketplace and the git install need it.
-2. On the index, add a pending trusted publisher for this repository with the workflow
-   `release.yml` and the environment `pypi`. In the repository settings, create the `pypi`
-   environment with a required reviewer, before any tag.
-3. In a release commit, move `[Unreleased]` in `CHANGELOG.md` to `[0.3.0]` with its compare
-   link. (Done: `92199c7`.)
-4. Tag `v0.1.0` on `0d1bb9e`, `v0.2.0` on `bf103bb` and `v0.2.1` on `a7ba6dc`, and push them
-   together: none of these commits holds `release.yml`, so nothing publishes.
-5. Tag the release commit of step 3 `v0.3.0` and push it alone: GitHub creates no event when
-   more than three tags are pushed at once.
-6. Once `v0.3.0` is published, tag the 0.3.1 release commit `v0.3.1` and push it alone, as a
-   later release.
+The first release, 0.4.0, in this order:
+
+1. The repository is public: the plugin marketplace and the git install need it.
+2. Before the tag, on the index: a pending trusted publisher for this repository, naming the
+   workflow `release.yml` and the environment `pypi`. In the repository settings, the `pypi`
+   environment has a required reviewer and deploys only from tags `v*`.
+3. Merge the release commit (the version set everywhere, as below).
+4. Tag the merge commit `v0.4.0` and push that tag alone (`git push origin v0.4.0`): GitHub
+   creates no event when more than three tags are pushed at once, and one tag per push keeps
+   one release per run.
+5. The `release` workflow checks that the tag names the package version and builds the sdist
+   and the wheel; its publish job then waits for the `pypi` environment. In the Actions tab,
+   open the run and approve the deployment: the job publishes through trusted publishing.
+6. Create the GitHub release from the tag, with the release notes (what it is, the breaking
+   changes, how to install from the tag).
 
 A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, with an
 empty `[Unreleased]` above and both compare links at the bottom updated; set the version in
@@ -50,9 +56,11 @@ empty `[Unreleased]` above and both compare links at the bottom updated; set the
 `version` and the `ref` of its plugin source, the tag), `.mcp.json`, the README's version line
 and the install lines in the README and `docs/integrations.md` (`tests/test_packaging.py`
 checks they agree), and the `--version` test in `tests/test_cli.py`; run `uv lock` and commit
-`uv.lock` with the rest (CI runs `uv sync --locked`, which fails on a stale lock). Merge, and
-push a tag `v<version>`. The workflow checks that the tag names the package version, builds the
-sdist and the wheel, and publishes them.
+`uv.lock` with the rest (CI runs `uv sync --locked`, which fails on a stale lock). Merge, then
+tag the merge commit `v<version>` and push that tag alone. The workflow checks that the tag
+names the package version and builds the sdist and the wheel; approve the `pypi` deployment in
+the Actions tab, and it publishes them. Then create the GitHub release from the tag with the
+release notes.
 
 After the first publish, the docs' index lines apply: the hint `sealed-panel mcp` prints without
 the extra (`cli.py`) may then name the index. Until then it names the tag, because an agent
@@ -100,10 +108,11 @@ the record.
   as a duplicate, and a round already aggregated is refused, so a second run cannot count
   anything twice.
 - A machine that went away mid-run: `status` reads the run's rounds and says what comes next.
-- A run created before 0.4.0, refused by every command ("created by an earlier version"):
-  finish it with the version that created it, installed from its tag
-  (`pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'`), in
-  an environment of its own. Do not add a `run.json` by hand: 0.4.0 changed what a run freezes.
+- A run created before 0.4.0, refused by every command ("a development version of
+  sealed-panel before 0.4.0 created it"): it cannot be continued, since no version before
+  0.4.0 was published; start a new run with 0.4.0. Do not add a `run.json` by hand: 0.4.0
+  changed what a run freezes. A run of a later release's format names the releases to finish
+  it with, each installed from its tag.
 
 Never edit, move or delete a run's files by hand to get past a refusal: the refusals are the
 protocol, and a hand edit is out of the threat model, not a way around it.
