@@ -2,7 +2,8 @@
 
 The defaults define the shape: an override may only set keys that exist there, with a value
 of the same type. Settings that guard the protocol have hard bounds, so an override can
-tighten a guard but never switch it off. A section 0.4.0 fixed in code is refused, by name.
+tighten a guard but never switch it off. A section 0.4.0 fixed in code, and a transcript field
+name 0.4.1 replaced with host adapters, is refused, by name.
 """
 
 from __future__ import annotations

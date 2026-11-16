@@ -115,7 +115,7 @@ Validates one judge's reply and stores it as `out_j<J>_<id>_<hash>.json`. Prints
 |---|---|
 | `--judge J` | The judge slot, as numbered in the brief file name. |
 | `--agent-id ID` | The judge context. Must be new in this run. |
-| `--transcript FILE` | A JSONL transcript of the judge. The reply is the message of its last handback tool call when `transcript.handback_tool` is set and the agent handed back (a malformed one is recorded as rejected), else its last assistant text, else (nothing delivered at all) its last refused handback. A handback the runtime refused (its tool result is an error) was never delivered and is skipped as a reply; for `--void` it still counts as a reply, since the judge answered. The transcript's first user entry must contain the whole brief file, normalised with the built-in settings; characters beyond the brief are counted, stored, and reported. When the file carries an agent id, it must equal `--agent-id`. |
+| `--transcript FILE` | A transcript of the judge, read by the adapter of the run's `[transcript] format` ([integrations.md](integrations.md#transcript-formats)); a file it does not recognise is refused. The reply is the message of the judge's last handback call when its format has one and the agent handed back (a malformed one is recorded as rejected), else its last assistant text, else (nothing delivered at all) its last refused handback. A handback the runtime refused (its tool result is an error) was never delivered and is skipped as a reply; for `--void` it still counts as a reply, since the judge answered. The judge's prompt (its inputs before its first output) must contain the whole brief file, normalised with the built-in settings; characters beyond the brief are counted, stored, and reported. When the file carries an agent id, it must equal `--agent-id`. |
 | `--output FILE` | The reply as a file, or `-` for stdin. The report flags rounds with such replies. |
 | `--void` | The agent received the brief but never replied. Needs `--transcript`, which must contain the brief id somewhere (a judge pointed at the brief file counts); a run whose briefs carry no brief id cannot void. Recorded as a void attempt (not valid, source `void`): it clears the block an unrecorded agent puts on the round, but never fills a seat. Every assistant text and every tool call, whichever its name, counts as a reply: when the prompt holds the whole brief and the agent left any of those, the void is refused ("cannot be voided"); when the prompt does not hold the brief, the void is recorded and labelled "voided after replying (brief not verbatim)", and that seat's next reply must come from a transcript holding the pasted brief: `--output` is refused on it. At most 3 voids per slot and round; they do not count toward `max_replacements`. |
 | `--sealed` | Record for the sealed panel. |
@@ -124,14 +124,15 @@ A reply is rejected (stored, but not counted) when it is not JSON, misses an ite
 dimension, has a score that is not an integer from 1 to 5 (`true` included), a severity outside
 the configured list, an empty reasoning, more than a third of quotes not found in the items, a
 control mean above `control_max`, a known-good mean below `good_min`, or, from a transcript, any
-tool call by the judge other than the configured handback tool (a judge gets no tools), or a
-transcript whose last non-empty line is not a JSON object (cut off while being written: the
-final reply may be lost, and the text before it is not that reply). So record a transcript only
-after the judge has returned: recording a file still being written stores a rejection, and the
-seat needs a replacement judge. Other unreadable lines are skipped and counted in the result as
-`unreadable_lines`. Scores above the severity cap are lowered to the cap. A quote that is not
-found voids that score. A judge that quoted the same words on every dimension of the candidate
-is noted for the report.
+tool call by the judge other than its format's handback tool (a judge gets no tools), a session
+that carries another session's history (a fork), an input that reached the judge after its first
+output, or a transcript whose last non-empty line is not a JSON object (cut off while being
+written: the final reply may be lost, and the text before it is not that reply). So record a
+transcript only after the judge has returned: recording a file still being written stores a
+rejection, and the seat needs a replacement judge. Other unreadable lines are skipped and
+counted in the result as `unreadable_lines`. Scores above the severity cap are lowered to the
+cap. A quote that is not found voids that score. A judge that quoted the same words on every
+dimension of the candidate is noted for the report.
 
 Refused: a judge slot not in the round's `keys.json`, a round not briefed, an agent id already
 used in the run, a reply already recorded, a judge slot that already has a valid reply, any

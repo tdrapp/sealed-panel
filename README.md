@@ -232,12 +232,12 @@ shortened to one item and one dimension:
 in the run. With `--output`, the reply is read from a file (or `-` for stdin). When your agent
 tool writes a JSONL transcript per judge, use `--transcript` instead: the reply is read there,
 the transcript's prompt must contain the whole brief, and the report does not flag the reply as
-pasted. Some agent runtimes return a subagent's answer as a tool call rather than as a final
-text; name that tool in `transcript.handback_tool` and its message is read as the reply. An
-agent that received a brief and never replied is recorded with `--transcript FILE --void`. A
-void clears the block an unrecorded agent puts on the round, but never fills a seat: every
-judge slot needs a real attempt (a reply, valid or rejected) before the round can be
-aggregated, so brief a fresh replacement on the same brief.
+pasted. A host adapter reads the transcript, the one `[transcript] format` names; a file it does
+not recognise is refused, and a judge that used a tool, ran in a forked session or got an input
+after its first answer is rejected. An agent that received a brief and never replied is recorded
+with `--transcript FILE --void`. A void clears the block an unrecorded agent puts on the round,
+but never fills a seat: every judge slot needs a real attempt (a reply, valid or rejected)
+before the round can be aggregated, so brief a fresh replacement on the same brief.
 
 ```sh
 sealed-panel record runs/announcement --round 1 --judge 1 --agent-id judge-a --output replies/r1_j1.json
@@ -324,7 +324,9 @@ whole prompt.
 
 ## Integrations
 
-[docs/integrations.md](docs/integrations.md) covers each in full.
+[docs/integrations.md](docs/integrations.md) covers each in full, and names, for each agent
+host, its transcript format, where its transcripts are, how to launch a judge without tools, and
+what its adapter refuses.
 
 **Agent hosts, through MCP.** `sealed-panel mcp` serves the commands as ten tools over stdio:
 `init`, `brief`, `record`, `judge`, `measure`, `aggregate`, `status`, `report`,
@@ -357,7 +359,7 @@ only `PATH`, `HOME`, `LANG` and the allowed names from the environment.
 ## Configuration
 
 The settings live in [`src/sealed_panel/defaults.toml`](src/sealed_panel/defaults.toml): run
-defaults, limits, severity caps, quote rules and transcript field names (the text normalisation
+defaults, limits, severity caps, quote rules and the transcript format (the text normalisation
 and the injection patterns are fixed in code). A spec may override the per-run keys; `init
 --config PATH` overrides the rest, within hard bounds, and the effective configuration is
 frozen into the run. The brief texts stay in code, because they are the instrument. Every key
@@ -520,7 +522,7 @@ owner-only (0600 and 0700).
 A configuration may still change, within bounds and with disclosure in the report header and in
 `status`: the reading stances, the judges per persona (2 to 9), the round limit, the control and
 known-good limits, the noise floor, the severity caps (tighter only), the quote lengths and
-bad-quote share (stricter only: the floors are the defaults), and the transcript field names.
+bad-quote share (stricter only: the floors are the defaults), and the transcript format.
 The normalisation of texts before they are compared, and the injection patterns, are fixed in
 code. Every such value is frozen into the run at `init`.
 

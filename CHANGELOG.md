@@ -7,6 +7,47 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Host adapters. A judge's transcript is read by the adapter of its format, from a closed list
+  in `sealed_panel.hosts`, and the core reads only the neutral record it returns. Two formats:
+  `agent-jsonl` (the default, the format the 0.4.0 reader read) and `rollout-jsonl`, a format
+  that opens each session file with a session record. `docs/integrations.md` says which host
+  writes which, where its transcripts are and how to launch a judge for it.
+- `[transcript] format`, frozen at `init`, names the run's transcript format.
+- A judge whose session carries another session's history (a fork) is rejected, and so is a
+  judge that got an input after its first output, beyond what its host adds on its own: an
+  input after an answer can ask again, a re-roll. Each refusal has a mutation.
+
+### Changed
+
+- **Breaking:** A transcript whose structure its adapter does not recognise is refused (nothing
+  is stored) instead of read past: an entry of a checked type with another shape, an untyped
+  content block, a file with no message, two agent ids in one file. Before: entries of another
+  shape were skipped.
+- **Breaking:** Any assistant item that is neither text nor reasoning counts as a tool call,
+  whatever its type. Before: only a type ending in `tool_use` did.
+- The prompt a transcript is checked against is every unmarked user input before the judge's
+  first output, not only the first user entry: a second one is counted as a prompt extra.
+- The scan for unrecorded judges reads the transcripts the run's adapter lists beside each
+  recorded one, last written since the round was briefed (minus 60 seconds), and refuses the
+  aggregation past 1000 rather than stop short. A file that holds a brief id of the round and
+  cannot be read refuses it too; a file without one is never parsed. Before: every file of the
+  recorded transcripts' folders was read. For `agent-jsonl`, the host's `*.meta.json` and
+  `*.prefix.json` side files are no longer read.
+- A run frozen by 0.4.0 holds the transcript field names and no `format`: after its
+  `config.lock` is checked as written, it reads as `agent-jsonl` when they hold the 0.4.0
+  defaults (docs/protocol.md section 11).
+
+### Removed
+
+- **Breaking:** The 18 field-name settings of `[transcript]` (`role_key`, `handback_tool` and
+  the others). Before: a configuration could rename the fields the one reader read, or set
+  `handback_tool = ""` to read no handback tool. After: each adapter reads its format's fields
+  as constants, and `agent-jsonl` always reads `SubagentHandback`. A configuration file that
+  still sets one is refused, naming each; a run frozen by 0.4.0 with values other than the 0.4.0
+  defaults is refused, naming them, and is finished with 0.4.0.
+
 ## [0.4.0] - 2026-11-16
 
 0.4.0 changes how the package is built more than what it does. Each module has one job, and the

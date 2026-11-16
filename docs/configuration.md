@@ -12,7 +12,8 @@ There are two ways to change one.
   default. No other command accepts `--config`.
 
 The defaults define the shape. An override that names an unknown key, or gives a value of
-another type, is refused. A key 0.4.0 removed is refused with a message that names it.
+another type, is refused. A key 0.4.0 or 0.4.1 removed is refused with a message that names
+it.
 
 Settings that guard the protocol have hard bounds, listed below. A value outside its bounds is
 refused with a message naming the key, whether it comes from a configuration file or from a
@@ -39,7 +40,7 @@ min_chars = 16
 material = 3
 
 [transcript]
-agent_id_key = "session_id"
+format = "rollout-jsonl"
 ```
 
 ## `[run]`: per-run defaults
@@ -106,42 +107,32 @@ refused with a message naming the key.
 
 ## `[transcript]`
 
-A transcript is a JSONL file, one JSON object per line. The reply is the text of the last
-entry whose `role_key` equals `assistant_role` and whose message holds at least one non-empty
-text block. The prompt is the first entry whose `role_key` equals `user_role`; its content may
-be a string or a list of text blocks, and it must contain the whole brief file. Lines that are
-not JSON, or entries of another shape, are skipped. If no reply is found, `record` refuses
-rather than guess.
-
-```json
-{"type": "user", "agentId": "a1", "message": {"content": "<the brief, verbatim>"}}
-{"type": "assistant", "agentId": "a1", "message": {"content": [{"type": "text", "text": "..."}]}}
-```
+A judge's transcript is read by a host adapter, one per transcript format; the core reads only
+what the adapter returns: the prompt, the reply, the tools called, the agent id, the inputs that
+reached the judge after its first output, and whether the session carries another session's
+history. [integrations.md](integrations.md#transcript-formats) says which host writes which
+format, where its transcripts are, and what its adapter refuses.
 
 | Key | Default | Bounds | Meaning |
 |---|---|---|---|
-| `role_key` | `"type"` | not empty | Entry field holding the role. |
-| `assistant_role` | `"assistant"` | not empty | Role value of the judge's entries. |
-| `user_role` | `"user"` | not empty | Role value of the prompt entry. |
-| `message_key` | `"message"` | not empty | Entry field holding the message. |
-| `content_key` | `"content"` | not empty | Message field holding the content. |
-| `block_type_key` | `"type"` | not empty | Block field holding the block type. |
-| `text_block_type` | `"text"` | not empty | Block type that carries text. |
-| `text_key` | `"text"` | not empty | Block field holding the text. |
-| `agent_id_key` | `"agentId"` | not empty | Field holding the agent id. When present, it must equal `--agent-id`. |
-| `handback_tool` | `"SubagentHandback"` | | Some agent runtimes return a subagent's answer as a tool call rather than as a final text. Name that tool here and the message of its last call is read as the reply, before any text. A runtime without this tool is unaffected. Empty means no tool is read; a run frozen earlier keeps the value it has. A call whose message is not one non-empty string is recorded as a rejected, malformed reply. |
-| `tool_block_type` | `"tool_use"` | not empty | Block type of a tool call. |
-| `tool_name_key` | `"name"` | not empty | Block field holding the tool name. |
-| `tool_input_key` | `"input"` | not empty | Block field holding the call's input. |
-| `tool_message_key` | `"message"` | not empty | Input field holding the returned message. |
-| `tool_id_key` | `"id"` | not empty | Field holding a tool call's id. |
-| `tool_result_type` | `"tool_result"` | not empty | Block type of a tool result, in a user entry. |
-| `tool_result_id_key` | `"tool_use_id"` | not empty | Tool result field naming the call it answers. |
-| `tool_error_key` | `"is_error"` | not empty | Tool result field set to true when the runtime refused the call. A refused handback was never delivered, so the reader prefers a delivered handback, then the last assistant text; only when nothing was delivered at all is the last refused handback the reply (a malformed one is recorded as rejected). For `--void`, a refused handback still counts as a reply. |
+| `format` | `"agent-jsonl"` | `agent-jsonl` or `rollout-jsonl` | The format of the judges' transcripts: the adapter that reads them. Frozen at `init`, like every setting. |
 
-`record --void` fails closed: any non-empty assistant text and any tool call, whichever its
-name, counts as a reply, because a runtime may deliver the answer through a tool no setting
-names. A judge whose prompt held the whole brief and that left any of those cannot be voided.
+The list of formats is closed: a format is added in code, with its tests, never by a setting.
+An adapter reads its format by its own structure and refuses a file it does not recognise,
+rather than guess; it never skips an entry of a type it checks. If no reply is found, `record`
+refuses.
+
+Until 0.4.1, `[transcript]` held 18 field names (`role_key`, `handback_tool` and the others) for
+the one reader there was. A configuration file that still sets one is refused with a message
+naming each. A run frozen by 0.4.0 holds them and no `format`: after its `config.lock` is
+checked against the file as written, it reads as `format = "agent-jsonl"` when they hold the
+0.4.0 defaults, which that adapter reads the same way; a run frozen with other field names is
+refused, naming them, and is finished with 0.4.0 (see
+[protocol.md](protocol.md#11-the-run-format)).
+
+`record --void` fails closed: any non-empty assistant text and any call, whichever its name,
+counts as a reply, because a runtime may deliver the answer through a tool no adapter knows of.
+A judge whose prompt held the whole brief and that left any of those cannot be voided.
 
 ## Why each section is a setting
 
@@ -153,8 +144,8 @@ names. A judge whose prompt held the whole brief and that left any of those cann
   only be made stricter. Which typography the check forgives is no longer a setting: a legal
   `[text]` override could only loosen some check in one direction or another, so 0.4.0 fixed
   it in code.
-- `[transcript]`: agent runtimes write transcripts in different shapes; these keys adapt the
-  reader without touching the checks.
+- `[transcript]`: agent hosts write transcripts in different formats; the setting names the
+  adapter that reads the run's judges, and is frozen so a run reads every judge the same way.
 - `[judge]`: which program judges, how long it may take, and which credentials it may see,
   depend on the machine and the model; they are frozen so a run keeps one judge.
 

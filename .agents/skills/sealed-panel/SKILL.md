@@ -109,18 +109,19 @@ directory.
 ## 5. Record and aggregate
 
 For each judge, record its reply. Prefer the judge's own transcript when your tool writes one
-(a JSONL file whose assistant entries carry text blocks; field names are configurable):
+(a format a host adapter reads; `[transcript] format`, set at `init`, names it, and
+docs/integrations.md lists each host's):
 
 ```
 sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jsonl
 ```
 
 Record a transcript only after the judge has returned: a file still being written ends with a
-cut-off line, and `record` stores that attempt as rejected, so the seat takes a replacement.
-The transcript's first user entry must contain the whole brief file: paste the brief verbatim,
-or `record` refuses it. Text you add around the brief is counted and reported, so add nothing.
-Otherwise save the reply to a file, unchanged, and use `--output reply.json`. Through the MCP
-tools, a transcript is read only from a folder the server was started with
+cut-off line, and `record` stores that attempt as rejected, so the seat takes a replacement. The
+judge's prompt (its inputs before its first output) must contain the whole brief file: paste the
+brief verbatim, or `record` refuses it. Text you add around the brief is counted and reported,
+so add nothing. Otherwise save the reply to a file, unchanged, and use `--output reply.json`.
+Through the MCP tools, a transcript is read only from a folder the server was started with
 (`--transcript-root`); elsewhere `record` refuses it, so say so to the user, or paste the reply.
 
 Without JSONL transcripts, every reply is pasted: the report flags each round, and the defence
@@ -139,10 +140,10 @@ sealed-panel record RUN --round N --judge J --agent-id ID --transcript judge.jso
 A void clears the block but never fills the seat: brief a fresh judge on the same brief and
 record it under the same `--judge` number. A judge whose prompt held the whole brief and that
 left any reply, in any message, or called any tool, cannot be voided: record it. Voids have
-their own cap of 3 per slot and round. If your agent runtime returns a subagent's answer through
-a tool other than `SubagentHandback`, set `transcript.handback_tool` in the configuration given
-to `init`. A REJECTED judge (control too high, known-good too low, quotes not found, malformed)
-is replaced by a fresh judge on the same brief file, recorded under the same `--judge` number.
+their own cap of 3 per slot and round. Never send a judge anything after its first answer: an
+input after its first output, like a tool call, gets it rejected. A REJECTED judge (control too
+high, known-good too low, quotes not found, malformed) is replaced by a fresh judge on the same
+brief file, recorded under the same `--judge` number.
 
 Instruments, before aggregating:
 
