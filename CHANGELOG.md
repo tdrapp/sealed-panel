@@ -18,6 +18,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A judge whose session carries another session's history (a fork) is rejected, and so is a
   judge that got an input after its first output, beyond what its host adds on its own: an
   input after an answer can ask again, a re-roll. Each refusal has a mutation.
+- `grade()` and `sealed-panel grade SPEC ARTEFACT --control FILE --config CONFIG.toml`: the
+  one-shot sealed grade in one call, with the judge runner (the judge comes from the
+  configuration only; a configuration without a judge command is refused). Without a run
+  directory it uses a fresh temporary one, never the current directory. A grade that does not
+  stand is returned as such, never as a grade: `BLOCKED BY FLAG`, or `INCOMPLETE` when the
+  judges left the panel without one. The command exits 0 for a grade that stands, 1 for none, 2
+  for a refusal; the other commands keep 0 and 2. `grade`, `GradeResult` and `FormatError` join
+  `__all__`.
+- `RUN/grade.json`, written by the sealed aggregate step: the grade per persona and dimension,
+  how it was obtained, who judged, the flags and counts the report prints (each seat's prompt
+  extras included, with the transcript format that counted them), and the settings that differ
+  from the defaults. It has its own `schema_version`, separate from the run format; a reader
+  accepts every result format up to its own and refuses a later one. The report prints its
+  sealed grade from the same derivation.
 
 ### Changed
 

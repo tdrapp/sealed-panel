@@ -20,7 +20,7 @@ from .model import (
     ResultFile,
     RoundResult,
 )
-from .result import build, overrides, panel_env_changes
+from .result import GradeResult, build, overrides, panel_env_changes
 from .rubric import dims_for
 from .run import load_frozen, run_config
 from .store import write_file
@@ -332,6 +332,19 @@ def render_report(run: Path) -> str:
     out += _round_table(spec, ledger)
     out += _notes(run, ledger, d, view)
     return "\n".join(out) + "\n"
+
+
+def grade_line(result: GradeResult) -> str:
+    """What `grade` prints for its outcome: the sealed grade and its verdict, or why there is
+    none that stands.
+
+    Args:
+        result: What grade() returned.
+    """
+    if not result.stands:
+        return f"{result.decision}: {result.why}"
+    cells = "; ".join(f"{did} {_cell(e)}" for p in result.grade.values() for did, e in p.items())
+    return f"{result.decision}: {cells}. Verdict: {result.verdict}."
 
 
 def outcome_line(r: Attempt) -> str:

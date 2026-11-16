@@ -1813,6 +1813,38 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if type(version) is not int or version < 1:\n",
         "        if False:\n",
     ),
+    # grade(): the one-shot sealed path, with the judge runner only, never a grade that does
+    # not stand, and never a run in the current directory.
+    "grade without a judge command accepted": (
+        STEPS,
+        '    if not cfg.judge["command"]:\n        raise EvalError(NO_RUNNER)\n',
+        "    if False:\n        raise EvalError(NO_RUNNER)\n",
+    ),
+    "grade of a spec with measured criteria accepted": (
+        STEPS,
+        '    if load_frozen(run).get("measured"):\n',
+        "    if False:\n",
+    ),
+    "grade without a run writes in the current directory": (
+        STEPS,
+        'tempfile.mkdtemp(prefix=f"sealed-panel-{slug}-")',
+        'tempfile.mkdtemp(prefix=f"sealed-panel-{slug}-", dir=".")',
+    ),
+    "an incomplete sealed panel returned as standing": (
+        RESULT,
+        "decision=INCOMPLETE, stands=False, why=why)",
+        "decision=INCOMPLETE, stands=True, why=why)",
+    ),
+    "a grade that does not stand printed as a grade": (
+        REPORT,
+        "    if not result.stands:\n",
+        "    if False:\n",
+    ),
+    "grade exits 0 without a grade that stands": (
+        f"{PKG}/cli.py",
+        "    return 0 if r.stands else 1\n",
+        "    return 0\n",
+    ),
 }
 
 

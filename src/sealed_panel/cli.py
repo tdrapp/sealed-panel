@@ -1,4 +1,5 @@
-"""Command line: `sealed-panel <command> RUN ...`. Every refusal exits with status 2."""
+"""Command line: `sealed-panel <command> RUN ...`. Every refusal exits with status 2; `grade`
+exits 1 when it gives no grade that stands."""
 
 from __future__ import annotations
 
@@ -15,11 +16,11 @@ from .learning.candidates import open_candidates
 from .measure import record_measurement
 from .model import Attempt
 from .record import record_from
-from .report import feedback_path, outcome_line, render_report, status
+from .report import feedback_path, grade_line, outcome_line, render_report, status
 from .rubric import TODO_MARKER
 from .runner import judge_round
 from .settings import load_config
-from .steps import aggregate_round, init_run, resolve_round
+from .steps import aggregate_round, grade, init_run, resolve_round
 from .templates import LIBRARY_ENV, library_dir
 
 # The usual exit status of a command stopped by Ctrl-C.
@@ -39,6 +40,23 @@ def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="sealed-panel", description=DESCRIPTION)
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser(
+        "grade", help="grade a text in one call: a new run, its sealed panel run by the judge"
+    )
+    p.add_argument("spec", type=Path)
+    p.add_argument("artefact", type=Path)
+    p.add_argument("--control", type=Path, required=True)
+    p.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="TOML file whose [judge] command runs the judges, frozen into the run",
+    )
+    p.add_argument("--good", type=Path)
+    p.add_argument(
+        "--run", type=Path, help="a new or empty run directory (default: a fresh temporary one)"
+    )
 
     p = sub.add_parser("init", help="validate and freeze a spec")
     p.add_argument("run", type=Path)
@@ -236,6 +254,16 @@ def _print_seat(seat: int, r: Attempt | None, skipped: str) -> None:
     print(f"{outcome_line(r)} ({proof['duration_s']:g} s, stderr in {proof['stderr_log']})")
 
 
+def _grade(a: argparse.Namespace) -> int:
+    r = grade(a.artefact, a.spec, control=a.control, config=a.config, run=a.run, known_good=a.good)
+    print(grade_line(r))
+    if r.path is not None:
+        print(f"result file: {r.path}")
+    else:
+        print(f"no result file: the sealed panel was not aggregated; run {r.run}")
+    return 0 if r.stands else 1
+
+
 def _run(a: argparse.Namespace) -> None:
     if a.cmd == "init":
         cfg = load_config(a.config) if a.config else None
@@ -281,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
     """
     a = _parser().parse_args(argv)
     try:
+        if a.cmd == "grade":
+            return _grade(a)
         _run(a)
     except KeyboardInterrupt:
         print("sealed-panel: interrupted; a judge that was running is recorded as void")

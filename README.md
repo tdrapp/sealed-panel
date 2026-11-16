@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 410 mutations, 408
+bound or boundary at a time and requires the suite to fail on each. Of its 416 mutations, 414
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -145,6 +145,22 @@ sealed-panel --version
 ```
 
 ## Quick start
+
+**In one command.** With a judge command configured (`[judge] command`; see
+`examples/runner/judge.toml`), one command gives a one-shot sealed grade: it freezes a new run,
+briefs the sealed panel, runs one fresh judge process per brief and aggregates.
+
+```sh
+sealed-panel grade spec.json draft.md --control control.md --config judge.toml
+```
+
+It prints the grade, then the path of `grade.json`, the machine-readable result, and exits 0
+for a grade that stands, 1 for none (blocked by a flag, or judges that failed), 2 for a
+refusal. Without `--run`, the run is a fresh temporary directory. From Python, `grade()` does
+the same ([docs/api.md](docs/api.md)). It takes no instrument reading: a spec with measured
+criteria, like the example below, goes through the steps.
+
+**Step by step.**
 
 This walks the synthetic example in `examples/announcement`: an internal email announcing a
 build cache, graded for a busy engineering manager. Run it from a clone of the repository, so

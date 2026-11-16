@@ -34,8 +34,10 @@ def test_the_public_api_is_found() -> None:
     names = [n for n, _ in public_callables()]
     assert sorted(names) == [
         "Config.__init__",
+        "GradeResult",
         "Spec",
         "aggregate_round",
+        "grade",
         "init_run",
         "judge_round",
         "load_config",

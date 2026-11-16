@@ -3,20 +3,38 @@ the domain modules, so none of them needs another's knowledge."""
 
 from __future__ import annotations
 
+import re
+import tempfile
 from pathlib import Path
 
 from . import templates
 from .aggregate import aggregate
-from .errors import EvalError
+from .brief import write_briefs
+from .errors import EvalError, PanelIncomplete
 from .ledger import results_by_judge
-from .model import RoundResult, Spec
+from .model import RESULT_FILE, RoundResult, Spec
 from .record import round_keys
 from .report import write_feedback
-from .result import write_result
+from .result import GradeResult, write_result
 from .run import freeze, load_frozen, prepare_spec, run_config
-from .runner import every_seat
-from .settings import Config, resolve
+from .runner import every_seat, judge_round
+from .settings import Config, load_config, resolve
 from .store import dump_json, round_dir, run_lock
+
+# Characters of the text file's name kept in a temporary run's name.
+SLUG_CHARS = 24
+NO_RUNNER = (
+    "grade() runs the judge command of its configuration ([judge] command), and this "
+    "configuration has none: grade() needs the judge runner. In host mode your agent host runs "
+    "the judges: use the steps instead (init_run, write_briefs with sealed=True, record_from for "
+    "each judge, aggregate_round), or the `brief`, `record` and `aggregate` commands"
+)
+MEASURED = (
+    "the spec has measured criteria, and grade() takes no instrument readings: the run is "
+    "frozen at {run}; continue it with the steps (write_briefs with sealed=True, judge_round, "
+    "record_measurement for each criterion, aggregate_round), or the `brief --sealed`, `judge`, "
+    "`measure` and `aggregate --sealed` commands"
+)
 
 
 def init_run(
@@ -91,3 +109,53 @@ def resolve_round(rnd: int | None, sealed: bool) -> int:
     raise EvalError(
         "the round number is required for a loop round (it defaults to 1 only for the sealed panel)"
     )
+
+
+def _fresh_run(text: Path) -> Path:
+    """A new, empty, owner-only directory for a run under the system's temporary folder, named
+    after the text: never the current directory."""
+    slug = re.sub(r"[^a-z0-9]+", "-", text.stem.lower()).strip("-")[:SLUG_CHARS] or "text"
+    return Path(tempfile.mkdtemp(prefix=f"sealed-panel-{slug}-"))
+
+
+def grade(
+    text: Path,
+    spec: Path | Spec,
+    *,
+    control: Path,
+    config: Config | Path,
+    run: Path | None = None,
+    known_good: Path | None = None,
+) -> GradeResult:
+    """Grade a text in one call with the judge runner: freeze a new run, brief the sealed
+    panel, run the configured judge command once for every seat, aggregate, and return the
+    result the aggregate step wrote to RUN/grade.json. It is the one-shot sealed grade: no
+    revision loop. Every refusal of a step is raised as the step raised it. A sealed panel
+    blocked by a flag is returned with `stands` False; one its judges left without a grade (a
+    judge that failed, or too few valid replies) is returned as INCOMPLETE, with no result
+    file, and its run stays open for a replacement (`judge`, then `aggregate --sealed`).
+
+    Args:
+        text: The text to grade.
+        spec: The spec file, or a Spec built in Python.
+        control: The deliberately bad version planted in every brief.
+        config: The configuration, or its TOML file; its `[judge] command` runs the judges.
+            Required: a configuration without a judge command is refused.
+        run: A new or empty directory for the run; when None, a fresh directory under the
+            system's temporary folder, named in the result's `run`.
+        known_good: An optional known-good text, validated by the user.
+    """
+    cfg = load_config(config) if isinstance(config, Path) else config
+    if not cfg.judge["command"]:
+        raise EvalError(NO_RUNNER)
+    run = run if run is not None else _fresh_run(text)
+    init_run(run, spec, cfg)
+    if load_frozen(run).get("measured"):
+        raise EvalError(MEASURED.format(run=run))
+    write_briefs(run, 1, text, control, known_good, sealed=True)
+    judge_round(run, 1, True)
+    try:
+        aggregate_round(run, 1, True)
+    except PanelIncomplete as exc:
+        return GradeResult.incomplete(run, str(exc))
+    return GradeResult.read(run / RESULT_FILE)

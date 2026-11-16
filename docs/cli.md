@@ -24,7 +24,8 @@ since a run has one sealed panel.
 Every refusal prints `sealed-panel: <reason>` on stderr and exits with status 2. So does
 malformed input (a file that is not JSON, a spec or run file of the wrong shape): the message
 names the problem, never a traceback. A rejected judge reply is not a refusal: `record` stores
-it, prints `REJECTED`, and exits 0.
+it, prints `REJECTED`, and exits 0. Every command exits 0 when it did its step; `grade` alone
+also exits 1, when it gives no grade that stands (see below).
 
 `record` and `judge` calls may overlap: each holds its judge slot's lock from the slot's check
 to the stored attempt, and a call on a slot another call holds is refused with "seat J is held
@@ -33,6 +34,28 @@ the run, a round already briefed, the round's readings) run under the run's lock
 `record`, `brief`, `measure` and `aggregate` wait for briefly. The locks are `fcntl.flock` on
 `seat_j<J>.lock` beside the brief and on `run.lock` in the run; a filesystem that does not
 support them is refused, never written unlocked.
+
+## grade
+
+```
+sealed-panel grade SPEC ARTEFACT --control FILE --config CONFIG.toml [--good FILE] [--run DIR]
+```
+
+The one-shot sealed grade in one command, with the judge runner: it freezes a new run from the
+spec (`init`), briefs the sealed panel (`brief --sealed`), runs the configured judge command
+once for every seat (`judge --sealed`) and aggregates (`aggregate --sealed`), which writes
+`RUN/grade.json`. It prints the outcome line, then the result file's path. Without `--run`, the
+run is a fresh directory under the system's temporary folder, named on the last line. There is
+no revision loop and no instrument reading: a spec with measured criteria is refused once
+frozen, and the message says how to continue that run with the steps.
+
+| Exit | Outcome | Printed |
+|---|---|---|
+| 0 | A sealed grade that stands. | `SEALED: <dimension> <median> (<scores>); ... Verdict: <verdict>.`, then `result file: RUN/grade.json` |
+| 1 | A sealed panel blocked by a flag, whose figures do not stand; or a panel its judges left without a grade (a judge that failed, too few valid replies), whose run stays open: `judge RUN --sealed`, then `aggregate RUN --sealed`, finish it. | `BLOCKED BY FLAG: <why>` and the result file, or `INCOMPLETE: <why>` and `no result file: ...; run RUN` |
+| 2 | A refusal of any step, as that step words it: a configuration without a judge command (in host mode, use the steps), a spec or a text refused, a candidate addressing a judge (refused by the sealed brief before a judge runs). | `sealed-panel: <reason>` on stderr |
+
+The library function is `grade()` ([api.md](api.md)); there is no MCP tool for it.
 
 ## init
 
@@ -215,10 +238,11 @@ version, and in a sealed panel the median on the round-1 baseline. Computes the 
 medians, for information only), the best paired gain, the suspect jumps, the findings, the
 prompt extras and the judges who reused one quote. Writes the round's `result.json`, the only
 record of the round: `status`, `report` and the next round read the rounds from these files
-(`ledger.json`, a copy of them, is no longer written). After a loop round, also writes
-`RUN/feedback/after_rN.md`, the findings the author revises from. Nothing is written outside the
-run: before 0.4.0 a sealed panel also wrote learned candidates to the user library's inbox; that
-is now `learning learn`.
+(`ledger.json`, a copy of them, is no longer written). After the sealed panel, also writes
+`RUN/grade.json`, the result file ([api.md](api.md) lists its fields). After a loop round, also
+writes `RUN/feedback/after_rN.md`, the findings the author revises from. Nothing is written
+outside the run: before 0.4.0 a sealed panel also wrote learned candidates to the user library's
+inbox; that is now `learning learn`.
 
 `aggregate` holds every seat of the round, then the run's lock, for the whole step. In a run
 with a judge command, it first records the attempt of a runner that died as a void (see

@@ -12,14 +12,15 @@ such as `rubric.validate_spec`, `reply.check_output`, `text.normalise` or the re
 """
 
 from .brief import write_briefs
-from .errors import ConfigError, EvalError, MalformedReply, SeatTaken
+from .errors import ConfigError, EvalError, FormatError, MalformedReply, SeatTaken
 from .measure import record_measurement
 from .model import SCHEMA_VERSION, Spec
 from .record import record_from, record_reply
 from .report import render_report, status
+from .result import GradeResult
 from .runner import judge_round
 from .settings import Config, load_config
-from .steps import aggregate_round, init_run
+from .steps import aggregate_round, grade, init_run
 
 __version__ = "0.4.0"
 
@@ -28,11 +29,14 @@ __all__ = [
     "Config",
     "ConfigError",
     "EvalError",
+    "FormatError",
+    "GradeResult",
     "MalformedReply",
     "SeatTaken",
     "Spec",
     "__version__",
     "aggregate_round",
+    "grade",
     "init_run",
     "judge_round",
     "load_config",
