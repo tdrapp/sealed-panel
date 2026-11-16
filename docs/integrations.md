@@ -172,6 +172,12 @@ A rejected attempt counts against the seat's replacements: brief a fresh judge o
 brief. Launch judges from an empty directory: a host that injects project instructions reads
 them from the directory the agent starts in, and they reach the judge with its brief.
 
+Known limit: project instructions are flagged on one host and not on the other. Where the host
+marks them as its own (an attachment in `agent-jsonl`), they are not counted in the prompt, as
+in 0.4.0; where it does not (user messages in `rollout-jsonl`), they are counted and flagged. So
+the same kind of input shows in the report for one host only. A separate field for the context
+a host adds on its own is planned with the result file of the next release.
+
 Before a round is aggregated, the transcripts the adapter lists beside each recorded one are
 read for the round's brief ids: an agent that holds one and was never recorded blocks the round
 (record it, or record it as a void when it never replied). Only files written since the round
