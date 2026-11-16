@@ -980,7 +980,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if failure:\n            raise\n",
         "        raise\n",
     ),
-    "a judge that used a tool is read": (REC, "    if tools_used:\n", "    if False:\n"),
+    "a judge that used a tool is read": (REC, "    if t.tools:\n", "    if False:\n"),
+    "a judge with a later input is read": (REC, "    if t.later_inputs:\n", "    if False:\n"),
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
@@ -1154,10 +1155,73 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except RecursionError:  # parsed, but too deep to write back: never a reason to lose it\n",
         "    except ZeroDivisionError:\n",
     ),
-    "a server tool call not seen": (
+    "an unknown assistant block not counted as a call": (
         AGENT_JSONL,
-        'if str(b.get("type")).endswith(TOOL_BLOCK)',
-        'if str(b.get("type")).__eq__(TOOL_BLOCK)',
+        'if b["type"] not in NOT_CALLS',
+        'if b["type"] == TOOL_BLOCK',
+    ),
+    # The agent-jsonl adapter: inputs after the judge's first output.
+    "a later string input not counted": (
+        AGENT_JSONL,
+        'return isinstance(content, str) or any(b["type"] != "tool_result" for b in content)',
+        'return any(b["type"] != "tool_result" for b in content)',
+    ),
+    "a later text block not counted": (
+        AGENT_JSONL,
+        'return isinstance(content, str) or any(b["type"] != "tool_result" for b in content)',
+        "return isinstance(content, str)",
+    ),
+    "a later attachment not counted": (
+        AGENT_JSONL,
+        'return e["type"] == "attachment" and e["attachment"]["type"] not in',
+        'return False and e["attachment"]["type"] not in',
+    ),
+    "the host's snapshot counted as a later input": (
+        AGENT_JSONL,
+        'e["attachment"]["type"] not in LATER_HOST_ATTACHMENTS',
+        'e["attachment"]["type"] is not None',
+    ),
+    "the prompt counted as a later input": (
+        AGENT_JSONL,
+        "later_inputs=sum(_is_input(e) for e in entries[first + 1 :]),",
+        "later_inputs=sum(_is_input(e) for e in entries),",
+    ),
+    "reasoning taken as the first output": (
+        AGENT_JSONL,
+        'any(b["type"] not in REASONING for b in _blocks(e))',
+        "_blocks(e)",
+    ),
+    "the host's own message counted in the prompt": (
+        AGENT_JSONL,
+        'if not e.get("isMeta")',
+        "if True",
+    ),
+    # The agent-jsonl adapter: a structure it does not recognise.
+    "an entry of another shape read": (
+        AGENT_JSONL,
+        "        if problem:\n            raise FormatError(",
+        "        if False:\n            raise FormatError(",
+    ),
+    "a file without messages read": (
+        AGENT_JSONL,
+        '    if not any(e["type"] in MESSAGES for e in entries):\n',
+        "    if False:\n",
+    ),
+    "two agent ids read as one": (AGENT_JSONL, "    if len(ids) > 1:\n", "    if False:\n"),
+    "an untyped block accepted": (
+        AGENT_JSONL,
+        'isinstance(b, dict) and isinstance(b.get("type"), str) for b in content',
+        "isinstance(b, dict) for b in content",
+    ),
+    "an assistant string content accepted": (
+        AGENT_JSONL,
+        '        return kind == "user"\n',
+        "        return True\n",
+    ),
+    "an attachment without a type accepted": (
+        AGENT_JSONL,
+        'return "" if isinstance(a, dict) and isinstance(a.get("type"), str) else "an attachment"',
+        'return ""',
     ),
     "ctrl-c prints a traceback": (
         f"{PKG}/cli.py",

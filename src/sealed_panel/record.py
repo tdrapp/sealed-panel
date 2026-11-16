@@ -188,6 +188,33 @@ def record_reply(
         )
 
 
+def transcript_refusals(t: Transcript) -> list[str]:
+    """Why a judge's transcript disqualifies its reply, whatever the reply says: a tool used,
+    a session carrying another one's history, an input after its first output.
+
+    Args:
+        t: The transcript, as its format's adapter read it.
+    """
+    fresh = "brief a fresh judge on the same brief"
+    errors = []
+    if t.tools:
+        errors.append(
+            f"the judge used a tool ({', '.join(t.tools)}): a judge gets no tools, so it could "
+            f"have read the run; {fresh}"
+        )
+    if t.fork:
+        errors.append(
+            "the judge's session is a fork: it carries another session's history, which can "
+            f"hold the run's labels or other judges' replies; {fresh}"
+        )
+    if t.later_inputs:
+        errors.append(
+            f"the judge got {t.later_inputs} input(s) after its first output: an input after an "
+            f"answer can steer or re-roll it; {fresh}"
+        )
+    return errors
+
+
 def _read_proof(
     rdir: Path, judge: int, transcript: Path | None, void: bool, cfg: Config
 ) -> tuple[Transcript | None, int]:
@@ -263,17 +290,10 @@ def record_attempt(
     check_seat(judge, prior, source, cfg)
     dim_ids = [d["id"] for d in dims_for(spec, meta["persona"])]
     texts = {role: read_text(rdir / f"{role}.md") for role in set(meta["key"].values())}
-    tools_used = t.tools if t is not None else ()
+    refusals = transcript_refusals(t) if t is not None else []
     result: Attempt
-    if tools_used:
-        result = {
-            "ok": False,
-            "errors": [
-                f"the judge used a tool ({', '.join(tools_used)}): a judge gets no tools, so it "
-                "could have read the run; brief a fresh judge on the same brief"
-            ],
-            "items": {},
-        }
+    if refusals:
+        result = {"ok": False, "errors": refusals, "items": {}}
     else:
         try:
             if malformed:

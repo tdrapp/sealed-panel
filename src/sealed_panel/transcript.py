@@ -31,6 +31,9 @@ class Transcript:
         reply_problem: Why the reply cannot be read, or empty.
         tools: The tools the agent called, sorted, the format's handback tool excepted.
         replied: Whether the agent produced any output at all (a text or any call).
+        later_inputs: How many inputs reached the agent after its first output, beyond what its
+            host adds on its own: a later input can steer or re-roll a reply.
+        fork: Whether the session carries the history of another session.
         unreadable: The numbers of the non-empty lines that are not a JSON object.
     """
 
@@ -41,6 +44,8 @@ class Transcript:
     reply_problem: str = ""
     tools: tuple[str, ...] = ()
     replied: bool = False
+    later_inputs: int = 0
+    fork: bool = False
     unreadable: tuple[int, ...] = ()
 
 
