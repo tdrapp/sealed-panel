@@ -15,6 +15,7 @@ import json
 import os
 import re
 import textwrap
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -235,7 +236,7 @@ def _used_fields(change: dict[str, Any]) -> dict[str, Any]:
     return {"dimension": change.get("dimension")}
 
 
-def apply_change(t: dict[str, Any], change: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def apply_change(t: Mapping[str, Any], change: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """The template with the change applied, and a one-line summary. Refuses an incomplete or
     inapplicable change."""
     action = change.get("action")

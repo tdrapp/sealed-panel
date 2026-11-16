@@ -154,6 +154,23 @@ class TestTemplates:
         assert "message" in served and "broken" not in served
         assert len(warnings) == 2 and all(w.startswith("skipped") for w in warnings)
 
+    def test_a_dimension_id_that_is_not_a_string_is_skipped(self, private_library: Path) -> None:
+        """A list or an object as a dimension id made the validator raise TypeError, which
+        stopped the listing instead of skipping the file."""
+        t = templates.builtin_templates()["message"]
+        private_library.mkdir(parents=True)
+        for name, bad in (("listed", ["a"]), ("object", {"a": 1}), ("number", 7)):
+            dims = [{**t["dimensions"][0], "id": bad}, *t["dimensions"][1:]]
+            (private_library / f"{name}.json").write_text(
+                json.dumps({**t, "id": name, "dimensions": dims})
+            )
+            assert f"dimension {bad!r}: id must be a string" in templates.template_errors(
+                {**t, "dimensions": dims}
+            )
+        served, warnings = templates.all_templates(private_library)
+        assert "message" in served and not {"listed", "object", "number"} & set(served)
+        assert len(warnings) == 3 and all("is not a valid template" in w for w in warnings)
+
     def test_unknown_template_refused(self, private_library: Path) -> None:
         with pytest.raises(EvalError, match="no template"):
             templates.get_template(private_library, "nope")

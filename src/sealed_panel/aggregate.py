@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import statistics
 from pathlib import Path
-from typing import Any
 
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
+from .model import (
+    Attempt,
+    DimensionResult,
+    Finding,
+    FrozenSpec,
+    Measurement,
+    PersonaResult,
+    RoundKeys,
+    RoundResult,
+    no_item,
+)
 from .rubric import dims_for
 from .settings import Config
 from .store import load_json
@@ -18,15 +28,13 @@ MAX_SCAN_BYTES = 20_000_000
 
 
 def unrecorded_agents(
-    keys: dict[str, Any], by_judge: dict[int, list[dict[str, Any]]], cfg: Config
+    keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config
 ) -> list[tuple[int, str]]:
     """Agents whose transcript (in a folder a recorded transcript came from) holds one of this
     round's brief ids but who were never recorded: launching several and keeping the best."""
     nonces = {j.get("nonce"): j["judge"] for j in keys["judges"] if j.get("nonce")}
     recorded = {r["agent_id"] for rs in by_judge.values() for r in rs}
-    folders = {
-        Path(r["transcript"]).parent for rs in by_judge.values() for r in rs if r.get("transcript")
-    }
+    folders = {Path(t).parent for rs in by_judge.values() for r in rs if (t := r.get("transcript"))}
     found = []
     for folder in folders:
         if not folder.is_dir():
@@ -43,11 +51,11 @@ def unrecorded_agents(
     return sorted(set(found))
 
 
-def _dimension_entry(pv: list[dict[str, Any]], pid: str, did: str, cfg: Config) -> dict[str, Any]:
+def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> DimensionResult:
     cand = [
         r["items"]["candidate"]["scores"][did]
         for r in pv
-        if did in r["items"].get("candidate", {}).get("scores", {})
+        if did in r["items"].get("candidate", no_item()).get("scores", {})
     ]
     if len(cand) < cfg.min_valid_judges:
         raise EvalError(
@@ -56,9 +64,9 @@ def _dimension_entry(pv: list[dict[str, Any]], pid: str, did: str, cfg: Config) 
     sevs = [
         r["items"]["candidate"]["severity"][did]
         for r in pv
-        if did in r["items"].get("candidate", {}).get("severity", {})
+        if did in r["items"].get("candidate", no_item()).get("severity", {})
     ]
-    entry: dict[str, Any] = {
+    entry: DimensionResult = {
         "median": statistics.median(cand),
         "scores": cand,
         "severities": sevs,
@@ -66,27 +74,33 @@ def _dimension_entry(pv: list[dict[str, Any]], pid: str, did: str, cfg: Config) 
     }
     gains = []
     for r in pv:
-        c = r["items"].get("candidate", {}).get("scores", {}).get(did)
-        p = r["items"].get("previous", {}).get("scores", {}).get(did)
+        c = r["items"].get("candidate", no_item()).get("scores", {}).get(did)
+        p = r["items"].get("previous", no_item()).get("scores", {}).get(did)
         if c is not None and p is not None:
             gains.append(c - p)
     if gains:
         entry["paired_gain"] = statistics.median(gains)
-    control = [r["items"].get("control", {}).get("raw_scores", {}).get(did) for r in pv]
-    control = [x for x in control if x is not None]
+    control = [
+        x
+        for r in pv
+        if (x := r["items"].get("control", no_item()).get("raw_scores", {}).get(did)) is not None
+    ]
     if control:
         entry["control_median"] = statistics.median(control)
-    baseline = [r["items"].get("baseline", {}).get("scores", {}).get(did) for r in pv]
-    baseline = [x for x in baseline if x is not None]
+    baseline = [
+        x
+        for r in pv
+        if (x := r["items"].get("baseline", no_item()).get("scores", {}).get(did)) is not None
+    ]
     if baseline:
         entry["baseline_median"] = statistics.median(baseline)
     return entry
 
 
-def _findings(pv: list[dict[str, Any]], cfg: Config) -> list[dict[str, Any]]:
-    findings = []
+def _findings(pv: list[Attempt], cfg: Config) -> list[Finding]:
+    findings: list[Finding] = []
     for r in pv:
-        for did, sev in r["items"].get("candidate", {}).get("severity", {}).items():
+        for did, sev in r["items"].get("candidate", no_item()).get("severity", {}).items():
             if sev in cfg.findings:
                 wp = r["items"]["candidate"]["weakest_point"]
                 text = wp["text"] if wp.get("dimension") == did else ""
@@ -98,10 +112,10 @@ def _findings(pv: list[dict[str, Any]], cfg: Config) -> list[dict[str, Any]]:
 
 
 def _check_complete(
-    spec: dict[str, Any],
+    spec: FrozenSpec,
     rdir: Path,
-    keys: dict[str, Any],
-    by_judge: dict[int, list[dict[str, Any]]],
+    keys: RoundKeys,
+    by_judge: dict[int, list[Attempt]],
     sealed: bool,
     cfg: Config,
 ) -> None:
@@ -134,7 +148,7 @@ def _check_complete(
         )
 
 
-def env_changes(by_judge: dict[int, list[dict[str, Any]]]) -> list[str]:
+def env_changes(by_judge: dict[int, list[Attempt]]) -> list[str]:
     """The `[judge] env_allow` names whose value differed between the round's runner attempts.
 
     Every attempt counts, rejected and void ones included: a judge replaced after a rejection
@@ -146,26 +160,21 @@ def env_changes(by_judge: dict[int, list[dict[str, Any]]]) -> list[str]:
     Returns:
         The names, sorted; empty when every attempt ran under the same values.
     """
-    seen = [
-        r["runner"]["env_sha256"]
-        for attempts in by_judge.values()
-        for r in attempts
-        if isinstance((r.get("runner") or {}).get("env_sha256"), dict)
-    ]
+    seen = _hashed_attempts(by_judge)
     names = {n for hashes in seen for n in hashes}
     return sorted(n for n in names if len({hashes.get(n) for hashes in seen}) > 1)
 
 
-def _hashed_attempts(by_judge: dict[int, list[dict[str, Any]]]) -> list[dict[str, str]]:
+def _hashed_attempts(by_judge: dict[int, list[Attempt]]) -> list[dict[str, str]]:
     return [
-        r["runner"]["env_sha256"]
+        hashes
         for attempts in by_judge.values()
         for r in attempts
-        if isinstance((r.get("runner") or {}).get("env_sha256"), dict)
+        if isinstance(hashes := (r.get("runner") or {}).get("env_sha256"), dict)
     ]
 
 
-def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]] | None:
+def env_values(by_judge: dict[int, list[Attempt]]) -> dict[str, list[str]] | None:
     """Every salted hash each `[judge] env_allow` name had over the round's attempts.
 
     Args:
@@ -182,14 +191,14 @@ def env_values(by_judge: dict[int, list[dict[str, Any]]]) -> dict[str, list[str]
 
 
 def aggregate(
-    spec: dict[str, Any],
+    spec: FrozenSpec,
     cfg: Config,
     rdir: Path,
-    keys: dict[str, Any],
-    by_judge: dict[int, list[dict[str, Any]]],
+    keys: RoundKeys,
+    by_judge: dict[int, list[Attempt]],
     rnd: int,
     sealed: bool,
-) -> dict[str, Any]:
+) -> RoundResult:
     """A round's result: medians per persona and dimension, paired gains, noise, findings and
     flags, refused when the round is not complete. It writes nothing and takes no lock: the
     aggregate step (steps.aggregate_round) holds the seats and the run, and stores the result.
@@ -206,7 +215,7 @@ def aggregate(
     _check_complete(spec, rdir, keys, by_judge, sealed, cfg)
     valid = [next(r for r in rs if r["ok"]) for rs in by_judge.values() if any(r["ok"] for r in rs)]
     rejected = [r for rs in by_judge.values() for r in rs if not r["ok"]]
-    per_persona: dict[str, dict[str, Any]] = {}
+    per_persona: dict[str, PersonaResult] = {}
     for persona in spec["personas"]:
         pid = persona["id"]
         pv = [r for r in valid if r["persona"] == pid]
@@ -236,7 +245,7 @@ def aggregate(
     composite = sum(weights[did] * e["median"] for did, e in pairs) / sum(
         weights[did] for did, _ in pairs
     )
-    entry: dict[str, Any] = {
+    entry: RoundResult = {
         "round": rnd,
         "sealed": sealed,
         "candidate_hash": keys.get("candidate_hash"),
@@ -273,9 +282,10 @@ def aggregate(
             str(r["judge"]): r["prompt_extra_chars"] for r in valid if r.get("prompt_extra_chars")
         },
         "one_quote_judges": sorted(
-            r["judge"] for r in valid if r["items"].get("candidate", {}).get("one_quote")
+            r["judge"] for r in valid if r["items"].get("candidate", no_item()).get("one_quote")
         ),
     }
     if (rdir / "measured.json").exists():
-        entry["measured"] = load_json(rdir / "measured.json")
+        measured: list[Measurement] = load_json(rdir / "measured.json")
+        entry["measured"] = measured
     return entry

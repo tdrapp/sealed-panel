@@ -17,7 +17,7 @@ from fractions import Fraction
 from functools import cache
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from .errors import ConfigError
 
@@ -56,6 +56,18 @@ REPLY_BYTES_BOUNDS = (1024, 16 << 20)
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # Characters a declared judge model id may hold: one printable line.
 MODEL_ID_MAX_CHARS = 200
+
+
+class JudgeSettings(TypedDict):
+    """The [judge] section: the judge command (empty in host mode), its bounds, the environment
+    names it may get, and the model id the run declares."""
+
+    command: list[str]
+    timeout_s: int
+    max_reply_bytes: int
+    max_stderr_bytes: int
+    env_allow: list[str]
+    model_id: str
 
 
 def _type_ok(default: Any, value: Any) -> bool:
@@ -332,9 +344,10 @@ class Config:
         return self.section("transcript")
 
     @property
-    def judge(self) -> dict[str, Any]:
+    def judge(self) -> JudgeSettings:
         """The [judge] section."""
-        return self.section("judge")
+        judge: JudgeSettings = self.data["judge"]  # its shape checked against the defaults
+        return judge
 
 
 @cache
@@ -366,6 +379,11 @@ def resolve(cfg: Config | None) -> Config:
     """
     return default_config() if cfg is None else cfg
 
+
+# How schema_errors names a key a frozen configuration lacks, and one it holds that the
+# defaults do not know.
+MISSING_KEY = "missing configuration key"
+UNKNOWN_KEY = "unknown configuration key"
 
 # Settings that place files and do not change a grade: never listed as overrides.
 NOT_GRADING = frozenset({"mcp.root"})
@@ -401,11 +419,11 @@ def schema_errors(
     """A frozen configuration holds exactly the keys the defaults know (no default key holds a
     dot, so a dotted key is unknown too): every run of this version froze them all."""
     shape = default_data() if shape is None else shape
-    errors = [f"missing configuration key {'.'.join((*path, k))!r}" for k in shape if k not in data]
+    errors = [f"{MISSING_KEY} {'.'.join((*path, k))!r}" for k in shape if k not in data]
     for key, value in data.items():
         where = ".".join((*path, key))
         if key not in shape:
-            errors.append(f"unknown configuration key {where!r}")
+            errors.append(f"{UNKNOWN_KEY} {where!r}")
         elif isinstance(value, Mapping) and isinstance(shape[key], Mapping):
             errors += schema_errors(value, shape[key], (*path, key))
     return errors

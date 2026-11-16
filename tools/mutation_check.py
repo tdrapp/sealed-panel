@@ -265,8 +265,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "unknown dimension key accepted": (
         RUBRIC,
-        "errors += _unknown(d, DIMENSION_KEYS, where)",
-        "errors += []",
+        "errors += _fields(d, DIMENSION_FIELDS, DIMENSION_KEYS, f\"dimension {d.get('id')}\")",
+        "errors += _fields(d, DIMENSION_FIELDS, frozenset(d), f\"dimension {d.get('id')}\")",
     ),
     "facts and facts_file together": (
         RUBRIC,
@@ -293,13 +293,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "duplicate measured ids accepted": (RUBRIC, "if len(set(mids)) != len(mids):", "if False:"),
     "measured field types unchecked": (
         RUBRIC,
-        "                errors.append(f\"measured {m.get('id')}: {key} must be a string\")",
-        "                pass",
+        'MEASURED_FIELDS = (Field("id", _string), Field("description", _string), Field("max"), Field("min"))',
+        'MEASURED_FIELDS = (Field("id"), Field("description"), Field("max"), Field("min"))',
     ),
     "declared choice types unchecked": (
         RUBRIC,
-        '                errors.append(f"declared choice: {key} must be a string")',
-        "                pass",
+        'CHOICE_FIELDS = (Field("choice", _string), Field("user_said", _string))',
+        'CHOICE_FIELDS = (Field("choice"), Field("user_said"))',
     ),
     "judges per persona unbounded (spec)": (
         RUBRIC,
@@ -398,8 +398,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "control compared on capped scores": (
         LEARN,
-        'raw = [r["items"].get(role, {}).get("raw_scores", {}).get(did) for r in results]',
-        'raw = [r["items"].get(role, {}).get("scores", {}).get(did) for r in results]',
+        'raw = [r["items"].get(role, no_item()).get("raw_scores", {}).get(did) for r in results]',
+        'raw = [r["items"].get(role, no_item()).get("scores", {}).get(did) for r in results]',
     ),
     "loop rounds read for the control": (
         LEARN,
@@ -552,7 +552,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'hint = "the facts the judges may trust"',
     ),
     "modified flag never set": (
-        STEPS,
+        TEMPLATES,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref["modified"] = False',
     ),
@@ -615,18 +615,18 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if False:\n            raise ConfigError(",
     ),
     "unknown template accepted": (
-        STEPS,
+        TEMPLATES,
         '    if served is None:\n        raise EvalError(\n            f"spec.template names no known template',
         '    if False:\n        raise EvalError(\n            f"spec.template names no known template',
     ),
-    "unknown template version accepted": (STEPS, "    if match is None:\n", "    if False:\n"),
+    "unknown template version accepted": (TEMPLATES, "    if match is None:\n", "    if False:\n"),
     "template hash trusted": (
-        STEPS,
+        TEMPLATES,
         'ref["sha256"] = dimensions_sha(match["dimensions"])',
         'ref.setdefault("sha256", dimensions_sha(match["dimensions"]))',
     ),
     "modified flag trusted": (
-        STEPS,
+        TEMPLATES,
         'ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]',
         'ref.setdefault("modified", dimensions_sha(spec["dimensions"]) != ref["sha256"])',
     ),
@@ -642,9 +642,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "run created before the library is resolved": (
         STEPS,
-        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
+        '    if isinstance(spec.get("template"), dict):\n        templates.check_template_ref(',
         "    run.mkdir(parents=True, exist_ok=True)\n"
-        '    if isinstance(spec.get("template"), dict):\n        _check_template_ref(',
+        '    if isinstance(spec.get("template"), dict):\n        templates.check_template_ref(',
     ),
     "closed id refused only after the prompt": (
         CANDIDATES,
@@ -668,8 +668,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "init ignores --library": (
         STEPS,
-        "_check_template_ref(spec, cfg, templates.library_dir(library))",
-        "_check_template_ref(spec, cfg, templates.library_dir(None))",
+        "templates.check_template_ref(spec, templates.library_dir(library))",
+        "templates.check_template_ref(spec, templates.library_dir(None))",
     ),
     "TODO markers accepted by init": (RUBRIC, "    if todo:\n", "    if False:\n"),
     # Bounds on the configuration.
@@ -770,8 +770,43 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a frozen configuration missing a key accepted": (
         SETTINGS,
-        "    errors = [f\"missing configuration key {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
+        "    errors = [f\"{MISSING_KEY} {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
         "    errors: list[str] = []\n",
+    ),
+    "a Spec changed by init_run": (
+        f"{PKG}/model.py",
+        "out[f.name] = copy.deepcopy(list(value) if isinstance(value, tuple) else value)",
+        "out[f.name] = list(value) if isinstance(value, tuple) else value",
+    ),
+    "a blank required anchor accepted": (
+        RUBRIC,
+        "if not (isinstance(anchors.get(lvl), str) and anchors[lvl].strip())",
+        "if not isinstance(anchors.get(lvl), str)",
+    ),
+    "a template dimension id of any type accepted": (
+        TEMPLATES,
+        '        if not isinstance(d["id"], str):  # a list or an object',
+        "        if False:  # a list or an object",
+    ),
+    "a missing configuration key names no release": (
+        FROZEN,
+        "    if shape and missing == shape:\n",
+        "    if False:\n",
+    ),
+    "an unknown frozen key called damaged": (
+        FROZEN,
+        "    if shape and unknown == shape:\n",
+        "    if False:\n",
+    ),
+    "an older run named with this release's releases": (
+        FROZEN,
+        'f"written by {format_releases(version)}); this version',
+        'f"written by {format_releases(SCHEMA_VERSION)}); this version',
+    ),
+    "a format's releases given no end": (
+        FROZEN,
+        "    if later:\n",
+        "    if False:\n",
     ),
     "a reserved name created by a caller": (
         f"{PKG}/store.py",
@@ -1154,8 +1189,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a marker's whole content kept": (
         RUN,
-        "kept = {k: held[k] for k in STARTED_KEYS if k in held}",
-        "kept = dict(held)",
+        '    kept: Proof = {}\n    if "argv" in held:',
+        '    kept: Proof = {**held}\n    if "argv" in held:',
     ),
     "a stale void on a filled seat": (
         RUN,
@@ -1209,8 +1244,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "an overlap reason kept silent": (
         MCP,
-        '                    "; ".join(turned_off)\n                    if turned_off\n',
-        '                    ""\n                    if turned_off\n',
+        '                    "; ".join(self.turned_off)\n                    if self.turned_off\n',
+        '                    ""\n                    if self.turned_off\n',
     ),
     # A transcript cut off on its last line.
     "a cut-off last line read as the earlier reply": (

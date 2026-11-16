@@ -4,50 +4,42 @@ The calling agent (or person) orchestrates; this package refuses. It freezes the
 writes blind judge briefs, validates and records each judge's reply (or runs a configured
 judge command once per brief), aggregates per persona and dimension, applies the stop rule,
 and reports the grade a sealed panel gave.
+
+`__all__` is the stable API (docs/api.md): the steps a library user calls, the configuration,
+the spec it may build in Python, and every exception a caller must catch. Everything else,
+such as `rubric.validate_spec`, `reply.check_output`, `text.normalise` or the record types in
+`model`, imports from its module and may change before 1.0.
 """
 
-from .brief import build_brief, write_briefs
-from .decide import decide
-from .errors import ConfigError, EvalError
+from .brief import write_briefs
+from .errors import ConfigError, EvalError, MalformedReply, SeatTaken
 from .measure import record_measurement
+from .model import SCHEMA_VERSION, Spec
 from .record import record_from, record_reply
-from .reply import check_output
-from .report import overrides, render_report, status
-from .rubric import validate_spec
-from .run import load_frozen
-from .runner import judge_round, judge_seat, open_seats
-from .settings import Config, default_config, load_config
+from .report import render_report, status
+from .runner import judge_round
+from .settings import Config, load_config
 from .steps import aggregate_round, init_run
-from .text import normalise, quote_found
-from .transcript import last_reply
 
 __version__ = "0.3.1"
 
 __all__ = [
+    "SCHEMA_VERSION",
     "Config",
     "ConfigError",
     "EvalError",
+    "MalformedReply",
+    "SeatTaken",
+    "Spec",
     "__version__",
     "aggregate_round",
-    "build_brief",
-    "check_output",
-    "decide",
-    "default_config",
     "init_run",
     "judge_round",
-    "judge_seat",
-    "last_reply",
     "load_config",
-    "load_frozen",
-    "normalise",
-    "open_seats",
-    "overrides",
-    "quote_found",
     "record_from",
     "record_measurement",
     "record_reply",
     "render_report",
     "status",
-    "validate_spec",
     "write_briefs",
 ]

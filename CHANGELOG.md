@@ -95,8 +95,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
   exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
 
-- **Breaking** for code that imports a module rather than the package. Everything in
-  `sealed_panel.__all__` still imports from `sealed_panel`, unchanged. The package is split into
+- **Breaking** for code that imports a module rather than the package. The package is split into
   one module per job, with no change in behaviour: `spec`, `config`, `library` and `learn` are
   gone, learning lives in the `sealed_panel.learning` subpackage, which the core never imports
   (the commands keep their names), `aggregate` computes a round and writes nothing
@@ -124,6 +123,61 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 | `spec` (gone) | `HOME_OR_RELATIVE`, `ENV_SALT`, `SCHEMA_VERSION`, `RUN_FILE`, `NO_MARKER`, `OLDER_RUN`, `SALT_BYTES`, `FACTS_EXTENSIONS`, `looks_like_path`, `run_salt`, `refuse_older_run`, `load_frozen`, `writes_run`, `run_config` | `run` |
 | `spec` (gone) | `init_run` | `steps` |
 | `store` | `resolve_round` | `steps` |
+
+- The records a run writes are typed: `sealed_panel.model` declares each one as a `TypedDict`
+  (the frozen spec, a round's keys and seats, an attempt and its item scores, the runner's
+  proof, a round's result, the ledger view, the decision), and `settings.JudgeSettings` types
+  the `[judge]` section. mypy checks every read and write of them; no conversion code runs and
+  the files on disk are the same JSON, byte for byte. The step functions return these types
+  (`record_reply` an `Attempt`, `aggregate_round` a `RoundResult`, `status` a `Decision`).
+  `RUNNER` moved from `record` to `model`, and the template reference check from `steps` to
+  `templates.check_template_ref`.
+- The run format has a forward rule, written next to `SCHEMA_VERSION` (now in
+  `sealed_panel.model`) and in `docs/protocol.md` section 11: a later release that adds a
+  setting frozen into every run either raises the format or supplies the value that reproduces
+  how a run frozen without it behaved. The older-run and newer-run refusals name the releases
+  of each format from one table, `model.FORMAT_SINCE` (format to first release). Within a
+  format, a frozen configuration that lacks a key was "damaged" and now reads "this run was
+  frozen by an earlier release of run format 1, without settings this release has no value for
+  (missing configuration key ...)", with the releases to finish it with (sealed-panel 0.4.0 or
+  later, installed from its tag); one that holds a key this release does not know was "damaged"
+  and now reads "this run was frozen by a newer release of run format 1 ... Upgrade
+  sealed-panel". A configuration with both is still refused as damaged.
+- A spec and a template check their personas and dimensions against one field table
+  (`rubric.PERSONA_FIELDS`, `rubric.DIMENSION_FIELDS`, and `rubric.missing_anchors` for the
+  required anchors), each keeping its own rules explicit: a template holds exactly the keys
+  the table marks for one and 3 to 6 dimensions, a spec may add `weight` and `personas` and
+  has no count bound. What each accepts and every error it gives are unchanged, checked on
+  20,000 generated specs and templates against the previous validators.
+- The docs say what "three to six dimensions per persona" is: the method's advice, which no
+  check applies to a spec; a template holds three to six dimensions (`docs/protocol.md`, the
+  skill and `spec-reference.md`).
+- **Breaking:** `sealed_panel.__all__` is the stable API, and smaller. Kept: the step functions
+  (`init_run`, `write_briefs`, `record_reply`, `record_from`, `record_measurement`,
+  `judge_round`, `aggregate_round`, `status`, `render_report`), `Config` and `load_config`,
+  `EvalError` and `ConfigError`, `__version__`. Added: `Spec`, a spec written in Python that
+  `init_run` takes in place of a spec file and checks the same way; `SCHEMA_VERSION`; and the
+  exceptions a caller may catch, `SeatTaken` and `MalformedReply`. No longer imported from
+  `sealed_panel` (import them from their module; unstable until 1.0): `build_brief` (`brief`),
+  `check_output` (`reply`), `decide` (`decide`), `default_config` (`settings`), `judge_seat` and
+  `open_seats` (`runner`), `last_reply` (`transcript`), `load_frozen` (`run`), `normalise` and
+  `quote_found` (`text`), `overrides` (`report`), `validate_spec` (`rubric`). Each of them now
+  raises `ImportError` from `sealed_panel`, except `decide`: `from sealed_panel import decide`
+  still succeeds, but returns the `sealed_panel.decide` module, so old code fails at the call
+  ("'module' object is not callable"), not at the import; import the function with `from
+  sealed_panel.decide import decide`. New page `docs/api.md`, whose example a test runs. The
+  package already shipped `py.typed`.
+- **Breaking:** a rubric template whose dimension id is not a string is invalid. Before, the
+  template check accepted any dimension id, and put the ids in a set: a list or an object as an
+  id raised `TypeError`, which the listing does not catch, so `rubrics list`, `rubrics
+  suggest`, the MCP `rubrics_suggest` and `init` with any template stopped with "unusable
+  input" for every template of the library. Now such a template is refused with "dimension
+  ['a']: id must be a string", skipped from the listing with a warning, and the listing goes
+  on. This also refuses an id that is a number, `null` or a boolean, which was accepted: such
+  a user template is no longer listed or usable (`rubrics use` refused it before writing
+  anything, already), and a spec that cites it by `"template": {"id": ..., "version": ...}`,
+  which froze before, is now refused ("spec.template names no known template"). Give the
+  template's dimensions string ids.
 
 ### Removed
 

@@ -50,7 +50,8 @@ setting that differs from the defaults is printed next to the grade.
   wide numeric scale. The scale is 1 to 5, anchors at 1, 3 and 5; 4 is "the 5 anchor except one
   material gap" and 2 is "between 1 and 3".
 - **Decomposed.** Three to six dimensions per persona, each its own question with its own
-  quote, against the halo effect.
+  quote, against the halo effect. This is the method's advice, not a check: a spec sets no
+  count, while a template holds three to six dimensions.
 - **Instruments take what they can measure.** Length, timing, a format rule or a fact check are
   measured by a script (`measure`), listed in the brief as not the judge's to score, and
   required to pass for CONVERGED.
@@ -235,3 +236,32 @@ three kinds of proof, and the report says which one each round used.
   between: a command that calls a model several times and prints the best answer is a re-roll
   the runner cannot see. The command is frozen into the run and listed next to the grade, so
   a reader can check what it does.
+
+## 11. The run format
+
+A run freezes its spec and its whole configuration, and `run.json` records the run format
+(`schema_version`, 1 since 0.4.0). Every command refuses a run of another format before it
+creates anything in it: an older run is finished with the release that created it, a newer one
+needs an upgrade. Both refusals name the releases that write each format, from one table
+(`FORMAT_SINCE` in `sealed_panel/model.py`: each format and the first release that writes it).
+
+A later release that adds a setting frozen into every run (a key of `defaults.toml`) does one
+of two things, so that a run frozen before it keeps its grade:
+
+- it raises the run format and adds the format to `FORMAT_SINCE`: a run frozen without the key
+  is then refused as older, naming the releases to finish it with; or
+- it keeps the format and supplies, for a run frozen without the key, the value that
+  reproduces how that run behaved. It checks the run's `config.lock` against the file as
+  written first, so the fingerprint still proves the configuration was not changed.
+
+Within one format, a run and the release that opens it can differ in both directions:
+
+- the run was frozen by an earlier release, and its configuration lacks a key this release has
+  no value for: the refusal says so, names the key, and names the releases of the format to
+  finish the run with, installed from its tag;
+- the run was frozen by a newer release, and its configuration holds a key this release does
+  not know: the refusal says so, names the key, and says to upgrade.
+
+A configuration that both lacks a key and holds an unknown one is not explained by any one
+release, and is refused as damaged. The rule is written next to `SCHEMA_VERSION` in
+`sealed_panel/model.py`.

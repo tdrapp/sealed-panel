@@ -4,6 +4,7 @@ that the section is there."""
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from collections.abc import Callable
 from typing import Any
@@ -17,7 +18,8 @@ def public_callables() -> list[tuple[str, Callable[..., Any]]]:
     found: list[tuple[str, Callable[..., Any]]] = []
     for name in sealed_panel.__all__:
         obj = getattr(sealed_panel, name)
-        if inspect.isfunction(obj):
+        if inspect.isfunction(obj) or dataclasses.is_dataclass(obj):
+            # A dataclass documents its fields in its own docstring: its __init__ is generated.
             found.append((name, obj))
         elif inspect.isclass(obj) and "__init__" in vars(obj):
             found.append((f"{name}.__init__", obj.__init__))
@@ -30,7 +32,20 @@ def arguments(fn: Callable[..., Any]) -> list[str]:
 
 def test_the_public_api_is_found() -> None:
     names = [n for n, _ in public_callables()]
-    assert "judge_round" in names and "Config.__init__" in names and len(names) > 20
+    assert sorted(names) == [
+        "Config.__init__",
+        "Spec",
+        "aggregate_round",
+        "init_run",
+        "judge_round",
+        "load_config",
+        "record_from",
+        "record_measurement",
+        "record_reply",
+        "render_report",
+        "status",
+        "write_briefs",
+    ]
 
 
 @pytest.mark.parametrize(("name", "fn"), public_callables(), ids=lambda x: str(x))

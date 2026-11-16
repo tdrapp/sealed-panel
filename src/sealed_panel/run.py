@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from .errors import EvalError
-from .model import INJECTION_ACK
+from .model import FORMAT_SINCE, INJECTION_ACK, SCHEMA_VERSION, FrozenSpec, Spec
 from .rubric import rubric_hash, validate_spec
-from .settings import Config, schema_errors
+from .settings import MISSING_KEY, UNKNOWN_KEY, Config, schema_errors
 from .store import (
     contained,
     dump_json,
@@ -32,23 +32,20 @@ from .text import injection_flags
 HOME_OR_RELATIVE = ("~/", "./", "../")
 # The run's salt for the hashes of the judge environment's values, created at init.
 ENV_SALT = "env.salt"
-# The run format, written to run.json last at init (a marker, not hashed): a run without it
-# was created before 0.4.0, or its init was interrupted.
-SCHEMA_VERSION = 1
+# The run format (SCHEMA_VERSION, see model.py for the rule a later release follows) is written
+# to run.json last at init (a marker, not hashed): a run without it was created before 0.4.0,
+# or its init was interrupted.
 RUN_FILE = "run.json"
+_INSTALL_TAG = "pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
 _FROM_ITS_TAG = (
-    "finish or read it with the version that created it, installed from its tag: pip install "
-    "'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v<version>'"
+    f"finish or read it with the version that created it, installed from its tag: {_INSTALL_TAG}"
 )
 NO_MARKER = (
-    f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it (0.4.0 "
-    f"changed what a run freezes, so it neither reads nor writes such a run: {_FROM_ITS_TAG}), "
+    f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it "
+    f"({FORMAT_SINCE[min(FORMAT_SINCE)]} changed what a run freezes, so it neither reads nor "
+    f"writes such a run: {_FROM_ITS_TAG}), "
     f"or its init was interrupted before writing {RUN_FILE}, which it writes last (start again "
     "in a new run directory)"
-)
-OLDER_RUN = (
-    "this run was created by an earlier version of sealed-panel: 0.4.0 changed what a run "
-    f"freezes, so it neither reads nor writes it; {_FROM_ITS_TAG}"
 )
 SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
@@ -97,15 +94,15 @@ def _check_acknowledgement(spec: dict[str, Any], acknowledge: bool) -> None:
 
 
 def prepare_spec(
-    run: Path, spec_path: Path, cfg: Config, facts_root: Path | None, acknowledge: bool
-) -> dict[str, Any]:
+    run: Path, spec_path: Path | Spec, cfg: Config, facts_root: Path | None, acknowledge: bool
+) -> FrozenSpec:
     """The first half of init (see steps.init_run): refuse a run directory that is not new or
     empty, then read and validate the spec, refuse an acknowledgement this caller may not
     give, fill the per-run defaults and freeze the facts by content. Writes nothing.
 
     Args:
         run: A new or empty directory for the run.
-        spec_path: The spec file.
+        spec_path: The spec file, or a Spec.
         cfg: The configuration.
         facts_root: A folder a `facts_file` must resolve under, or None.
         acknowledge: Whether this caller may freeze a spec that acknowledges injection flags.
@@ -118,18 +115,24 @@ def prepare_spec(
             f"{run} is not empty and is not a sealed-panel run: init needs a new or empty "
             "directory, so it never writes over another program's files"
         )
-    spec: dict[str, Any] = load_json(spec_path)
+    # Untrusted until validate_spec passes. A Spec has no facts_file to resolve.
+    spec: Any
+    if isinstance(spec_path, Spec):
+        spec, base = spec_path.to_json(), Path.cwd()
+    else:
+        spec, base = load_json(spec_path), Path(spec_path).parent
     errors = validate_spec(spec, cfg)
     if errors:
         raise EvalError("spec refused:\n  " + "\n  ".join(errors))
     _check_acknowledgement(spec, acknowledge)
     for key, value in cfg.run_defaults.items():
         spec.setdefault(key, value)  # framings included, so the rubric hash covers them
-    _freeze_facts(spec, Path(spec_path).parent, facts_root)
-    return spec
+    _freeze_facts(spec, base, facts_root)
+    frozen: FrozenSpec = spec  # validated above, its defaults filled
+    return frozen
 
 
-def freeze(run: Path, spec: dict[str, Any], cfg: Config) -> str:
+def freeze(run: Path, spec: FrozenSpec, cfg: Config) -> str:
     """The second half of init: refuse a spec whose own text addresses the judges, then write
     the run's files, `run.json` last, and return the rubric hash.
 
@@ -172,6 +175,24 @@ def run_salt(run: Path) -> bytes | None:
     return salt if len(salt) == SALT_BYTES else None
 
 
+def format_releases(version: int) -> str:
+    """The releases that write a run format, from FORMAT_SINCE: the first one, and the last one
+    when a later format exists. A format older than the table is written by a release before
+    its first entry.
+
+    Args:
+        version: The run format.
+    """
+    first = min(FORMAT_SINCE)
+    if version < first:
+        return f"a release before sealed-panel {FORMAT_SINCE[first]}"
+    since = FORMAT_SINCE[max(v for v in FORMAT_SINCE if v <= version)]
+    later = [FORMAT_SINCE[v] for v in sorted(FORMAT_SINCE) if v > version]
+    if later:
+        return f"sealed-panel {since} up to the release before {later[0]}"
+    return f"sealed-panel {since} or later"
+
+
 def refuse_older_run(run: Path) -> None:
     """Refuse a run created before 0.4.0, for every command, read or write: such a run has no
     `run.json` holding this version's schema. 0.4.0 changed what a run freezes, so it neither
@@ -198,14 +219,19 @@ def refuse_older_run(run: Path) -> None:
     if version > SCHEMA_VERSION:
         raise EvalError(
             f"this run was created by a newer version of sealed-panel (run format {version}; "
-            f"this version reads format {SCHEMA_VERSION}): upgrade sealed-panel to read or "
-            "finish it"
+            f"this version reads format {SCHEMA_VERSION}, written by "
+            f"{format_releases(SCHEMA_VERSION)}): upgrade sealed-panel to a release that "
+            f"writes format {version} to read or finish it"
         )
     if version < SCHEMA_VERSION:
-        raise EvalError(OLDER_RUN)
+        raise EvalError(
+            f"this run was created by an earlier version of sealed-panel (run format {version}, "
+            f"written by {format_releases(version)}); this version reads and writes format "
+            f"{SCHEMA_VERSION} only, so it neither reads nor writes the run: {_FROM_ITS_TAG}"
+        )
 
 
-def load_frozen(run: Path) -> dict[str, Any]:
+def load_frozen(run: Path) -> FrozenSpec:
     """The run's spec, refused when the run is older than 0.4.0 or changed after the freeze.
 
     Args:
@@ -215,7 +241,7 @@ def load_frozen(run: Path) -> dict[str, Any]:
     lock = run / "rubric.lock"
     if not is_run(run):
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    spec: dict[str, Any] = load_json(run / "spec.json")
+    spec: FrozenSpec = load_json(run / "spec.json")
     if rubric_hash(spec) != read_text(lock).strip():
         raise EvalError(
             "the rubric changed after the freeze: scores are no longer comparable. "
@@ -244,6 +270,34 @@ def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Pa
     return checked
 
 
+def frozen_config_refusal(shape: list[str]) -> str:
+    """Why a run's frozen configuration is refused. Keys this release does not know, and only
+    those: a newer release of the run's format froze it (upgrade). Keys it lacks, and only
+    those: an earlier release of the format froze it, and this one has no value for them (finish
+    it with that release). Anything else: the file is damaged.
+
+    Args:
+        shape: What schema_errors found.
+    """
+    unknown = [e for e in shape if e.startswith(UNKNOWN_KEY)]
+    missing = [e for e in shape if e.startswith(MISSING_KEY)]
+    if shape and unknown == shape:
+        return (
+            f"this run was frozen by a newer release of run format {SCHEMA_VERSION}: its "
+            f"configuration holds settings this release does not know ({'; '.join(unknown)}). "
+            "Upgrade sealed-panel to read or finish it"
+        )
+    if shape and missing == shape:
+        return (
+            f"this run was frozen by an earlier release of run format {SCHEMA_VERSION}, without "
+            f"settings this release has no value for ({'; '.join(missing)}). A later release of "
+            "the same format supplies any setting it added, so finish the run with the release "
+            f"that created it ({format_releases(SCHEMA_VERSION)}, run format {SCHEMA_VERSION}), "
+            f"installed from its tag: {_INSTALL_TAG}"
+        )
+    return f"the frozen configuration is damaged: {'; '.join(shape)}"
+
+
 def run_config(run: Path) -> Config:
     """The configuration frozen at init."""
     refuse_older_run(run)
@@ -253,7 +307,7 @@ def run_config(run: Path) -> Config:
     data = load_json(run / "config.json")
     shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
     if shape:
-        raise EvalError(f"the frozen configuration is damaged: {'; '.join(shape)}")
+        raise EvalError(frozen_config_refusal(shape))
     frozen = Config(data)
     if frozen.fingerprint != read_text(lock).strip():
         raise EvalError(

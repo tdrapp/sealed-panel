@@ -6,9 +6,9 @@ import contextlib
 import statistics
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 from .errors import EvalError
+from .model import Attempt, FrozenSpec, Seat, no_item
 from .settings import Config
 from .store import locked
 
@@ -17,9 +17,9 @@ from .store import locked
 MAX_VOIDS = 3
 
 
-def calibrate(result: dict[str, Any], meta: dict[str, Any], spec: dict[str, Any]) -> None:
+def calibrate(result: Attempt, meta: Seat, spec: FrozenSpec) -> None:
     """Discard a judge whose control is too high or whose known-good is too low."""
-    ctrl = result["items"].get("control", {}).get("raw_scores", {})
+    ctrl = result["items"].get("control", no_item()).get("raw_scores", {})
     if not ctrl:
         result["ok"] = False
         result["errors"].append("the control has no verified score")
@@ -32,7 +32,7 @@ def calibrate(result: dict[str, Any], meta: dict[str, Any], spec: dict[str, Any]
                 f"control scored {mean_ctrl:.2f} > {spec['control_max']}: this judge does "
                 "not discriminate; brief a replacement on the same brief file"
             )
-    good = result["items"].get("known_good", {}).get("raw_scores", {})
+    good = result["items"].get("known_good", no_item()).get("raw_scores", {})
     has_good = "known_good" in meta["key"].values()
     if (
         result["ok"]
@@ -46,7 +46,7 @@ def calibrate(result: dict[str, Any], meta: dict[str, Any], spec: dict[str, Any]
         )
 
 
-def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
+def check_void_cap(judge: int, prior: list[Attempt]) -> None:
     """Refuse a further void on a slot that already has MAX_VOIDS of them."""
     voids = [r for r in prior if r.get("void")]
     if len(voids) >= MAX_VOIDS:
@@ -56,7 +56,7 @@ def check_void_cap(judge: int, prior: list[dict[str, Any]]) -> None:
         )
 
 
-def check_seat(judge: int, prior: list[dict[str, Any]], source: str, cfg: Config) -> None:
+def check_seat(judge: int, prior: list[Attempt], source: str, cfg: Config) -> None:
     """Refuse a reply the slot cannot take: a second valid one, a pasted one where the brief
     may have been seen, or one past the replacement cap."""
     if any(r["ok"] for r in prior):

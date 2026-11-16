@@ -23,7 +23,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any, Literal, NamedTuple, TypeVar
+from typing import Annotated, Any, Literal, TypeVar
 
 import anyio
 from fastmcp import Context, FastMCP
@@ -35,13 +35,14 @@ from . import __version__, templates
 from .brief import write_briefs
 from .errors import ConfigError, EvalError, SeatTaken, user_message
 from .measure import record_measurement
+from .model import Attempt
 from .record import record_from
 from .report import feedback_path, render_report
 from .report import status as run_status
 from .rubric import TODO_MARKER
 from .run import run_config
 from .runner import judge_seat, open_seats
-from .settings import Config, config_differences, load_config
+from .settings import Config, JudgeSettings, config_differences, load_config
 from .steps import aggregate_round, resolve_round
 from .steps import init_run as init_any_run
 from .store import INIT_LOCK, contained, locked
@@ -209,9 +210,7 @@ def _calling(fn: Callable[[], T]) -> T:
         raise ToolError(message) from exc
 
 
-def _seat(
-    run: Path, rnd: int, seat: int, sealed: bool, expected: dict[str, Any]
-) -> dict[str, Any] | None:
+def _seat(run: Path, rnd: int, seat: int, sealed: bool, expected: JudgeSettings) -> Attempt | None:
     """One seat judged by the runner, or None when another call took it meanwhile. A judge
     started before a cancelled call ends still finishes and is recorded, in this thread."""
     try:
@@ -220,7 +219,7 @@ def _seat(
         return None
 
 
-def _record_result(r: dict[str, Any]) -> RecordResult:
+def _record_result(r: Attempt) -> RecordResult:
     state: Literal["VALID", "REJECTED", "VOID"] = (
         "VOID" if r.get("void") else "VALID" if r["ok"] else "REJECTED"
     )
@@ -288,19 +287,88 @@ def names_lock(where: Path, base: Path, lock: Path) -> bool:
         return False  # nothing there yet: not the lock, which exists from startup
 
 
-class _Scope(NamedTuple):
-    """What every tool of one server shares: its settings, its root, and the functions that
-    confine the paths a caller gives."""
+class _Scope:
+    """What every tool of one server shares: its settings, its root, and the confinement of
+    the paths a caller gives."""
 
-    server: Config
-    base: Path
-    init_lock: Path
-    path: Callable[[str], Path]
-    opt: Callable[[str | None], Path | None]
-    served: Callable[[str], Path]
-    readable: Callable[[str], Path]
-    transcripts_note: Callable[[], str]
-    transcript_path: Callable[[str], Path]
+    def __init__(
+        self,
+        server: Config,
+        base: Path,
+        init_lock: Path,
+        allowed: list[Path],
+        turned_off: list[str],
+    ) -> None:
+        """Keep what the server was started with.
+
+        Args:
+            server: The configuration the server was started with.
+            base: The root, resolved.
+            init_lock: The server's lock file for init, directly under the root.
+            allowed: The transcript roots this server reads.
+            turned_off: Why each transcript root given and not used is off.
+        """
+        self.server, self.base, self.init_lock = server, base, init_lock
+        self.allowed, self.turned_off = allowed, turned_off
+
+    def path(self, p: str) -> Path:
+        """A path a caller gave, resolved (links followed) and confined to the root."""
+        if p.startswith("~"):
+            raise ToolError(f"{p!r}: paths are relative to the root {self.base}, never under ~")
+        given = Path(p)
+        base = self.base
+        try:
+            where = contained(given if given.is_absolute() else base / given, base, repr(p))
+        except EvalError as exc:
+            raise ToolError(str(exc)) from exc
+        if names_lock(where, base, self.init_lock):
+            raise ToolError(f"{p!r} is the server's own lock file: name another path")
+        return where
+
+    def opt(self, p: str | None) -> Path | None:
+        """A path the caller may leave out, confined like `path`."""
+        return self.path(p) if p else None
+
+    def served(self, p: str) -> Path:
+        """A run this server serves: frozen with the settings it was started with."""
+        where = self.path(p)
+        differ = config_differences(run_config(where), self.server)
+        if differ:
+            raise EvalError(
+                f"this run's settings differ from the configuration the server was started with "
+                f"({', '.join(differ)}): start a server with that configuration"
+            )
+        return where
+
+    def readable(self, p: str) -> Path:
+        """A run a read-only tool may read, whatever its settings (its lock and shape are
+        checked by the read itself): a read changes nothing, and the report lists the run's own
+        settings next to the grade."""
+        return self.path(p)
+
+    def transcripts_note(self) -> str:
+        """Where this server reads transcripts, or why it reads none."""
+        if self.allowed:
+            return "read only under " + ", ".join(str(r.resolve()) for r in self.allowed)
+        turned_off = self.turned_off
+        return "off: " + ("; ".join(turned_off) if turned_off else "no --transcript-root given")
+
+    def transcript_path(self, p: str) -> Path:
+        """A judge's transcript, read only: under a transcript root, without any link."""
+        if not self.allowed:
+            raise ToolError(
+                "this server takes no transcript: "
+                + (
+                    "; ".join(self.turned_off)
+                    if self.turned_off
+                    else "start it with --transcript-root DIR, "
+                    "the folder where your host writes them"
+                )
+            )
+        for r in self.allowed:
+            with contextlib.suppress(EvalError):
+                return contained(Path(p), r)
+        raise ToolError(f"{p!r} is outside every transcript root: a transcript is proof only there")
 
 
 def _settings(root: Path | None, config: Path | None) -> tuple[Config, Path]:
@@ -337,71 +405,6 @@ def _transcript_roots(
     for reason in turned_off:
         logging.getLogger("sealed_panel").warning("transcripts off: %s", reason)
     return allowed, turned_off
-
-
-def _scope(
-    server: Config, base: Path, init_lock: Path, allowed: list[Path], turned_off: list[str]
-) -> _Scope:
-    """The confinement every tool applies to the paths its caller gives."""
-
-    def path(p: str) -> Path:
-        """A path a caller gave, resolved (links followed) and confined to the root."""
-        if p.startswith("~"):
-            raise ToolError(f"{p!r}: paths are relative to the root {base}, never under ~")
-        given = Path(p)
-        try:
-            where = contained(given if given.is_absolute() else base / given, base, repr(p))
-        except EvalError as exc:
-            raise ToolError(str(exc)) from exc
-        if names_lock(where, base, init_lock):
-            raise ToolError(f"{p!r} is the server's own lock file: name another path")
-        return where
-
-    def opt(p: str | None) -> Path | None:
-        return path(p) if p else None
-
-    def served(p: str) -> Path:
-        """A run this server serves: frozen with the settings it was started with."""
-        where = path(p)
-        differ = config_differences(run_config(where), server)
-        if differ:
-            raise EvalError(
-                f"this run's settings differ from the configuration the server was started with "
-                f"({', '.join(differ)}): start a server with that configuration"
-            )
-        return where
-
-    def readable(p: str) -> Path:
-        """A run a read-only tool may read, whatever its settings (its lock and shape are
-        checked by the read itself): a read changes nothing, and the report lists the run's own
-        settings next to the grade."""
-        return path(p)
-
-    def transcripts_note() -> str:
-        if allowed:
-            return "read only under " + ", ".join(str(r.resolve()) for r in allowed)
-        return "off: " + ("; ".join(turned_off) if turned_off else "no --transcript-root given")
-
-    def transcript_path(p: str) -> Path:
-        """A judge's transcript, read only: under a transcript root, without any link."""
-        if not allowed:
-            raise ToolError(
-                "this server takes no transcript: "
-                + (
-                    "; ".join(turned_off)
-                    if turned_off
-                    else "start it with --transcript-root DIR, "
-                    "the folder where your host writes them"
-                )
-            )
-        for r in allowed:
-            with contextlib.suppress(EvalError):
-                return contained(Path(p), r)
-        raise ToolError(f"{p!r} is outside every transcript root: a transcript is proof only there")
-
-    return _Scope(
-        server, base, init_lock, path, opt, served, readable, transcripts_note, transcript_path
-    )
 
 
 def _setup_tools(mcp: FastMCP, at: _Scope) -> None:
@@ -682,7 +685,7 @@ def build_server(
     # Held by the init tool: a dot-file, so no run is named after it.
     init_lock = _reserve(base)
 
-    at = _scope(server, base, init_lock, allowed, turned_off)
+    at = _Scope(server, base, init_lock, allowed, turned_off)
     mcp = FastMCP(
         "sealed-panel",
         instructions=INSTRUCTIONS,

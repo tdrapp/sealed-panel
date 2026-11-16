@@ -14,10 +14,20 @@ import re
 import sys
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from .errors import ConfigError, EvalError
-from .rubric import REQUIRED_ANCHORS, TODO_MARKER, dimensions_sha, todo_paths, validate_spec
+from .model import FrozenSpec
+from .rubric import (
+    DIMENSION_FIELDS,
+    PERSONA_FIELDS,
+    TODO_MARKER,
+    dimensions_sha,
+    keys_of,
+    missing_anchors,
+    todo_paths,
+    validate_spec,
+)
 from .store import dump_json, load_json, outside_runs
 
 LIBRARY_ENV = "SEALED_PANEL_RUBRICS"
@@ -82,7 +92,9 @@ TEMPLATE_KEYS = frozenset(
     }
 )
 OPTIONAL_TEMPLATE_KEYS = frozenset({"aliases", "facts_hint", "based_on"})
-DIMENSION_KEYS = frozenset({"id", "name", "question", "anchors"})
+# A template's persona and dimension hold exactly the keys the shared table marks for one.
+PERSONA_KEYS = keys_of(PERSONA_FIELDS, template=True)
+DIMENSION_KEYS = keys_of(DIMENSION_FIELDS, template=True)
 PROVENANCE_KEYS = frozenset({"date", "source", "change"})
 MIN_DIMENSIONS, MAX_DIMENSIONS = 3, 6
 
@@ -90,7 +102,68 @@ MIN_DIMENSIONS, MAX_DIMENSIONS = 3, 6
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-Served = dict[str, Any]  # {"template": ..., "source": ..., "path": Path | None}
+# The types below say what template_errors guarantees, and no more: a template is validated
+# input, and the check fixes its keys but few of its values. A value it does not check is
+# typed `object` (a list whose elements it does not check, `list[Any]`), so a reader that needs
+# more checks it there.
+
+
+class Provenance(TypedDict):
+    """One change to a template: exactly these keys; their values are not checked."""
+
+    date: object
+    source: object
+    change: object
+
+
+class BasedOn(TypedDict):
+    """The built-in version a user template was made from."""
+
+    version: int
+
+
+class TemplatePersona(TypedDict):
+    """A template's placeholder persona: exactly these keys; their values are not checked."""
+
+    id: object
+    description: object
+
+
+class TemplateDimension(TypedDict):
+    """A template's dimension: exactly these keys, a string id, and anchors holding non-blank
+    strings at 1, 3 and 5 (any other level is not checked); name and question are not checked."""
+
+    id: str
+    name: object
+    question: object
+    anchors: dict[str, object]
+
+
+class Template(TypedDict):
+    """A rubric template, as `template_errors` accepts it: its own keys checked, its personas,
+    dimensions and provenance checked for their keys, `measured` only for being a list."""
+
+    id: str
+    version: int
+    title: str
+    kinds: list[str]
+    keywords: list[str]
+    when_to_use: str
+    personas: list[TemplatePersona]
+    dimensions: list[TemplateDimension]
+    measured: list[Any]
+    provenance: list[Provenance]
+    aliases: NotRequired[list[str]]
+    facts_hint: NotRequired[str]
+    based_on: NotRequired[BasedOn]
+
+
+class Served(TypedDict):
+    """A template the library serves: the template, where it comes from, and its file."""
+
+    template: Template
+    source: str
+    path: Path | None
 
 
 # -- templates ---------------------------------------------------------------------------
@@ -100,14 +173,9 @@ def _strs(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(x, str) and x.strip() for x in value)
 
 
-def template_errors(t: Any) -> list[str]:
-    """Every way a template breaks the format. An empty list means it is valid."""
-    if not isinstance(t, dict):
-        return ["a template must be a JSON object"]
-    errors = [f"unknown key {k!r}" for k in sorted(set(t) - TEMPLATE_KEYS - OPTIONAL_TEMPLATE_KEYS)]
-    errors += [f"missing key {k!r}" for k in sorted(TEMPLATE_KEYS - set(t))]
-    if errors:
-        return errors
+def _meta_errors(t: dict[str, Any]) -> list[str]:
+    """The template's own keys: id, version, texts, kinds, keywords, aliases, base."""
+    errors = []
     if not isinstance(t["id"], str) or not ID_PATTERN.match(t["id"]):
         errors.append("id must be lowercase letters, digits and dashes")
     if isinstance(t["version"], bool) or not isinstance(t["version"], int) or t["version"] < 1:
@@ -115,12 +183,22 @@ def template_errors(t: Any) -> list[str]:
     for key in ("title", "when_to_use"):
         if not isinstance(t[key], str) or not t[key].strip():
             errors.append(f"{key} must be a non-empty string")
+    return errors + _list_errors(t) + _optional_errors(t)
+
+
+def _list_errors(t: dict[str, Any]) -> list[str]:
+    errors = []
     if not _strs(t["kinds"]) or not t["kinds"]:
         errors.append("kinds must be a non-empty list of strings")
     if not _strs(t["keywords"]):
         errors.append("keywords must be a list of strings")
     if "aliases" in t and not _strs(t["aliases"]):
         errors.append("aliases must be a list of strings")
+    return errors
+
+
+def _optional_errors(t: dict[str, Any]) -> list[str]:
+    errors = []
     if "facts_hint" in t and (not isinstance(t["facts_hint"], str) or not t["facts_hint"].strip()):
         errors.append("facts_hint must be a non-empty string")
     based = t.get("based_on")
@@ -131,55 +209,78 @@ def template_errors(t: Any) -> list[str]:
         or not isinstance(based["version"], int)
     ):
         errors.append("based_on must be an object with an integer version")
-    personas = t["personas"]
+    return errors
+
+
+def _persona_errors(personas: Any) -> list[str]:
+    """A template's personas: a non-empty list, each with exactly the shared table's keys."""
     if not isinstance(personas, list) or not personas:
-        errors.append("personas must be a non-empty list")
-    else:
-        for p in personas:
-            if not isinstance(p, dict) or set(p) != {"id", "description"}:
-                errors.append("each persona needs exactly an id and a description")
-    dims = t["dimensions"]
+        return ["personas must be a non-empty list"]
+    return [
+        "each persona needs exactly an id and a description"
+        for p in personas
+        if not isinstance(p, dict) or set(p) != PERSONA_KEYS
+    ]
+
+
+def _dimension_errors(dims: Any) -> list[str]:
+    """A template's dimensions: 3 to 6 (a template's own rule), each with exactly the shared
+    table's template keys and the required anchors, ids unique."""
     if not isinstance(dims, list) or not MIN_DIMENSIONS <= len(dims) <= MAX_DIMENSIONS:
-        errors.append(f"dimensions must be a list of {MIN_DIMENSIONS} to {MAX_DIMENSIONS}")
-    else:
-        ids = []
-        for d in dims:
-            if not isinstance(d, dict) or set(d) != DIMENSION_KEYS:
-                errors.append("each dimension needs exactly id, name, question and anchors")
-                continue
-            ids.append(d["id"])
-            anchors = d["anchors"]
-            if not isinstance(anchors, dict) or not all(
-                isinstance(anchors.get(lvl), str) and anchors[lvl].strip()
-                for lvl in REQUIRED_ANCHORS
-            ):
-                errors.append(f"dimension {d['id']}: anchors 1, 3 and 5 must be non-empty")
-        if len(set(ids)) != len(ids):
-            errors.append("dimension ids must be unique")
+        return [f"dimensions must be a list of {MIN_DIMENSIONS} to {MAX_DIMENSIONS}"]
+    errors, ids = [], []
+    for d in dims:
+        if not isinstance(d, dict) or set(d) != DIMENSION_KEYS:
+            errors.append("each dimension needs exactly id, name, question and anchors")
+            continue
+        if not isinstance(d["id"], str):  # a list or an object would also break the set below
+            errors.append(f"dimension {d['id']!r}: id must be a string")
+            continue
+        ids.append(d["id"])
+        if missing_anchors(d["anchors"]):
+            errors.append(f"dimension {d['id']}: anchors 1, 3 and 5 must be non-empty")
+    if len(set(ids)) != len(ids):
+        errors.append("dimension ids must be unique")
+    return errors
+
+
+def _provenance_errors(prov: Any) -> list[str]:
+    if not isinstance(prov, list) or not prov:
+        return ["provenance must be a non-empty list"]
+    return [
+        "each provenance entry needs exactly date, source and change"
+        for entry in prov
+        if not isinstance(entry, dict) or set(entry) != PROVENANCE_KEYS
+    ]
+
+
+def template_errors(t: Any) -> list[str]:
+    """Every way a template breaks the format. An empty list means it is valid."""
+    if not isinstance(t, dict):
+        return ["a template must be a JSON object"]
+    errors = [f"unknown key {k!r}" for k in sorted(set(t) - TEMPLATE_KEYS - OPTIONAL_TEMPLATE_KEYS)]
+    errors += [f"missing key {k!r}" for k in sorted(TEMPLATE_KEYS - set(t))]
+    if errors:
+        return errors
+    errors = _meta_errors(t) + _persona_errors(t["personas"]) + _dimension_errors(t["dimensions"])
     if not isinstance(t["measured"], list):
         errors.append("measured must be a list")
-    prov = t["provenance"]
-    if not isinstance(prov, list) or not prov:
-        errors.append("provenance must be a non-empty list")
-    else:
-        for entry in prov:
-            if not isinstance(entry, dict) or set(entry) != PROVENANCE_KEYS:
-                errors.append("each provenance entry needs exactly date, source and change")
+    errors += _provenance_errors(t["provenance"])
     if not errors and todo_paths(t, "template"):
         errors.append(f"a template must not hold {TODO_MARKER} markers")
     return errors
 
 
-def checked_template(t: Any, where: str) -> dict[str, Any]:
+def checked_template(t: Any, where: str) -> Template:
     """The template, refused with every error template_errors finds, named by `where`."""
     errors = template_errors(t)
     if errors:
         raise EvalError(f"{where} is not a valid template:\n  " + "\n  ".join(errors))
-    out: dict[str, Any] = t
+    out: Template = t
     return out
 
 
-def builtin_templates() -> dict[str, dict[str, Any]]:
+def builtin_templates() -> dict[str, Template]:
     """The packaged rubric templates, by id."""
     folder = resources.files("sealed_panel").joinpath("rubrics")
     found = {}
@@ -192,9 +293,9 @@ def builtin_templates() -> dict[str, dict[str, Any]]:
     return found
 
 
-def user_templates(lib: Path) -> tuple[dict[str, tuple[dict[str, Any], Path]], list[str]]:
+def user_templates(lib: Path) -> tuple[dict[str, tuple[Template, Path]], list[str]]:
     """Valid user templates by id with their file, and a warning for each file skipped."""
-    found: dict[str, tuple[dict[str, Any], Path]] = {}
+    found: dict[str, tuple[Template, Path]] = {}
     warnings = []
     if lib.is_dir():
         for path in sorted(lib.glob("*.json")):
@@ -225,7 +326,8 @@ def all_templates(lib: Path) -> tuple[dict[str, Served], list[str]]:
         source = "user"
         if tid in builtin:
             source = f"user (overrides built-in v{builtin[tid]['version']})"
-            base = (t.get("based_on") or {}).get("version")
+            based = t.get("based_on")
+            base = based["version"] if based else None
             if base is not None and builtin[tid]["version"] > base:
                 source += f"; built-in is newer than your base (v{base})"
         out[tid] = {"template": t, "source": source, "path": path}
@@ -245,6 +347,36 @@ def get_template(lib: Path, tid: str) -> Served:
     return found[tid]
 
 
+def check_template_ref(spec: FrozenSpec, lib: Path) -> None:
+    """The template reference must name a template and version the library knows. Its hash is
+    the template's own, and `modified` is computed here, never taken from the spec.
+
+    Args:
+        spec: The spec being frozen; its `template` reference is completed in place.
+        lib: The user rubric library.
+    """
+    ref = spec["template"]
+    served = all_templates(lib)[0].get(ref["id"])
+    if served is None:
+        raise EvalError(
+            f"spec.template names no known template: {ref['id']!r} (library {lib}; "
+            "pass --library to read another)"
+        )
+    known = [served["template"]]
+    builtin = builtin_templates().get(ref["id"])
+    if builtin is not None:
+        known.append(builtin)
+    match = next((t for t in known if t["version"] == ref["version"]), None)
+    if match is None:
+        versions = sorted({t["version"] for t in known})
+        raise EvalError(
+            f"spec.template {ref['id']!r} has no version {ref['version']} here (known: {versions})"
+        )
+    ref["sha256"] = dimensions_sha(match["dimensions"])
+    # Frozen with the rubric: whether the dimensions still match the template they came from.
+    ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
+
+
 # -- suggest -----------------------------------------------------------------------------
 
 
@@ -257,7 +389,7 @@ def normalise_kind(kind: str) -> str:
     return re.sub(r"[\s_]+", "-", kind.strip().casefold())
 
 
-def _keyword_hits(t: dict[str, Any], text: str) -> list[str]:
+def _keyword_hits(t: Template, text: str) -> list[str]:
     low = text.casefold()
     return sorted(
         {k for k in t["keywords"] if re.search(r"\b" + re.escape(k.casefold()) + r"\b", low)}
@@ -270,7 +402,7 @@ def suggest(lib: Path, kind: str, text: str = "", top: int = 3) -> list[dict[str
     if top < 1:
         raise EvalError("--top must be at least 1")
     wanted = normalise_kind(kind)
-    rows = []
+    rows: list[dict[str, Any]] = []
     for tid, served in all_templates(lib)[0].items():
         t = served["template"]
         names = {normalise_kind(k) for k in [*t["kinds"], *t.get("aliases", [])]}
@@ -298,7 +430,7 @@ def _todo(text: str) -> str:
     return f"{TODO_MARKER}: {text}"
 
 
-def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def instantiate(t: Template, personas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """A spec skeleton from a template. Title, purpose, facts and every suggested instrument
     threshold are TODO markers, and so are the persona descriptions unless personas are given;
     `init` refuses until they are filled."""
@@ -309,12 +441,12 @@ def instantiate(t: dict[str, Any], personas: list[dict[str, Any]] | None = None)
         ]
     measured = []
     for m in t["measured"]:
-        row = dict(m)
+        row: dict[str, object] = dict(m)
         for bound in ("max", "min"):
             if bound in row:
                 row[bound] = _todo(f"your {bound} (suggested {row[bound]})")
         measured.append(row)
-    dims = [
+    dims: list[dict[str, object]] = [
         {"id": d["id"], "name": d["name"], "question": d["question"], "anchors": dict(d["anchors"])}
         for d in t["dimensions"]
     ]

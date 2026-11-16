@@ -4,49 +4,23 @@ the domain modules, so none of them needs another's knowledge."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from . import templates
 from .aggregate import aggregate
 from .errors import EvalError
 from .ledger import results_by_judge
+from .model import RoundResult, Spec
 from .record import round_keys
 from .report import write_feedback
-from .rubric import dimensions_sha
 from .run import freeze, load_frozen, prepare_spec, run_config
 from .runner import every_seat
 from .settings import Config, resolve
 from .store import dump_json, round_dir, run_lock
 
 
-def _check_template_ref(spec: dict[str, Any], cfg: Config, lib: Path) -> None:
-    """The template reference must name a template and version the library knows. Its hash is
-    the template's own, and `modified` is computed here, never taken from the spec."""
-    ref = spec["template"]
-    served = templates.all_templates(lib)[0].get(ref["id"])
-    if served is None:
-        raise EvalError(
-            f"spec.template names no known template: {ref['id']!r} (library {lib}; "
-            "pass --library to read another)"
-        )
-    known = [served["template"]]
-    builtin = templates.builtin_templates().get(ref["id"])
-    if builtin is not None:
-        known.append(builtin)
-    match = next((t for t in known if t["version"] == ref["version"]), None)
-    if match is None:
-        versions = sorted({t["version"] for t in known})
-        raise EvalError(
-            f"spec.template {ref['id']!r} has no version {ref['version']} here (known: {versions})"
-        )
-    ref["sha256"] = dimensions_sha(match["dimensions"])
-    # Frozen with the rubric: whether the dimensions still match the template they came from.
-    ref["modified"] = dimensions_sha(spec["dimensions"]) != ref["sha256"]
-
-
 def init_run(
     run: Path,
-    spec_path: Path,
+    spec_path: Path | Spec,
     cfg: Config | None = None,
     library: Path | None = None,
     facts_root: Path | None = None,
@@ -57,7 +31,7 @@ def init_run(
 
     Args:
         run: A new or empty directory for the run.
-        spec_path: The spec file.
+        spec_path: The spec file, or a Spec built in Python.
         cfg: The configuration; the packaged defaults when None.
         library: The user rubric library, read for a template the spec names; the default
             one when None.
@@ -68,11 +42,11 @@ def init_run(
     cfg = resolve(cfg)
     spec = prepare_spec(run, spec_path, cfg, facts_root, acknowledge)
     if isinstance(spec.get("template"), dict):
-        _check_template_ref(spec, cfg, templates.library_dir(library))
+        templates.check_template_ref(spec, templates.library_dir(library))
     return freeze(run, spec, cfg)
 
 
-def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
+def aggregate_round(run: Path, rnd: int, sealed: bool) -> RoundResult:
     """Aggregate a round once, write it to the round's result.json and return it. After a
     loop round, also write the author's findings to RUN/feedback/after_rN.md. Nothing is
     written outside the run: learning is a command of its own. Every
@@ -88,7 +62,7 @@ def aggregate_round(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
         return _aggregate_held(run, rnd, sealed)
 
 
-def _aggregate_held(run: Path, rnd: int, sealed: bool) -> dict[str, Any]:
+def _aggregate_held(run: Path, rnd: int, sealed: bool) -> RoundResult:
     """aggregate_round, with every seat held: aggregate the round, store its result, and after
     a loop round write the author's findings."""
     spec = load_frozen(run)

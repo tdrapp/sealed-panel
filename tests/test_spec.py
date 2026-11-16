@@ -7,6 +7,7 @@ import json
 import pytest
 
 from conftest import Harness, make_spec
+from sealed_panel import templates
 from sealed_panel.errors import EvalError
 from sealed_panel.rubric import validate_spec
 from sealed_panel.run import load_frozen
@@ -80,6 +81,17 @@ class TestSpec:
         h.init()
         with pytest.raises(EvalError):
             h.init()
+
+
+def test_a_blank_required_anchor_is_missing_for_a_spec_and_a_template() -> None:
+    """The shared anchor rule: a required anchor of spaces is no anchor, in both validators."""
+    spec = make_spec()
+    spec["dimensions"][0]["anchors"]["3"] = "   "
+    assert "dimension clarity: anchor 3 missing (1/3/5 are required)" in validate_spec(spec)
+    t = templates.builtin_templates()["message"]
+    dims = [{**t["dimensions"][0], "anchors": {**t["dimensions"][0]["anchors"], "5": " \n"}}]
+    errors = templates.template_errors({**t, "dimensions": dims + t["dimensions"][1:]})
+    assert f"dimension {dims[0]['id']}: anchors 1, 3 and 5 must be non-empty" in errors
 
 
 class TestFacts:

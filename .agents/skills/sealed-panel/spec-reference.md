@@ -36,6 +36,9 @@ where the spec needs your words.
 
 ## A dimension
 
+A spec sets no count of dimensions: three to six per persona is the method's advice
+(`docs/protocol.md`), not a check. A template, built-in or your own, holds three to six.
+
 | Key | Required | Meaning |
 |---|---|---|
 | `id` | yes | Unique, short. |
