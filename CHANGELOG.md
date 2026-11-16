@@ -161,8 +161,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `sealed_panel` (import them from their module; unstable until 1.0): `build_brief` (`brief`),
   `check_output` (`reply`), `decide` (`decide`), `default_config` (`settings`), `judge_seat` and
   `open_seats` (`runner`), `last_reply` (`transcript`), `load_frozen` (`run`), `normalise` and
-  `quote_found` (`text`), `overrides` (`report`), `validate_spec` (`rubric`). New page
-  `docs/api.md`, whose example a test runs. The package already shipped `py.typed`.
+  `quote_found` (`text`), `overrides` (`report`), `validate_spec` (`rubric`). Each of them now
+  raises `ImportError` from `sealed_panel`, except `decide`: `from sealed_panel import decide`
+  still succeeds, but returns the `sealed_panel.decide` module, so old code fails at the call
+  ("'module' object is not callable"), not at the import; import the function with `from
+  sealed_panel.decide import decide`. New page `docs/api.md`, whose example a test runs. The
+  package already shipped `py.typed`.
+- **Breaking:** a rubric template whose dimension id is not a string is invalid. Before, the
+  template check accepted any dimension id, and put the ids in a set: a list or an object as an
+  id raised `TypeError`, which the listing does not catch, so `rubrics list`, `rubrics
+  suggest`, the MCP `rubrics_suggest` and `init` with any template stopped with "unusable
+  input" for every template of the library. Now such a template is refused with "dimension
+  ['a']: id must be a string", skipped from the listing with a warning, and the listing goes
+  on. This also refuses an id that is a number, `null` or a boolean, which was accepted: such
+  a user template is no longer listed or usable (`rubrics use` refused it before writing
+  anything, already), and a spec that cites it by `"template": {"id": ..., "version": ...}`,
+  which froze before, is now refused ("spec.template names no known template"). Give the
+  template's dimensions string ids.
 
 ### Removed
 
@@ -227,16 +242,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
   writes and their fallback, the link check on every entry of a round directory, and the
   dotted-key check: each answered a writer inside the run directory, now out of scope.
-
-### Fixed
-
-- A user template whose dimension id was a list or an object made the template check raise
-  `TypeError`, so `rubrics list` (and every command that reads the library) stopped with
-  "unusable input" instead of skipping that file. A dimension id must now be a string, and a
-  template that breaks it is skipped with a warning naming it ("dimension ['a']: id must be a
-  string"). This also refuses a number, `null` or a boolean as a dimension id, which the check
-  accepted before; such a template was unusable anyway, since `rubrics use` wrote a skeleton
-  that `init` refuses for the same reason.
 
 ## [0.3.1] - 2026-11-09
 
