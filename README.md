@@ -400,9 +400,10 @@ sealed-panel/
       candidates.py      the inbox, its history, promotion and rejection
       location.py        where learning may write: never in a git working tree
       cli.py             the learning commands' handlers
-    steps.py             init and aggregate as the interfaces call them
+    steps.py             init, aggregate and grade() as the interfaces call them
     runner.py            the judge runner: one process per brief, with its proof
-    report.py            findings file, status, report, overrides
+    report.py            findings file, status, report
+    result.py            grade.json, the view the report prints, overrides
     aggregate.py         medians, paired gains, noise, findings (computes, writes nothing)
     record.py            store a judge's attempt: a reply, a rejected reply or a void
     measure.py           instrument readings
