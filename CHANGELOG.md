@@ -7,6 +7,207 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
+0.4.0 changes how the package is built more than what it does. Each module has one job, and
+the import layers between them are checked in CI. The records a run writes are typed. The
+threat model stops at the run directory, and the code and `SECURITY.md` say the same thing.
+The MCP server has 10 tools instead of 14, `defaults.toml` has 96 lines instead of 149, and the
+most complex function has a complexity of 43 instead of 58. The package is larger than 0.3.1:
+7,095 lines of Python in `src/sealed_panel` against 6,108, in 29 files against 18. Of the 987
+added lines, 406 are `model.py`, the type declarations, and 188 are module headers (docstrings
+and imports); the rest is spread over the new and split modules. 0.4.0 refuses to read or write
+runs created by earlier versions, and code that imported names now gone from
+`sealed_panel.__all__` or from the old modules breaks: every such change is an entry marked
+**Breaking** below, first under Changed and Removed.
+
+### Changed
+
+- **Breaking:** Refusals that the MCP tools also raise no longer name command-line flags: "a
+  void needs the agent's transcript", "the round number is required for a loop round", "the
+  agent id ...", "say whether it passed". A stop decision's `next` is "brief the sealed panel"
+  instead of "seal", which no longer names a tool.
+- **Breaking:** writing to a rubric library inside a git working tree. Before: any use of a
+  library in a git working tree was refused unless `git check-ignore` said the tree ignored it,
+  asked of the user's git. After: no git process runs, so that exception is gone: a library
+  with a `.git` at or above it (a directory, or a worktree's file) is refused for every write
+  (`learning learn`, `feedback`, `rubrics promote`, `rubrics reject`), ignored or not, with a
+  message saying to point `--library` or `$SEALED_PANEL_RUBRICS` at a folder outside any
+  repository; every read (`rubrics list|suggest|show|use`, the MCP `rubrics_suggest` and
+  `rubrics_use`, `init` from a template) works there, the default library of a user whose home
+  is a git tree included.
+- **Breaking:** Every run file is written to a private temporary file in its directory and moved
+  over the target. Every file sealed-panel creates in a run, the lock files and the judge's
+  stderr log included, is owner-only (0600), and every directory of a run is created 0700: a
+  file's earlier mode is no longer kept.
+- **Breaking:** A dotted key in a frozen configuration is refused as an unknown key.
+- **Breaking** for code that imports a module rather than the package. The package is split into
+  one module per job, with no change in behaviour: `spec`, `config`, `library` and `learn` are
+  gone, learning lives in the `sealed_panel.learning` subpackage, which the core never imports
+  (the commands keep their names), `aggregate` computes a round and writes nothing
+  (`steps.aggregate_round` takes the locks and stores the result), and the MCP server's
+  `build_server` is one function per concern. The import contract keeps each layer above the
+  ones it uses and forbids siblings joined by `|` to import each other. A public name that no
+  longer imports from its 0.3 module, and where it is now (from an AST scan of both trees):
+
+| Old module | Names | Now in |
+|---|---|---|
+| `aggregate` | `aggregate_round` | `steps` |
+| `config` (gone) | `REMOVED_SECTIONS`, `SEVERITY_NAMES`, `RUN_BOUNDS`, `MIN_VALID_JUDGES_FLOOR`, `MAX_REPLACEMENTS_CEILING`, `MIN_QUOTE_CHARS_FLOOR`, `MIN_FRAGMENT_CHARS_FLOOR`, `MAX_BAD_SHARE_CEILING`, `SEVERITY_CEILINGS`, `MAX_JUDGES_PER_PERSONA`, `OPTIONAL_TRANSCRIPT_KEYS`, `JUDGE_TIMEOUT_BOUNDS`, `REPLY_BYTES_BOUNDS`, `ENV_NAME`, `MODEL_ID_MAX_CHARS`, `merge`, `removed_message`, `run_value_error`, `bound_errors`, `default_data`, `fingerprint`, `Config`, `default_config`, `load_config`, `resolve`, `NOT_GRADING`, `config_differences`, `schema_errors` | `settings` |
+| `config` (gone) | `LIBRARY_ENV`, `default_library_dir`, `guard_library`, `library_dir` | `templates` |
+| `config` (gone) | `writable_library` | `learning.location` |
+| `config` (gone) | `SHOW_LIMIT`, `SHOW_IN_FULL`, `overrides` | `report` |
+| `learn` (gone) | `DISAGREE_SPREAD`, `CONTROL_MIN_CANDIDATE`, `CONTROL_GAP`, `proposals_after_seal`, `learn_after_seal`, `user_disagreement` | `learning.learn` |
+| `library` (gone) | `TEMPLATE_KEYS`, `OPTIONAL_TEMPLATE_KEYS`, `DIMENSION_KEYS`, `PROVENANCE_KEYS`, `MIN_DIMENSIONS`, `MAX_DIMENSIONS`, `ID_PATTERN`, `Served`, `template_errors`, `builtin_templates`, `user_templates`, `all_templates`, `get_template`, `normalise_kind`, `suggest`, `instantiate`, `write_skeleton` | `templates` |
+| `library` (gone) | `CANDIDATE_KINDS`, `ACTIONS`, `CANDIDATE_ID`, `COLUMN`, `inbox_dir`, `history_dir`, `check_candidate_id`, `dedup_key`, `open_candidates`, `add_candidate`, `closed_status`, `apply_change`, `side_by_side`, `plan_promotion`, `apply_promotion`, `promote`, `reject` | `learning.candidates` |
+| `record` | `SCORE_MIN`, `SCORE_MAX`, `FENCE_OPENING` | `reply` |
+| `record` | `AGENT_ID_SCAN_CHARS`, `handback_messages` | `transcript` |
+| `record` | `MAX_VOIDS` | `seat` |
+| `record` | `outcome_line` | `report` |
+| `record` | `record_measurement` | `measure` |
+| `spec` (gone) | `REQUIRED_ANCHORS`, `ANCHOR_LEVELS`, `RUBRIC_KEYS`, `OPTIONAL_HASH_KEYS`, `TODO_MARKER`, `TEMPLATE_REF_KEYS`, `SPEC_KEYS`, `PERSONA_KEYS`, `DIMENSION_KEYS`, `MEASURED_KEYS`, `CHOICE_KEYS`, `dims_for`, `shape_errors`, `dimensions_sha`, `todo_paths`, `validate_spec`, `rubric_hash` | `rubric` |
+| `spec` (gone) | `HOME_OR_RELATIVE`, `ENV_SALT`, `SCHEMA_VERSION`, `RUN_FILE`, `NO_MARKER`, `OLDER_RUN`, `SALT_BYTES`, `FACTS_EXTENSIONS`, `looks_like_path`, `run_salt`, `refuse_older_run`, `load_frozen`, `writes_run`, `run_config` | `run` |
+| `spec` (gone) | `init_run` | `steps` |
+| `store` | `resolve_round` | `steps` |
+
+- **Breaking:** `sealed_panel.__all__` is the stable API, and smaller. Kept: the step functions
+  (`init_run`, `write_briefs`, `record_reply`, `record_from`, `record_measurement`,
+  `judge_round`, `aggregate_round`, `status`, `render_report`), `Config` and `load_config`,
+  `EvalError` and `ConfigError`, `__version__`. Added: `Spec`, a spec written in Python that
+  `init_run` takes in place of a spec file and checks the same way; `SCHEMA_VERSION`; and the
+  exceptions a caller may catch, `SeatTaken` and `MalformedReply`. No longer imported from
+  `sealed_panel` (import them from their module; unstable until 1.0): `build_brief` (`brief`),
+  `check_output` (`reply`), `decide` (`decide`), `default_config` (`settings`), `judge_seat` and
+  `open_seats` (`runner`), `last_reply` (`transcript`), `load_frozen` (`run`), `normalise` and
+  `quote_found` (`text`), `overrides` (`report`), `validate_spec` (`rubric`). Each of them now
+  raises `ImportError` from `sealed_panel`, except `decide`: `from sealed_panel import decide`
+  still succeeds, but returns the `sealed_panel.decide` module, so old code fails at the call
+  ("'module' object is not callable"), not at the import; import the function with `from
+  sealed_panel.decide import decide`. New page `docs/api.md`, whose example a test runs. The
+  package already shipped `py.typed`.
+- **Breaking:** a rubric template whose dimension id is not a string is invalid. Before, the
+  template check accepted any dimension id, and put the ids in a set: a list or an object as an
+  id raised `TypeError`, which the listing does not catch, so `rubrics list`, `rubrics
+  suggest`, the MCP `rubrics_suggest` and `init` with any template stopped with "unusable
+  input" for every template of the library. Now such a template is refused with "dimension
+  ['a']: id must be a string", skipped from the listing with a warning, and the listing goes
+  on. This also refuses an id that is a number, `null` or a boolean, which was accepted: such
+  a user template is no longer listed or usable (`rubrics use` refused it before writing
+  anything, already), and a spec that cites it by `"template": {"id": ..., "version": ...}`,
+  which froze before, is now refused ("spec.template names no known template"). Give the
+  template's dimensions string ids.
+- The plugin's marketplace entry installs the plugin from the release tag (`"source":
+  {"source": "github", "repo": ..., "ref": "v<version>"}`) instead of the repository's default
+  branch, the tag `.mcp.json` already pins the server to: between releases, `main`'s skill
+  could call tools the pinned server lacks. The release commit bumps both.
+- `judge_round` takes `on_seat(seat, result, why_skipped)`, called after each seat; the command
+  line's `judge` is `judge_round` with a printer, instead of its own copy of the loop. Output
+  unchanged.
+- New MCP tool `rubrics_use(id, out, persona_file?, library?)`: writes the spec skeleton of a
+  template under the root (refused outside it, or when `out` exists), as `rubrics use` does.
+- `record` and `judge` calls on a round may overlap; a call on a held seat is refused (`judge`
+  skips it). The refusal now reads "seat J is held by another call (a judge running or a reply
+  being recorded)", in place of "judge J is being judged by another call", since a host
+  `record` holds seats too.
+- A path refused for leaving the root is named as the caller gave it (`facts_file '...'`, or
+  the tool argument).
+- A transcript under a transcript root may go through a link that stays under that root; one
+  that leaves every root is refused.
+- `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
+  exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
+- The records a run writes are typed: `sealed_panel.model` declares each one as a `TypedDict`
+  (the frozen spec, a round's keys and seats, an attempt and its item scores, the runner's
+  proof, a round's result, the ledger view, the decision), and `settings.JudgeSettings` types
+  the `[judge]` section. mypy checks every read and write of them; no conversion code runs and
+  the files on disk are the same JSON, byte for byte. The step functions return these types
+  (`record_reply` an `Attempt`, `aggregate_round` a `RoundResult`, `status` a `Decision`).
+  `RUNNER` moved from `record` to `model`, and the template reference check from `steps` to
+  `templates.check_template_ref`.
+- The run format has a forward rule, written next to `SCHEMA_VERSION` (now in
+  `sealed_panel.model`) and in `docs/protocol.md` section 11: a later release that adds a
+  setting frozen into every run either raises the format or supplies the value that reproduces
+  how a run frozen without it behaved. The older-run and newer-run refusals name the releases
+  of each format from one table, `model.FORMAT_SINCE` (format to first release). Within a
+  format, a frozen configuration that lacks a key was "damaged" and now reads "this run was
+  frozen by an earlier release of run format 1, without settings this release has no value for
+  (missing configuration key ...)", with the releases to finish it with (sealed-panel 0.4.0 or
+  later, installed from its tag); one that holds a key this release does not know was "damaged"
+  and now reads "this run was frozen by a newer release of run format 1 ... Upgrade
+  sealed-panel". A configuration with both is still refused as damaged.
+- A spec and a template check their personas and dimensions against one field table
+  (`rubric.PERSONA_FIELDS`, `rubric.DIMENSION_FIELDS`, and `rubric.missing_anchors` for the
+  required anchors), each keeping its own rules explicit: a template holds exactly the keys
+  the table marks for one and 3 to 6 dimensions, a spec may add `weight` and `personas` and
+  has no count bound. What each accepts and every error it gives are unchanged, checked on
+  20,000 generated specs and templates against the previous validators.
+- The docs say what "three to six dimensions per persona" is: the method's advice, which no
+  check applies to a spec; a template holds three to six dimensions (`docs/protocol.md`, the
+  skill and `spec-reference.md`).
+
+### Removed
+
+- **Breaking:** the `Config` properties of the removed settings: `strip_chars`, `punctuation`,
+  `injection_patterns` and `library` (`Config` is in `__all__`). Before: they read `[text]`,
+  `[injection]` and `[library]`. After: use `text.STRIP_CHARS`, `text.PUNCTUATION`,
+  `text.INJECTION_PATTERNS`, and `templates.library_dir()` for the library; the thresholds are
+  `learning.learn.CONTROL_MIN_CANDIDATE` and `learning.learn.CONTROL_GAP`. `normalise` and
+  `injection_flags` lost their `cfg` argument, and `fixed_normalise`, `normalise_with` and
+  `library_dir`'s `cfg` argument are gone.
+- **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
+  versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
+  and every command and MCP tool, read or write, refuses a run without it, before creating
+  anything in it: the run was created by an earlier version, 0.4.0 changed what a run freezes,
+  so finish or read it with the version that created it, installed from its tag (or its init
+  was interrupted: `run.json` is written last, so start again). A `run.json` of a newer format
+  says to upgrade; one that cannot be read says it is damaged. No version before 0.4.0 was
+  published to the package index.
+- **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
+  its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
+  derives the rounds from the round files (loop rounds first, by number) and the rubric hash
+  from `rubric.lock`.
+- **Breaking:** Learning on every seal, and `[library]` (`path`, `learn`,
+  `control_min_candidate`, `control_gap`). Before: every sealed `aggregate` wrote candidates to
+  the inbox of a library frozen into the run at `init` (`library.path`), unless `library.learn`
+  was false, and printed `learning` and `inbox`; `sealed-panel learn RUN` retried. After:
+  `aggregate` writes nothing outside the run and no longer prints or returns `learning`/`inbox`
+  (CLI, MCP `aggregate`, `aggregate_round`); learning is `sealed-panel learning learn RUN
+  [--library DIR]`, which the skill runs after a sealed panel; `init` freezes no library; the
+  library is `--library`, else `$SEALED_PANEL_RUBRICS`, else the user default; the thresholds
+  are constants (4.0, 1.0); and `--run` on `rubrics` commands and `run` on the MCP rubrics tools
+  are gone. A file that sets a `[library]` key is refused, naming it.
+- **Breaking:** `[injection]` (`patterns`, `samples`). Before: a configuration could add
+  patterns (every default had to stay, each matching its sample line). After: the five 0.3.1
+  patterns are the constant `text.INJECTION_PATTERNS`, and `injection_flags(text)` takes no
+  configuration. A file that sets an `[injection]` key is refused, naming it.
+- **Breaking:** `[text]` (`strip_chars`, `punctuation`). Before: a configuration could map
+  punctuation and hold the stripped characters for quote matching, within bounds, while every
+  other check used the defaults. After: both are constants in `text.py`, equal to the 0.3.1
+  defaults, and one `normalise(text)` serves every comparison (`normalise` lost its `cfg`
+  argument; `fixed_normalise` and `normalise_with` are gone). A file that sets a `[text]` key is
+  refused with a message naming it ("text.strip_chars: no longer a setting, ... fixed in code
+  since 0.4.0").
+- **Breaking:** MCP tools, 14 to 10 (`tests/mcp_tools.json` regenerated). Before: `seal`,
+  `void`, `rubrics_list`, `rubrics_show` and `feedback` were tools. After: `seal(...)` is
+  `brief(..., sealed=true)` (its `round` defaults to 1, as `--sealed` does, and a loop round
+  needs it); `void(...)` is `record(..., transcript=..., void=true)`; `rubrics_list` and
+  `rubrics_show` are replaced by `rubrics_suggest` (kept) and the new `rubrics_use`; `feedback`
+  is a command only (`sealed-panel feedback`). Learning has no tool: a host can answer a
+  confirmation itself, so only a person at the command line touches candidates.
+- The fallbacks for runs of earlier versions, dead now that 0.4.0 refuses those runs: a run
+  without `[judge]` read as host mode, the default output caps and an undeclared model for a
+  `[judge]` without them, a round's candidate-only injection flags, a key a frozen configuration
+  lacks counted as its default, and a void refused for briefs without a brief id (every 0.4.0
+  brief has one). A frozen configuration missing a key is refused ("missing configuration key
+  ..."), since every 0.4.0 run froze them all.
+- The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
+  the judge's process group): the package declares POSIX only and never ran there. No change on
+  macOS or Linux.
+- The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
+  rename-to-stale step and its re-read, replaced by the seat lock.
+- The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
+  writes and their fallback, the link check on every entry of a round directory, and the
+  dotted-key check: each answered a writer inside the run directory, now out of scope.
+
 ### Security
 
 - No path a caller names to create (the `init` run, a `--library`, through the command line or
@@ -54,194 +255,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `SECURITY.md` rewritten: the threat model stops at the run directory, states what is defended
   and what is not, and maps each guard to the threat it answers. Decision record
   `docs/decisions/2026-11-10-threat-model-stops-at-the-run-directory.md`.
-
-### Changed
-
-- **Breaking:** Refusals that the MCP tools also raise no longer name command-line flags: "a
-  void needs the agent's transcript", "the round number is required for a loop round", "the
-  agent id ...", "say whether it passed". A stop decision's `next` is "brief the sealed panel"
-  instead of "seal", which no longer names a tool.
-- The plugin's marketplace entry installs the plugin from the release tag (`"source":
-  {"source": "github", "repo": ..., "ref": "v<version>"}`) instead of the repository's default
-  branch, the tag `.mcp.json` already pins the server to: between releases, `main`'s skill
-  could call tools the pinned server lacks. The release commit bumps both.
-- `judge_round` takes `on_seat(seat, result, why_skipped)`, called after each seat; the command
-  line's `judge` is `judge_round` with a printer, instead of its own copy of the loop. Output
-  unchanged.
-- **Breaking:** writing to a rubric library inside a git working tree. Before: any use of a
-  library in a git working tree was refused unless `git check-ignore` said the tree ignored it,
-  asked of the user's git. After: no git process runs, so that exception is gone: a library
-  with a `.git` at or above it (a directory, or a worktree's file) is refused for every write
-  (`learning learn`, `feedback`, `rubrics promote`, `rubrics reject`), ignored or not, with a
-  message saying to point `--library` or `$SEALED_PANEL_RUBRICS` at a folder outside any
-  repository; every read (`rubrics list|suggest|show|use`, the MCP `rubrics_suggest` and
-  `rubrics_use`, `init` from a template) works there, the default library of a user whose home
-  is a git tree included.
-- New MCP tool `rubrics_use(id, out, persona_file?, library?)`: writes the spec skeleton of a
-  template under the root (refused outside it, or when `out` exists), as `rubrics use` does.
-- **Breaking:** Every run file is written to a private temporary file in its directory and moved
-  over the target. Every file sealed-panel creates in a run, the lock files and the judge's
-  stderr log included, is owner-only (0600), and every directory of a run is created 0700: a
-  file's earlier mode is no longer kept.
-- `record` and `judge` calls on a round may overlap; a call on a held seat is refused (`judge`
-  skips it). The refusal now reads "seat J is held by another call (a judge running or a reply
-  being recorded)", in place of "judge J is being judged by another call", since a host
-  `record` holds seats too.
-- A path refused for leaving the root is named as the caller gave it (`facts_file '...'`, or
-  the tool argument).
-- A transcript under a transcript root may go through a link that stays under that root; one
-  that leaves every root is refused.
-- **Breaking:** A dotted key in a frozen configuration is refused as an unknown key.
-- `tools/mutation_check.py --anchors-only` checks that every mutation's anchor is found
-  exactly once and runs no test; the commit hook runs it when `src/` or the tool changes.
-
-- **Breaking** for code that imports a module rather than the package. The package is split into
-  one module per job, with no change in behaviour: `spec`, `config`, `library` and `learn` are
-  gone, learning lives in the `sealed_panel.learning` subpackage, which the core never imports
-  (the commands keep their names), `aggregate` computes a round and writes nothing
-  (`steps.aggregate_round` takes the locks and stores the result), and the MCP server's
-  `build_server` is one function per concern. The import contract keeps each layer above the
-  ones it uses and forbids siblings joined by `|` to import each other. A public name that no
-  longer imports from its 0.3 module, and where it is now (from an AST scan of both trees):
-
-| Old module | Names | Now in |
-|---|---|---|
-| `aggregate` | `aggregate_round` | `steps` |
-| `config` (gone) | `REMOVED_SECTIONS`, `SEVERITY_NAMES`, `RUN_BOUNDS`, `MIN_VALID_JUDGES_FLOOR`, `MAX_REPLACEMENTS_CEILING`, `MIN_QUOTE_CHARS_FLOOR`, `MIN_FRAGMENT_CHARS_FLOOR`, `MAX_BAD_SHARE_CEILING`, `SEVERITY_CEILINGS`, `MAX_JUDGES_PER_PERSONA`, `OPTIONAL_TRANSCRIPT_KEYS`, `JUDGE_TIMEOUT_BOUNDS`, `REPLY_BYTES_BOUNDS`, `ENV_NAME`, `MODEL_ID_MAX_CHARS`, `merge`, `removed_message`, `run_value_error`, `bound_errors`, `default_data`, `fingerprint`, `Config`, `default_config`, `load_config`, `resolve`, `NOT_GRADING`, `config_differences`, `schema_errors` | `settings` |
-| `config` (gone) | `LIBRARY_ENV`, `default_library_dir`, `guard_library`, `library_dir` | `templates` |
-| `config` (gone) | `writable_library` | `learning.location` |
-| `config` (gone) | `SHOW_LIMIT`, `SHOW_IN_FULL`, `overrides` | `report` |
-| `learn` (gone) | `DISAGREE_SPREAD`, `CONTROL_MIN_CANDIDATE`, `CONTROL_GAP`, `proposals_after_seal`, `learn_after_seal`, `user_disagreement` | `learning.learn` |
-| `library` (gone) | `TEMPLATE_KEYS`, `OPTIONAL_TEMPLATE_KEYS`, `DIMENSION_KEYS`, `PROVENANCE_KEYS`, `MIN_DIMENSIONS`, `MAX_DIMENSIONS`, `ID_PATTERN`, `Served`, `template_errors`, `builtin_templates`, `user_templates`, `all_templates`, `get_template`, `normalise_kind`, `suggest`, `instantiate`, `write_skeleton` | `templates` |
-| `library` (gone) | `CANDIDATE_KINDS`, `ACTIONS`, `CANDIDATE_ID`, `COLUMN`, `inbox_dir`, `history_dir`, `check_candidate_id`, `dedup_key`, `open_candidates`, `add_candidate`, `closed_status`, `apply_change`, `side_by_side`, `plan_promotion`, `apply_promotion`, `promote`, `reject` | `learning.candidates` |
-| `record` | `SCORE_MIN`, `SCORE_MAX`, `FENCE_OPENING` | `reply` |
-| `record` | `AGENT_ID_SCAN_CHARS`, `handback_messages` | `transcript` |
-| `record` | `MAX_VOIDS` | `seat` |
-| `record` | `outcome_line` | `report` |
-| `record` | `record_measurement` | `measure` |
-| `spec` (gone) | `REQUIRED_ANCHORS`, `ANCHOR_LEVELS`, `RUBRIC_KEYS`, `OPTIONAL_HASH_KEYS`, `TODO_MARKER`, `TEMPLATE_REF_KEYS`, `SPEC_KEYS`, `PERSONA_KEYS`, `DIMENSION_KEYS`, `MEASURED_KEYS`, `CHOICE_KEYS`, `dims_for`, `shape_errors`, `dimensions_sha`, `todo_paths`, `validate_spec`, `rubric_hash` | `rubric` |
-| `spec` (gone) | `HOME_OR_RELATIVE`, `ENV_SALT`, `SCHEMA_VERSION`, `RUN_FILE`, `NO_MARKER`, `OLDER_RUN`, `SALT_BYTES`, `FACTS_EXTENSIONS`, `looks_like_path`, `run_salt`, `refuse_older_run`, `load_frozen`, `writes_run`, `run_config` | `run` |
-| `spec` (gone) | `init_run` | `steps` |
-| `store` | `resolve_round` | `steps` |
-
-- The records a run writes are typed: `sealed_panel.model` declares each one as a `TypedDict`
-  (the frozen spec, a round's keys and seats, an attempt and its item scores, the runner's
-  proof, a round's result, the ledger view, the decision), and `settings.JudgeSettings` types
-  the `[judge]` section. mypy checks every read and write of them; no conversion code runs and
-  the files on disk are the same JSON, byte for byte. The step functions return these types
-  (`record_reply` an `Attempt`, `aggregate_round` a `RoundResult`, `status` a `Decision`).
-  `RUNNER` moved from `record` to `model`, and the template reference check from `steps` to
-  `templates.check_template_ref`.
-- The run format has a forward rule, written next to `SCHEMA_VERSION` (now in
-  `sealed_panel.model`) and in `docs/protocol.md` section 11: a later release that adds a
-  setting frozen into every run either raises the format or supplies the value that reproduces
-  how a run frozen without it behaved. The older-run and newer-run refusals name the releases
-  of each format from one table, `model.FORMAT_SINCE` (format to first release). Within a
-  format, a frozen configuration that lacks a key was "damaged" and now reads "this run was
-  frozen by an earlier release of run format 1, without settings this release has no value for
-  (missing configuration key ...)", with the releases to finish it with (sealed-panel 0.4.0 or
-  later, installed from its tag); one that holds a key this release does not know was "damaged"
-  and now reads "this run was frozen by a newer release of run format 1 ... Upgrade
-  sealed-panel". A configuration with both is still refused as damaged.
-- A spec and a template check their personas and dimensions against one field table
-  (`rubric.PERSONA_FIELDS`, `rubric.DIMENSION_FIELDS`, and `rubric.missing_anchors` for the
-  required anchors), each keeping its own rules explicit: a template holds exactly the keys
-  the table marks for one and 3 to 6 dimensions, a spec may add `weight` and `personas` and
-  has no count bound. What each accepts and every error it gives are unchanged, checked on
-  20,000 generated specs and templates against the previous validators.
-- The docs say what "three to six dimensions per persona" is: the method's advice, which no
-  check applies to a spec; a template holds three to six dimensions (`docs/protocol.md`, the
-  skill and `spec-reference.md`).
-- **Breaking:** `sealed_panel.__all__` is the stable API, and smaller. Kept: the step functions
-  (`init_run`, `write_briefs`, `record_reply`, `record_from`, `record_measurement`,
-  `judge_round`, `aggregate_round`, `status`, `render_report`), `Config` and `load_config`,
-  `EvalError` and `ConfigError`, `__version__`. Added: `Spec`, a spec written in Python that
-  `init_run` takes in place of a spec file and checks the same way; `SCHEMA_VERSION`; and the
-  exceptions a caller may catch, `SeatTaken` and `MalformedReply`. No longer imported from
-  `sealed_panel` (import them from their module; unstable until 1.0): `build_brief` (`brief`),
-  `check_output` (`reply`), `decide` (`decide`), `default_config` (`settings`), `judge_seat` and
-  `open_seats` (`runner`), `last_reply` (`transcript`), `load_frozen` (`run`), `normalise` and
-  `quote_found` (`text`), `overrides` (`report`), `validate_spec` (`rubric`). Each of them now
-  raises `ImportError` from `sealed_panel`, except `decide`: `from sealed_panel import decide`
-  still succeeds, but returns the `sealed_panel.decide` module, so old code fails at the call
-  ("'module' object is not callable"), not at the import; import the function with `from
-  sealed_panel.decide import decide`. New page `docs/api.md`, whose example a test runs. The
-  package already shipped `py.typed`.
-- **Breaking:** a rubric template whose dimension id is not a string is invalid. Before, the
-  template check accepted any dimension id, and put the ids in a set: a list or an object as an
-  id raised `TypeError`, which the listing does not catch, so `rubrics list`, `rubrics
-  suggest`, the MCP `rubrics_suggest` and `init` with any template stopped with "unusable
-  input" for every template of the library. Now such a template is refused with "dimension
-  ['a']: id must be a string", skipped from the listing with a warning, and the listing goes
-  on. This also refuses an id that is a number, `null` or a boolean, which was accepted: such
-  a user template is no longer listed or usable (`rubrics use` refused it before writing
-  anything, already), and a spec that cites it by `"template": {"id": ..., "version": ...}`,
-  which froze before, is now refused ("spec.template names no known template"). Give the
-  template's dimensions string ids.
-
-### Removed
-
-- The fallbacks for runs of earlier versions, dead now that 0.4.0 refuses those runs: a run
-  without `[judge]` read as host mode, the default output caps and an undeclared model for a
-  `[judge]` without them, a round's candidate-only injection flags, a key a frozen configuration
-  lacks counted as its default, and a void refused for briefs without a brief id (every 0.4.0
-  brief has one). A frozen configuration missing a key is refused ("missing configuration key
-  ..."), since every 0.4.0 run froze them all.
-- **Breaking:** the `Config` properties of the removed settings: `strip_chars`, `punctuation`,
-  `injection_patterns` and `library` (`Config` is in `__all__`). Before: they read `[text]`,
-  `[injection]` and `[library]`. After: use `text.STRIP_CHARS`, `text.PUNCTUATION`,
-  `text.INJECTION_PATTERNS`, and `templates.library_dir()` for the library; the thresholds are
-  `learning.learn.CONTROL_MIN_CANDIDATE` and `learning.learn.CONTROL_GAP`. `normalise` and
-  `injection_flags` lost their `cfg` argument, and `fixed_normalise`, `normalise_with` and
-  `library_dir`'s `cfg` argument are gone.
-- **Breaking:** runs created before 0.4.0. Before: every version read and wrote the runs of the
-  versions before it. After: `init` writes `run.json` (`{"schema_version": 1}`, not hashed),
-  and every command and MCP tool, read or write, refuses a run without it, before creating
-  anything in it: the run was created by an earlier version, 0.4.0 changed what a run freezes,
-  so finish or read it with the version that created it, installed from its tag (or its init
-  was interrupted: `run.json` is written last, so start again). A `run.json` of a newer format
-  says to upgrade; one that cannot be read says it is damaged. No version before 0.4.0 was
-  published to the package index.
-- **Breaking:** `ledger.json`. Before: `init` wrote an empty one and every `aggregate` appended
-  its round, a second copy of each `result.json`. After: neither writes it; `ledger.view(run)`
-  derives the rounds from the round files (loop rounds first, by number) and the rubric hash
-  from `rubric.lock`.
-- The Windows branches (`%APPDATA%` as the library's default, and the `os.name` tests around
-  the judge's process group): the package declares POSIX only and never ran there. No change on
-  macOS or Linux.
-- **Breaking:** Learning on every seal, and `[library]` (`path`, `learn`,
-  `control_min_candidate`, `control_gap`). Before: every sealed `aggregate` wrote candidates to
-  the inbox of a library frozen into the run at `init` (`library.path`), unless `library.learn`
-  was false, and printed `learning` and `inbox`; `sealed-panel learn RUN` retried. After:
-  `aggregate` writes nothing outside the run and no longer prints or returns `learning`/`inbox`
-  (CLI, MCP `aggregate`, `aggregate_round`); learning is `sealed-panel learning learn RUN
-  [--library DIR]`, which the skill runs after a sealed panel; `init` freezes no library; the
-  library is `--library`, else `$SEALED_PANEL_RUBRICS`, else the user default; the thresholds
-  are constants (4.0, 1.0); and `--run` on `rubrics` commands and `run` on the MCP rubrics tools
-  are gone. A file that sets a `[library]` key is refused, naming it.
-- **Breaking:** `[injection]` (`patterns`, `samples`). Before: a configuration could add
-  patterns (every default had to stay, each matching its sample line). After: the five 0.3.1
-  patterns are the constant `text.INJECTION_PATTERNS`, and `injection_flags(text)` takes no
-  configuration. A file that sets an `[injection]` key is refused, naming it.
-- **Breaking:** `[text]` (`strip_chars`, `punctuation`). Before: a configuration could map
-  punctuation and hold the stripped characters for quote matching, within bounds, while every
-  other check used the defaults. After: both are constants in `text.py`, equal to the 0.3.1
-  defaults, and one `normalise(text)` serves every comparison (`normalise` lost its `cfg`
-  argument; `fixed_normalise` and `normalise_with` are gone). A file that sets a `[text]` key is
-  refused with a message naming it ("text.strip_chars: no longer a setting, ... fixed in code
-  since 0.4.0").
-- **Breaking:** MCP tools, 14 to 10 (`tests/mcp_tools.json` regenerated). Before: `seal`,
-  `void`, `rubrics_list`, `rubrics_show` and `feedback` were tools. After: `seal(...)` is
-  `brief(..., sealed=true)` (its `round` defaults to 1, as `--sealed` does, and a loop round
-  needs it); `void(...)` is `record(..., transcript=..., void=true)`; `rubrics_list` and
-  `rubrics_show` are replaced by `rubrics_suggest` (kept) and the new `rubrics_use`; `feedback`
-  is a command only (`sealed-panel feedback`). Learning has no tool: a host can answer a
-  confirmation itself, so only a person at the command line touches candidates.
-- The in-progress marker (`running_j<J>.json`), its pid and age liveness checks, the
-  rename-to-stale step and its re-read, replaced by the seat lock.
-- The FIFO and link refusals on reads of run files (`read_no_follow`), the descriptor-based
-  writes and their fallback, the link check on every entry of a round directory, and the
-  dotted-key check: each answered a writer inside the run directory, now out of scope.
 
 ## [0.3.1] - 2026-11-09
 
@@ -498,7 +511,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Agent skill in `skill/`, synthetic example with demo judges in `examples/announcement/`.
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
-[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/tdrapp/sealed-panel/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/tdrapp/sealed-panel/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tdrapp/sealed-panel/compare/v0.2.0...v0.2.1

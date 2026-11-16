@@ -10,10 +10,10 @@
       "source": {
         "source": "github",
         "repo": "tdrapp/sealed-panel",
-        "ref": "v0.3.1"
+        "ref": "v0.4.0"
       },
       "description": "Grade a text with blind panels of fresh LLM judges and a sealed final panel, never by its author.",
-      "version": "0.3.1"
+      "version": "0.4.0"
     }
   ]
 }

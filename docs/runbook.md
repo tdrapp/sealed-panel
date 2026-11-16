@@ -1,6 +1,6 @@
 # Runbook
 
-Last reviewed: 2026-11-09, for 0.3.1.
+Last reviewed: 2026-11-16, for 0.4.0.
 
 How to run sealed-panel, release it, and recover when something goes wrong. The reasons behind
 each rule are in [protocol.md](protocol.md); every command and flag is in [cli.md](cli.md).
@@ -44,10 +44,13 @@ The first release, in this order:
 6. Once `v0.3.0` is published, tag the 0.3.1 release commit `v0.3.1` and push it alone, as a
    later release.
 
-A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, set the
-version in `pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace
-file (its `version` and the `ref` of its plugin source, the tag), `.mcp.json`, the README's
-version line and the install lines (`tests/test_packaging.py` checks they agree), merge, and
+A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, with an
+empty `[Unreleased]` above and both compare links at the bottom updated; set the version in
+`pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace file (its
+`version` and the `ref` of its plugin source, the tag), `.mcp.json`, the README's version line
+and the install lines in the README and `docs/integrations.md` (`tests/test_packaging.py`
+checks they agree), and the `--version` test in `tests/test_cli.py`; run `uv lock` and commit
+`uv.lock` with the rest (CI runs `uv sync --locked`, which fails on a stale lock). Merge, and
 push a tag `v<version>`. The workflow checks that the tag names the package version, builds the
 sdist and the wheel, and publishes them.
 
