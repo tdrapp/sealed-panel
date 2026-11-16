@@ -8,8 +8,9 @@
     {
       "name": "sealed-panel",
       "source": {
-        "source": "github",
-        "repo": "tdrapp/sealed-panel",
+        "source": "git-subdir",
+        "url": "https://github.com/tdrapp/sealed-panel.git",
+        "path": "hosts/claude-code",
         "ref": "v0.4.0"
       },
       "description": "Grade a text with blind panels of fresh LLM judges and a sealed final panel, never by its author.",

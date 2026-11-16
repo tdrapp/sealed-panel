@@ -1,12 +1,15 @@
-"""The agent skill has one source, `skill/`; the copies agent hosts read must match it byte for
-byte, and the plugin files must agree on the version they install."""
+"""The agent skill has one source, `skill/`; the copies agent hosts read, under `hosts/`, must
+match it byte for byte, and the plugin files must agree on the version they install. Each host
+is found by what its folder holds, never by its name: this file stays vendor-neutral."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import tomllib
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -14,7 +17,8 @@ from sealed_panel import __version__
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "skill"
-COPIES = [ROOT / "skills" / "sealed-panel", ROOT / ".agents" / "skills" / "sealed-panel"]
+HOSTS = ROOT / "hosts"
+REPO = "https://github.com/tdrapp/sealed-panel.git"
 
 if not SOURCE.is_dir():  # the mutation check runs on a copy of src, tests and examples only
     pytest.skip("not a checkout: the skill folders are not here", allow_module_level=True)
@@ -24,18 +28,54 @@ def files(folder: Path) -> dict[str, bytes]:
     return {p.name: p.read_bytes() for p in sorted(folder.iterdir()) if p.is_file()}
 
 
-def manifest_dir() -> Path:
-    """The plugin folder at the repository root (named after the host that reads it)."""
-    found = [p for p in ROOT.glob(".*-plugin") if (p / "plugin.json").exists()]
+def build_hosts() -> ModuleType:
+    """`tools/build_hosts.py`, which writes the host copies from `skill/`."""
+    path = ROOT / "tools" / "build_hosts.py"
+    spec = importlib.util.spec_from_file_location("build_hosts", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def skill_copies() -> list[Path]:
+    return sorted(HOSTS.glob("*/skills/sealed-panel"))
+
+
+def plugin_dir() -> Path:
+    """The host folder that is a plugin: it holds a manifest folder named after its host."""
+    found = [p.parent.parent for p in HOSTS.glob("*/.*-plugin/plugin.json")]
     assert len(found) == 1, found
     return found[0]
 
 
-@pytest.mark.parametrize("copy", COPIES, ids=lambda p: str(p.relative_to(ROOT)))
-def test_each_skill_copy_matches_the_source(copy: Path) -> None:
-    assert files(copy) == files(SOURCE), (
-        f"{copy.relative_to(ROOT)} drifted from skill/: copy skill/* over it"
-    )
+def marketplace() -> Path:
+    """The marketplace file, which its host requires at the repository root."""
+    found = list(ROOT.glob(".*-plugin/marketplace.json"))
+    assert len(found) == 1, found
+    return found[0]
+
+
+def test_each_host_has_a_copy_of_the_skill() -> None:
+    copies = skill_copies()
+    assert len(copies) == 2, copies  # the plugin's and the one for hosts reading skill folders
+    for copy in copies:
+        assert files(copy) == files(SOURCE), (
+            f"{copy.relative_to(ROOT)} drifted from skill/: run python tools/build_hosts.py"
+        )
+
+
+def test_the_host_copies_are_what_the_build_writes() -> None:
+    assert build_hosts().drift(ROOT) == [], "run python tools/build_hosts.py"
+
+
+def test_the_root_holds_no_host_file_but_the_marketplace() -> None:
+    # Everything a host reads sits in its folder under hosts/; the root keeps only the file a
+    # host requires there to find the plugin.
+    [folder] = [p.parent for p in ROOT.glob(".*-plugin/marketplace.json")]
+    assert {p.name for p in folder.iterdir()} == {"marketplace.json"}
+    for name in (".mcp.json", "agents", "skills", ".agents"):
+        assert not (ROOT / name).exists(), name
 
 
 def test_the_skill_has_its_name_and_description() -> None:
@@ -45,7 +85,7 @@ def test_the_skill_has_its_name_and_description() -> None:
 
 
 def test_the_judge_agent_carries_the_judge_instructions() -> None:
-    agent = (ROOT / "agents" / "eval-judge.md").read_text(encoding="utf-8")
+    agent = (plugin_dir() / "agents" / "eval-judge.md").read_text(encoding="utf-8")
     _, front, body = agent.split("---\n", 2)
     instructions = (SOURCE / "judge.md").read_text(encoding="utf-8").split("\n---\n", 1)[1]
     assert body.strip() == instructions.strip()
@@ -62,18 +102,21 @@ def test_the_judge_agent_carries_the_judge_instructions() -> None:
 
 
 def test_the_plugin_files_install_one_version() -> None:
-    folder = manifest_dir()
-    plugin = json.loads((folder / "plugin.json").read_text(encoding="utf-8"))
-    market = json.loads((folder / "marketplace.json").read_text(encoding="utf-8"))
-    server = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    folder = plugin_dir()
+    [manifest] = folder.glob(".*-plugin/plugin.json")
+    plugin = json.loads(manifest.read_text(encoding="utf-8"))
+    market = json.loads(marketplace().read_text(encoding="utf-8"))
+    server = json.loads((folder / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert plugin["name"] == "sealed-panel"
     [entry] = market["plugins"]
     assert entry["name"] == plugin["name"]
-    # The plugin (skill, judge agent, server pin) installs from the release tag the server is
-    # pinned to, never from main: main's skill may call tools the pinned server lacks.
+    # The plugin (skill, judge agent, server pin) installs from its folder at the release tag
+    # the server is pinned to, never from main: main's skill may call tools the pinned server
+    # lacks. A relative source would follow the branch the marketplace was added from.
     assert entry["source"] == {
-        "source": "github",
-        "repo": "tdrapp/sealed-panel",
+        "source": "git-subdir",
+        "url": REPO,
+        "path": folder.relative_to(ROOT).as_posix(),
         "ref": f"v{__version__}",
     }
     assert entry["version"] == plugin["version"] == __version__
@@ -89,15 +132,15 @@ def test_the_plugin_files_install_one_version() -> None:
     assert re.fullmatch(r"~/\.[a-z]+/projects", default)
 
 
-def test_the_documented_host_configuration_starts_the_same_server() -> None:
-    doc = (ROOT / "docs" / "integrations.md").read_text(encoding="utf-8")
-    blocks = re.findall(r"```toml\n(.*?)```", doc, re.DOTALL)
-    servers = [
-        tomllib.loads(b)["mcp_servers"]["sealed-panel"] for b in blocks if "mcp_servers" in b
+def test_the_host_configuration_file_starts_the_same_server() -> None:
+    found = [
+        tomllib.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(HOSTS.glob("*/*.toml"))
+        if "mcp_servers" in p.read_text(encoding="utf-8")
     ]
-    assert len(servers) == 1
-    [block] = servers
-    launch = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert len(found) == 1, found
+    block = found[0]["mcp_servers"]["sealed-panel"]
+    launch = json.loads((plugin_dir() / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert [block["command"], *block["args"][:4]] == [
         launch["sealed-panel"]["command"],
         *launch["sealed-panel"]["args"][:4],
@@ -107,14 +150,18 @@ def test_the_documented_host_configuration_starts_the_same_server() -> None:
     assert isinstance(block["env_vars"], list)
 
 
+def install_docs() -> list[Path]:
+    """The files that carry an install line: the README, the integration guide, each host's."""
+    found = [ROOT / "README.md", ROOT / "docs" / "integrations.md"]
+    found += sorted(HOSTS.glob("*/README.md")) + sorted(HOSTS.glob("*/*.toml"))
+    return [p for p in found if p.exists()]
+
+
 def test_the_docs_pin_every_install_line_to_this_release() -> None:
     pattern = re.compile(r"sealed-panel(?:\[mcp\])?(?: @ git\+\S+@v|==)(\d+\.\d+\.\d+)")
-    for name in ("README.md", "docs/integrations.md"):
-        path = ROOT / name
-        if not path.exists():
-            continue
+    for path in install_docs():
         found = pattern.findall(path.read_text(encoding="utf-8"))
-        assert found and set(found) == {__version__}, name
+        assert found and set(found) == {__version__}, path.relative_to(ROOT)
 
 
 def test_the_readme_names_this_version() -> None:
@@ -126,10 +173,9 @@ def test_the_readme_names_this_version() -> None:
 
 
 def test_no_uvx_line_runs_an_unpinned_server() -> None:
-    for name in ("README.md", "docs/integrations.md"):
-        path = ROOT / name
-        if path.exists():
-            assert "--from 'sealed-panel[mcp]' " not in path.read_text(encoding="utf-8"), name
+    for path in install_docs():
+        text = path.read_text(encoding="utf-8")
+        assert "--from 'sealed-panel[mcp]' " not in text, path.relative_to(ROOT)
 
 
 def test_the_release_publishes_through_trusted_publishing() -> None:

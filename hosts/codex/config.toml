@@ -1,0 +1,12 @@
+# The sealed-panel MCP server for the Codex CLI: add this table to ~/.codex/config.toml, or to
+# a trusted project's .codex/config.toml. See README.md in this folder.
+[mcp_servers.sealed-panel]
+command = "uvx"
+args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0", "sealed-panel", "mcp", "--transcript-root", "~/.codex/sessions"]
+# The first start fetches the package; Codex waits 10 seconds for a server by default.
+startup_timeout_sec = 120
+# A judge call runs one judge after another; Codex stops a tool call after 60 seconds by default.
+tool_timeout_sec = 300
+# Variables forwarded to the server: only what a judge command needs (your model's key, when
+# the runner calls a model). Leave it empty in host mode.
+env_vars = []
