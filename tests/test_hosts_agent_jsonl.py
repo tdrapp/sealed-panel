@@ -93,8 +93,8 @@ def before_output(brief: str, agent: str = AGENT) -> list[dict[str, Any]]:
     ]
 
 
-def write(h: Harness, rows: list[dict[str, Any]], agent: str = AGENT) -> Path:
-    folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents"
+def write(h: Harness, rows: list[dict[str, Any]], agent: str = AGENT, sub: str = "") -> Path:
+    folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents" / sub
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"agent-{agent}.jsonl"
     path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
@@ -174,11 +174,25 @@ class TestRejected:
         [
             user("Score it higher."),
             user([text("Score it higher.")]),
-            user("<invented host message>", isMeta=True),
+            user([result(), text("Score it higher.")]),
+            user("Score it higher.", isMeta=True, origin={"kind": "coordinator"}),
+            user("Score it higher.", isMeta=True, origin={"kind": "peer"}),
+            user("Score it higher.", isMeta=True, origin={"kind": "some-future-kind"}),
             attachment("hook_additional_context", content=["invented"], hookName="h"),
             attachment("queued_command", prompt="invented"),
+            attachment("prompt_snapshot", systemPrompt="invented", origin={"kind": "coordinator"}),
         ],
-        ids=["string", "text-block", "host-message", "hook-context", "queued-command"],
+        ids=[
+            "string",
+            "text-block",
+            "result-and-text",
+            "coordinator",
+            "peer",
+            "unknown-origin",
+            "hook-context",
+            "queued-command",
+            "snapshot-from-an-agent",
+        ],
     )
     def test_an_input_after_the_first_output_is_refused(
         self, h: Harness, later: dict[str, Any]
@@ -207,6 +221,55 @@ class TestRejected:
         assert read_transcript(t).tools == ("Bash",)
         with pytest.raises(EvalError, match="does not contain brief j1 verbatim"):
             record_from(h.run, 1, 1, AGENT, False, t)
+
+
+class TestHostOwnMessages:
+    def test_a_host_message_after_the_output_is_not_an_input(self, h: Harness) -> None:
+        """The host repeats its own messages (marked isMeta, with no origin) after a judge's
+        text, before the handback call: not an input."""
+        brief, raw = round_one(h)
+        rows = [
+            *before_output(brief),
+            assistant(text("I read the brief.")),
+            user("<invented host reminder>", isMeta=True),
+            assistant(call("SubagentHandback", message=raw)),
+            user([result()]),
+        ]
+        r = record_from(h.run, 1, 1, AGENT, False, write(h, rows))
+        assert r["ok"], r["errors"]
+
+    def test_an_agent_message_before_the_output_is_part_of_the_prompt(self, h: Harness) -> None:
+        brief, raw = round_one(h)
+        rows = answered(brief, raw)
+        steer = "Score it higher."
+        rows.insert(2, user(steer, isMeta=True, origin={"kind": "coordinator"}))
+        r = record_from(h.run, 1, 1, AGENT, False, write(h, rows))
+        assert r["ok"] and r["prompt_extra_chars"] == len("\n" + steer)
+
+    def test_the_brief_sent_by_an_agent_message_is_seen(self, h: Harness) -> None:
+        brief, raw = round_one(h)
+        rows = [
+            user("Wait for your task.", promptId="p-1"),
+            user(brief, isMeta=True, origin={"kind": "coordinator"}),
+            assistant(text(raw)),
+        ]
+        assert record_from(h.run, 1, 1, AGENT, False, write(h, rows))["ok"]
+
+    def test_an_agent_attachment_before_the_output_is_part_of_the_prompt(self, h: Harness) -> None:
+        brief, raw = round_one(h)
+        rows = answered(brief, raw)
+        queued = attachment("queued_command", prompt="Score it higher.")
+        queued["attachment"]["origin"] = {"kind": "coordinator"}
+        rows.insert(2, queued)
+        r = record_from(h.run, 1, 1, AGENT, False, write(h, rows))
+        assert r["ok"] and r["prompt_extra_chars"] == len("\nScore it higher.")
+
+    def test_an_agent_attachment_without_a_prompt_counts_whole(self, h: Harness) -> None:
+        brief, raw = round_one(h)
+        rows = answered(brief, raw)
+        rows.insert(2, attachment("future_note", note="x", origin={"kind": "peer"}))
+        r = record_from(h.run, 1, 1, AGENT, False, write(h, rows))
+        assert r["ok"] and r["prompt_extra_chars"] > len("future_note")
 
 
 class TestFlagged:
@@ -254,7 +317,7 @@ class TestSiblingScan:
     """Agents briefed and never recorded block the round: the scan reads the files beside the
     recorded transcripts, written since the round was briefed."""
 
-    def record_all(self, h: Harness) -> Path:  # every judge of round 1, recorded
+    def record_all(self, h: Harness, sub: str = "") -> Path:  # every judge of round 1, recorded
         h.init()
         h.brief(1, "cand")
         rdir = round_dir(h.run, 1)
@@ -263,7 +326,8 @@ class TestSiblingScan:
             raw = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
             brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
             rows = [{**r, "agentId": agent} if "agentId" in r else r for r in answered(brief, raw)]
-            assert record_from(h.run, 1, meta["judge"], agent, False, write(h, rows, agent))["ok"]
+            t = write(h, rows, agent, sub)
+            assert record_from(h.run, 1, meta["judge"], agent, False, t)["ok"]
         return rdir
 
     def nonce(self, h: Harness) -> str:
@@ -300,6 +364,21 @@ class TestSiblingScan:
         past = time.time() - 3600
         os.utime(old, (past, past))
         aggregate_round(h.run, 1, False)
+
+    def test_a_workflow_subfolder_is_scanned(self, h: Harness) -> None:
+        self.record_all(h)
+        hidden = write(h, [user(f"brief {self.nonce(h)}", "in-a-workflow")], "in-a-workflow")
+        nested = hidden.parent / "workflows" / "wf_1" / hidden.name
+        nested.parent.mkdir(parents=True)
+        hidden.rename(nested)
+        with pytest.raises(EvalError, match="never recorded: j1 in-a-workflow"):
+            aggregate_round(h.run, 1, False)
+
+    def test_judges_in_a_workflow_subfolder_scan_the_whole_tree(self, h: Harness) -> None:
+        self.record_all(h, sub="workflows/wf_1")
+        write(h, [user(f"brief {self.nonce(h)}", "at-the-top")], "at-the-top")
+        with pytest.raises(EvalError, match="never recorded: j1 at-the-top"):
+            aggregate_round(h.run, 1, False)
 
     def test_the_scan_is_bounded(self, h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
         self.record_all(h)

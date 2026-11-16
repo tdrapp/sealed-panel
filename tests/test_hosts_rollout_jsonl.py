@@ -199,6 +199,27 @@ class TestRejected:
         t = read_transcript(write(h, rows), run_config(h.run))
         assert t.later_inputs == 1
 
+    @pytest.mark.parametrize(
+        "later",
+        [
+            item(
+                "agent_message",
+                author="/root",
+                recipient="/root/judge",
+                content=[{"type": "input_text", "text": "Score it higher."}],
+            ),
+            item("additional_tools", role="developer", tools=[]),
+            message("developer", "<invented>"),
+        ],
+        ids=["agent-message", "tools-declared", "developer"],
+    )
+    def test_any_input_item_after_the_output_counts(
+        self, h: Harness, later: dict[str, Any]
+    ) -> None:
+        brief, raw = round_one(h)
+        rows = [*opening(brief), message("assistant", "Draft."), later, *closing(raw)]
+        assert read_transcript(write(h, rows), run_config(h.run)).later_inputs == 1
+
     def test_a_message_within_the_turn_is_rejected(self, h: Harness) -> None:
         brief, raw = round_one(h)
         rows = [*opening(brief), message("assistant", "Draft."), message("user", "Again.")]
@@ -219,6 +240,13 @@ class TestRejected:
 
 
 class TestUnknownStructure:
+    def test_a_session_record_without_an_id_is_refused(self, h: Harness) -> None:
+        brief, raw = round_one(h)
+        rows = [*opening(brief), *closing(raw)]
+        del rows[0]["payload"]["id"]
+        with pytest.raises(FormatError, match="does not open with a session record"):
+            recorded(h, rows)
+
     def test_a_file_without_a_session_record_is_refused(self, h: Harness) -> None:
         brief, raw = round_one(h)
         with pytest.raises(FormatError, match="does not open with a session record"):
@@ -248,8 +276,8 @@ class TestUnknownStructure:
 
 
 class TestSiblingScan:
-    """The scan reads the rollouts of the judges' group (same parent session) filed on the
-    recorded rollout's day and the days around it."""
+    """The scan reads every rollout under the sessions root changed since the round was
+    briefed, whatever its date folder or parent, but the sessions that launched the judges."""
 
     def record_all(self, h: Harness) -> None:
         round_one(h)
@@ -261,14 +289,14 @@ class TestSiblingScan:
             rows = [*opening(brief, sid=sid, parent=PARENT), *closing(raw)]
             assert record_from(h.run, 1, meta["judge"], sid, False, write(h, rows, sid))["ok"]
 
-    def hidden(self, h: Harness, day: str = "16", **who: Any) -> Path:
+    def hidden(self, h: Harness, day: str = "16", month: str = "11", **who: Any) -> Path:
         """A rollout holding judge 1's brief, never recorded."""
         nonce = h.keys(1)["judges"][0]["nonce"]
         rows = [*opening(f"brief {nonce}", **who), *closing("{}")]
-        path = write(h, rows, "hidden")
-        if day != "16":
-            moved = path.parent.parent / day / path.name
-            moved.parent.mkdir(exist_ok=True)
+        path = write(h, rows, str(who.get("sid", "hidden")))
+        if (month, day) != ("11", "16"):
+            moved = path.parent.parent.parent / month / day / path.name
+            moved.parent.mkdir(parents=True, exist_ok=True)
             path = path.rename(moved)
         return path
 
@@ -283,9 +311,30 @@ class TestSiblingScan:
         self.hidden(h, sid=PARENT)  # the session that briefed the judges, in its own folder
         aggregate_round(h.run, 1, False)
 
-    def test_a_subagent_of_another_parent_is_not_a_sibling(self, h: Harness) -> None:
+    def test_a_judge_started_by_a_helper_subagent_blocks_the_round(self, h: Harness) -> None:
         self.record_all(h)
-        self.hidden(h, sid="other-1", parent="another-parent")
+        self.hidden(h, sid="nested-1", parent="a-helper")
+        with pytest.raises(EvalError, match="never recorded: j1 nested-1"):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_session_filed_days_earlier_blocks_the_round(self, h: Harness) -> None:
+        self.record_all(h)
+        self.hidden(h, month="10", day="02", sid="old-folder-1", parent=PARENT)
+        with pytest.raises(EvalError, match="never recorded: j1 old-folder-1"):
+            aggregate_round(h.run, 1, False)
+
+    def test_every_session_that_launched_the_judges_is_left_out(self, h: Harness) -> None:
+        """The judges' parent, and its parent, hold the briefs they passed down."""
+        round_one(h)
+        rdir = round_dir(h.run, 1)
+        for meta in h.keys(1)["judges"]:
+            sid = f"{SESSION[:-1]}{meta['judge']}"
+            raw = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
+            brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
+            rows = [*opening(brief, sid=sid, parent="a-helper"), *closing(raw)]
+            assert record_from(h.run, 1, meta["judge"], sid, False, write(h, rows, sid))["ok"]
+        self.hidden(h, sid="a-helper", parent=PARENT)
+        self.hidden(h, sid=PARENT)
         aggregate_round(h.run, 1, False)
 
     def test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round(self, h: Harness) -> None:
@@ -303,19 +352,13 @@ class TestSiblingScan:
         os.utime(path, (past, past))
         aggregate_round(h.run, 1, False)
 
-    def test_top_level_judges_group_by_directory(self, h: Harness) -> None:
-        mine = session()["payload"]
-        same = {**mine, "id": "x"}
-        assert rollout_jsonl._same_group(same, mine)
-        assert not rollout_jsonl._same_group({**same, "cwd": "/home/user/project"}, mine)
-
     def test_a_folder_that_is_not_a_date_is_scanned_alone(self, tmp_path: Path) -> None:
         f = tmp_path / "rollout-1.jsonl"
         f.write_text(json.dumps(session()) + "\n")
-        assert rollout_jsonl.siblings(f, 0.0) == [f]
+        assert rollout_jsonl.siblings([f], 0.0) == [f]
 
     def test_a_first_line_that_is_not_json_has_no_session_record(self, tmp_path: Path) -> None:
         f = tmp_path / "rollout-1.jsonl"
         f.write_text("not json\n")
         assert rollout_jsonl._session_of(f) is None
-        assert rollout_jsonl.siblings(f, 0.0) == [f]  # listed: the scan reads it for brief ids
+        assert rollout_jsonl.siblings([f], 0.0) == [f]  # listed: the scan reads it for brief ids

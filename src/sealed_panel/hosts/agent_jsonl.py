@@ -3,27 +3,37 @@
 One JSON object per line. An entry's `type` is `user`, `assistant`, `attachment` or one of the
 host's metadata types (`api-request`, `system` and others, which change between host versions
 and are skipped). A user or assistant entry holds `message.content`, a string or a list of blocks,
-each with a `type`. Claude Code writes one file per subagent, `agent-<id>.jsonl`, in a
-`subagents/` folder beside its session, and every entry carries the subagent's `agentId`. A
-subagent's answer is its last text, or the message of a call to the handback tool
-(`SubagentHandback`) when the host imposes one.
+each with a `type`. Claude Code writes one file per subagent, `agent-<id>.jsonl`, under the
+`subagents/` folder beside its session, at its top or in subfolders such as `workflows/wf_<id>/`
+(389 of 3,564 files measured), and every entry carries the subagent's `agentId`. A subagent's
+answer is its last text, or the message of a call to the handback tool (`SubagentHandback`)
+when the host imposes one.
 
-What the host adds on its own, measured on 413 tool-free subagent transcripts (structure and
-counts only): before the first output, a `user` entry marked `isMeta` (355 of 413, always the same
-341 characters) and attachments (environment, model, date, project instructions and others);
-after the first output, `prompt_snapshot` attachments (380), the tool results of the handback
-call (355), and in 4 transcripts a host message marked `isMeta`. A user entry with text (marked
-or not), or any other attachment, after the first output is an input the judge got after it
-answered, which `record` refuses: the 4 cost a fresh judge each. Project instructions arrive
-as an `instructions` attachment, not as text in the prompt, and are not counted in it.
+Who wrote an entry, measured on 3,564 transcripts (413 tool-free; structure and counts only):
 
-No fork marker was found: every entry of 3,563 subagent transcripts is marked `isSidechain`, and
-none carries another session's id. A history carried from another session would show as tool
-calls or as a prompt without the brief, both refused.
+- The host's own messages are user entries marked `isMeta` with no `origin`: before the first
+  output in 355 of the 413 (always the same 341 characters), and after it in tool-using
+  transcripts and in 1 tool-free one (a message the host repeats word for word; 9 files hold
+  it). They are not inputs: not part of the prompt, not a later input.
+- Messages from agents carry an `origin`, on the entry or on its attachment, whose `kind` is
+  `coordinator` (the agent that launched the subagent: 385 user entries, 54 attachments),
+  `peer` (7 and 54) or `task-notification` (65 and 383). No origin names the host, so any origin,
+  of a kind known or not, is an agent's: before the first output it is part of the prompt (the
+  whole-brief check and the extra-text count see it), after it a later input.
+- Attachments before the first output (environment, model, date, project instructions in 385 of
+  the 413, and others) are the host's and are not counted. After it, the host adds only
+  `prompt_snapshot` attachments (380) and the tool results of the handback call (355); a user
+  entry with text, or any other attachment, is a later input, which `record` refuses. Of the 413,
+  1 is refused this way: 3 messages from the agent that launched it, after its answer.
+
+No fork marker was found: every entry is marked `isSidechain`, and none carries another
+session's id. A history carried from another session would show as tool calls or as a prompt
+without the brief, both refused; a fork that passes both is not detected.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -118,13 +128,46 @@ def _first_output(entries: list[dict[str, Any]]) -> int:
     return len(entries)
 
 
+def _agent_origin(e: dict[str, Any]) -> bool:
+    """Whether an entry comes from an agent rather than from the host: it carries an `origin`,
+    on itself or on its attachment. Every origin measured names an agent or a task (the agent
+    that launched the judge, another agent, a task notification); none names the host, so any
+    origin, of a kind known or not, is an agent's."""
+    attachment = e.get("attachment")
+    inner = attachment.get("origin") if isinstance(attachment, dict) else None
+    return e.get("origin") is not None or inner is not None
+
+
+def _host_own(e: dict[str, Any]) -> bool:
+    """A message the host adds on its own: a user entry marked `isMeta`, with no origin."""
+    return e["type"] == "user" and e.get("isMeta") is True and not _agent_origin(e)
+
+
 def _is_input(e: dict[str, Any]) -> bool:
-    """An entry that reaches the model as input: a user entry with anything but tool results,
-    or an attachment of a type the host does not add on its own after an output."""
+    """An entry that reaches the model as input after an output: anything from an agent; a user
+    entry with anything but tool results, unless it is the host's own message; an attachment of
+    a type the host does not add on its own after an output."""
+    if _agent_origin(e):
+        return True
     if e["type"] == "user":
         content = _content(e)
+        if _host_own(e):
+            return False
         return isinstance(content, str) or any(b["type"] != "tool_result" for b in content)
     return e["type"] == "attachment" and e["attachment"]["type"] not in LATER_HOST_ATTACHMENTS
+
+
+def _prompt(entries: list[dict[str, Any]]) -> str:
+    """The inputs before the first output: every user entry but the host's own messages, and
+    every attachment from an agent (its prompt text, else the whole attachment)."""
+    texts = []
+    for e in entries:
+        if e["type"] == "user" and not _host_own(e):
+            texts.append(_text(_content(e)))
+        elif e["type"] == "attachment" and _agent_origin(e):
+            prompt = e["attachment"].get("prompt")
+            texts.append(prompt if isinstance(prompt, str) else json.dumps(e["attachment"]))
+    return "\n".join(texts)
 
 
 def _refused_ids(entries: list[dict[str, Any]]) -> set[Any]:
@@ -219,9 +262,7 @@ def read(path: Path) -> Transcript:
     return Transcript(
         path=path,
         agent_id=_agent_id(path, entries),
-        prompt="\n".join(
-            _text(_content(e)) for e in _of(entries[:first], "user") if not e.get("isMeta")
-        ),
+        prompt=_prompt(entries[:first]),
         reply=reply,
         reply_problem=problem,
         tools=tuple(sorted({name for kind, name in calls if (kind, name) != exempt})),
@@ -237,18 +278,27 @@ def read(path: Path) -> Transcript:
 SIDE_FILES = (".meta.json", ".prefix.json")
 
 
-def siblings(path: Path, since: float) -> list[Path]:
-    """Every file in the transcript's folder (the host's `subagents/` folder: one transcript per
-    subagent of the session) last changed at or after `since`, the host's side files left out.
+def _tree(path: Path) -> Path:
+    """The session's `subagents/` folder above a transcript (the host also files transcripts in
+    subfolders of it, such as `workflows/wf_<id>/`); the transcript's own folder when it lies
+    under none."""
+    return next((p for p in path.parents if p.name == "subagents"), path.parent)
+
+
+def siblings(paths: list[Path], since: float) -> list[Path]:
+    """Every file under the `subagents/` folder of each recorded transcript's session, at any
+    depth, last changed at or after `since`, the host's side files left out. A purged folder
+    lists nothing.
 
     Args:
-        path: A recorded transcript.
+        paths: The recorded transcripts.
         since: The earliest last-change time, in seconds since the epoch.
     """
-    if not path.parent.is_dir():
-        return []  # a purged temporary folder: nothing left to compare
-    return [
-        f
-        for f in path.parent.iterdir()
-        if f.is_file() and not f.name.endswith(SIDE_FILES) and f.stat().st_mtime >= since
-    ]
+    return sorted(
+        {
+            f
+            for root in {_tree(p) for p in paths}
+            for f in root.rglob("*")
+            if f.is_file() and not f.name.endswith(SIDE_FILES) and f.stat().st_mtime >= since
+        }
+    )

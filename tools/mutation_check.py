@@ -212,11 +212,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "unrecorded agents ignored": (AGG, "if unrecorded:", "if False:"),
     "sealed panel aggregated unmeasured": (AGG, "if missing:", "if False:"),
-    "missing transcript folder crashes": (
-        AGENT_JSONL,
-        "    if not path.parent.is_dir():\n        return []",
-        "    if False:\n        return []",
-    ),
     # The scan for unrecorded judges: bounded, and failing closed on what it cannot read.
     "an unreadable sibling holding a brief id read by its file name": (
         AGG,
@@ -236,35 +231,36 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "and True",
     ),
     "the host side files scanned": (AGENT_JSONL, "not f.name.endswith(SIDE_FILES)", "True"),
-    "rollouts of another group scanned": (
-        ROLLOUT_JSONL,
-        "if meta is None or _same_group(meta, mine):",
-        "if True:",
-    ),
     "a rollout without a session record left out of the scan": (
         ROLLOUT_JSONL,
-        "if meta is None or _same_group(meta, mine):",
-        "if meta is not None and _same_group(meta, mine):",
-    ),
-    "adjacent days not scanned": (
-        ROLLOUT_JSONL,
-        "for d in (day - one, day, day + one)]",
-        "for d in (day,)]",
+        'return [f for f in found if not ((m := records[f]) and m.get("id") in launchers)]',
+        'return [f for f in found if (m := records[f]) and m.get("id") not in launchers]',
     ),
     "rollouts older than the briefs scanned": (
         ROLLOUT_JSONL,
-        "            if f.stat().st_mtime < since:\n                continue\n",
-        "",
+        "            if f.stat().st_mtime >= since\n",
+        "            if True\n",
     ),
-    "subagents of another parent scanned": (
+    "a session filed in another date folder not scanned": (
         ROLLOUT_JSONL,
-        'return bool(parent == mine.get("parent_thread_id"))',
-        "return True",
+        "    return folder.parent.parent.parent\n",
+        "    return folder\n",
     ),
-    "top-level sessions in another directory scanned": (
+    "the sessions that launched the judges counted as judges": (
         ROLLOUT_JSONL,
-        'return bool(meta.get("cwd") == mine.get("cwd"))',
-        "return True",
+        'return [f for f in found if not ((m := records[f]) and m.get("id") in launchers)]',
+        "return found",
+    ),
+    "only the judges' parent left out": (
+        ROLLOUT_JSONL,
+        "            current = parents.get(current)\n",
+        "            current = None\n",
+    ),
+    "a nested subagents folder not scanned": (AGENT_JSONL, 'root.rglob("*")', 'root.glob("*")'),
+    "the subagents tree not found": (
+        AGENT_JSONL,
+        'return next((p for p in path.parents if p.name == "subagents"), path.parent)',
+        "return path.parent",
     ),
     "suspect jump off": (AGG, 'if e.get("paired_gain", 0) >= SUSPECT_JUMP', "if False"),
     "suspect jump exclusive": (
@@ -1078,6 +1074,16 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'if (i["type"] == "message" and i["role"] == "user") or i["type"] == "agent_message"',
         'if i["type"] in ("message", "agent_message")',
     ),
+    "a later agent message not counted": (
+        ROLLOUT_JSONL,
+        '(i["type"] in INPUTS and not _is_output(i, me))',
+        '(i["type"] in ("message", "additional_tools") and not _is_output(i, me))',
+    ),
+    "a session record without an id read": (
+        ROLLOUT_JSONL,
+        ' or not isinstance(meta.get("id"), str)',
+        "",
+    ),
     "a cut-off rollout read": (ROLLOUT_JSONL, "reply_problem=lines.cut_off,", 'reply_problem="",'),
     # Paths and files of a run.
     "paths outside the root accepted": (
@@ -1290,8 +1296,49 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "the host's own message counted in the prompt": (
         AGENT_JSONL,
-        'if not e.get("isMeta")',
-        "if True",
+        'if e["type"] == "user" and not _host_own(e):',
+        'if e["type"] == "user":',
+    ),
+    # The agent-jsonl adapter: a message from an agent is an input, the host's own is not.
+    "an agent's message read as the host's own": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None\n',
+        "    return False\n",
+    ),
+    "an origin on the attachment ignored": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None\n',
+        '    return e.get("origin") is not None\n',
+    ),
+    "an origin on the entry ignored": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None\n',
+        "    return inner is not None\n",
+    ),
+    "an agent's attachment after the output not counted": (
+        AGENT_JSONL,
+        "    if _agent_origin(e):\n        return True\n",
+        "",
+    ),
+    "the host's own message after the output counted as an input": (
+        AGENT_JSONL,
+        "        if _host_own(e):\n            return False\n",
+        "",
+    ),
+    "an agent's attachment left out of the prompt": (
+        AGENT_JSONL,
+        'elif e["type"] == "attachment" and _agent_origin(e):',
+        "elif False:",
+    ),
+    "an agent attachment without a prompt left out": (
+        AGENT_JSONL,
+        'else json.dumps(e["attachment"])',
+        'else ""',
+    ),
+    "a later user entry with a tool result and text not counted": (
+        AGENT_JSONL,
+        'any(b["type"] != "tool_result" for b in content)',
+        'all(b["type"] != "tool_result" for b in content)',
     ),
     # The agent-jsonl adapter: a structure it does not recognise.
     "an entry of another shape read": (

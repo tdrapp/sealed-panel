@@ -35,8 +35,7 @@ BRIEF_SLACK_S = 60
 def _scanned(proofs: set[Path], cfg: Config, since: float) -> list[Path]:
     """The transcripts beside the recorded ones that the scan reads, as the run's format lists
     them; refused past MAX_SIBLINGS, so the scan stays bounded and never stops short."""
-    siblings = adapter(cfg).siblings
-    found = sorted({f for t in proofs for f in siblings(t, since)})
+    found = sorted(adapter(cfg).siblings(sorted(proofs), since))
     if len(found) > MAX_SIBLINGS:
         raise EvalError(
             f"{len(found)} transcripts were written beside the recorded ones since this round "

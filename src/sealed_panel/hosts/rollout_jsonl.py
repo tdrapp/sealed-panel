@@ -25,6 +25,17 @@ Measured on 10 rollouts (structure and counts only):
   judge has one turn: every input after its first output, and every turn started after it, is
   counted as a later input. Of the 3 tool-free sessions, 1 has a single turn; the 2 others would
   be refused.
+- An `agent_message` after the first assistant message occurs in 4 of the 6 subagent sessions
+  (10 messages): a later input like any other item that is not the agent's own output.
+- `world_state` lines hold instruction text too. Its `agents_md.text` also appears in a user
+  message of the same file (10 of 10), which is counted; `collaboration_mode.instructions` (17)
+  and `permissions.instructions` (14) appear in no message. Whether the host renders them to
+  the model is not shown by the files, so the adapter skips these lines, a known limit.
+
+The scan for unrecorded judges reads every rollout under the sessions root changed since the
+round was briefed, whatever its date folder or parent session (a judge started by a helper
+subagent, or a session started days before it got the brief), but the sessions that launched
+the recorded judges: each one's parent, that parent's parent, and so on.
 """
 
 from __future__ import annotations
@@ -197,47 +208,46 @@ def _session_of(f: Path) -> dict[str, Any] | None:
     return _payload(e) if isinstance(e, dict) and e.get("type") == "session_meta" else None
 
 
-def _days(folder: Path) -> list[Path]:
-    """The rollout's date folder and the days before and after it: a session started near
-    midnight, or in another time zone, is filed under the next or the previous day."""
+def _root(folder: Path) -> Path:
+    """The sessions root above a rollout's date folder (`<root>/YYYY/MM/DD`); the folder itself
+    when it is not a date folder."""
     try:
-        day = datetime.date(
-            int(folder.parent.parent.name), int(folder.parent.name), int(folder.name)
-        )
+        datetime.date(int(folder.parent.parent.name), int(folder.parent.name), int(folder.name))
     except ValueError:
-        return [folder]
-    root = folder.parent.parent.parent
-    one = datetime.timedelta(days=1)
-    return [root / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" for d in (day - one, day, day + one)]
+        return folder
+    return folder.parent.parent.parent
 
 
-def _same_group(meta: dict[str, Any], mine: dict[str, Any]) -> bool:
-    """Subagents of the same parent session; sessions without a parent, started in the same
-    directory."""
-    parent = meta.get("parent_thread_id")
-    if parent is not None or mine.get("parent_thread_id") is not None:
-        return bool(parent == mine.get("parent_thread_id"))
-    return bool(meta.get("cwd") == mine.get("cwd"))
+def _launchers(paths: list[Path], records: dict[Path, dict[str, Any] | None]) -> set[str]:
+    """The sessions that launched the recorded judges, at any depth: each judge's parent, its
+    parent's parent, and so on. They hold the briefs they passed down, and are not judges."""
+    parents = {m["id"]: m.get("parent_thread_id") for m in records.values() if m and "id" in m}
+    found: set[str] = set()
+    for path in paths:
+        current = (_session_of(path) or {}).get("parent_thread_id")
+        while isinstance(current, str) and current not in found:
+            found.add(current)
+            current = parents.get(current)
+    return found
 
 
-def siblings(path: Path, since: float) -> list[Path]:
-    """The rollouts of the same group (same parent session, or no parent and the same
-    directory) filed on the rollout's day or the days around it, last changed at or after
-    `since`. One whose session record cannot be read is listed: the scan then reads it.
+def siblings(paths: list[Path], since: float) -> list[Path]:
+    """Every rollout under the sessions root of each recorded one, whatever its date folder or
+    parent session, last changed at or after `since`, but the sessions that launched the
+    recorded judges. One whose session record cannot be read is listed: the scan then reads it.
 
     Args:
-        path: A recorded rollout.
+        paths: The recorded rollouts.
         since: The earliest last-change time, in seconds since the epoch.
     """
-    mine = _session_of(path) or {}
-    found = []
-    for day in _days(path.parent):
-        if not day.is_dir():
-            continue
-        for f in day.glob("rollout-*.jsonl"):
-            if f.stat().st_mtime < since:
-                continue
-            meta = _session_of(f)
-            if meta is None or _same_group(meta, mine):
-                found.append(f)
-    return found
+    found = sorted(
+        {
+            f
+            for root in {_root(p.parent) for p in paths}
+            for f in root.rglob("rollout-*.jsonl")
+            if f.stat().st_mtime >= since
+        }
+    )
+    records = {f: _session_of(f) for f in found}
+    launchers = _launchers(paths, records)
+    return [f for f in found if not ((m := records[f]) and m.get("id") in launchers)]
