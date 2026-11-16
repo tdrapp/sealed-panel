@@ -27,8 +27,8 @@ server:
 sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0
 ```
 
-If you have no GitHub SSH key, set `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` before adding the
-marketplace.
+The entry names the repository by its HTTPS URL, so the plugin folder is fetched without a
+GitHub account or key.
 
 The plugin's one setting, the transcript folder, defaults to `~/.claude/projects`, which the
 server expands; change it in `/config` if you moved your configuration directory. Start Claude
