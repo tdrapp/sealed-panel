@@ -10,24 +10,29 @@ from typing import Any
 
 import pytest
 
-from conftest import BAD, FLAT, Harness, judge_json, make_spec
+from conftest import BAD, FLAT, Harness, judge_json
 from sealed_panel.cli import main
 from sealed_panel.errors import EvalError, MalformedReply
+from sealed_panel.hosts import read_transcript
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import record_from, record_reply
 from sealed_panel.reply import extract_json
 from sealed_panel.report import render_report, status
 from sealed_panel.seat import MAX_VOIDS
-from sealed_panel.settings import load_config
-from sealed_panel.steps import aggregate_round, init_run
+from sealed_panel.steps import aggregate_round
 from sealed_panel.store import round_dir
-from sealed_panel.transcript import handback_messages, last_reply
+from sealed_panel.transcript import reply_text
 
-TOOL = "ReturnToCaller"
+TOOL = "SubagentHandback"
 
 
 def transcript(
-    h: Harness, agent: str, prompt: str, *texts: str, tools: list[Any] | None = None
+    h: Harness,
+    agent: str,
+    prompt: str,
+    *texts: str,
+    tools: list[Any] | None = None,
+    tool: str = TOOL,
 ) -> Path:
     folder = h.tmp / "tasks"
     folder.mkdir(exist_ok=True)
@@ -39,7 +44,7 @@ def transcript(
                      "message": {"content": [{"type": "text", "text": text}]}})  # fmt: skip
     for tool_input in tools or []:
         rows.append({"type": "assistant", "agentId": agent, "message": {"content": [
-            {"type": "tool_use", "name": TOOL, "input": tool_input}]}})  # fmt: skip
+            {"type": "tool_use", "name": tool, "input": tool_input}]}})  # fmt: skip
     p = folder / f"{agent}.output"
     p.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     return p
@@ -64,12 +69,8 @@ def void(h: Harness, agent: str, t: Path, judge: int = 1, sealed: bool = False) 
     return record_reply(h.run, 1, judge, agent, "", sealed, "void", t, void=True)
 
 
-def init_with_tool(h: Harness) -> None:
-    cfg = h.tmp / "c.toml"
-    cfg.write_text(f'[transcript]\nhandback_tool = "{TOOL}"\n')
-    sp = h.tmp / "spec.json"
-    sp.write_text(json.dumps(make_spec()))
-    init_run(h.run, sp, load_config(cfg))
+def last_reply(t: Path) -> str:
+    return reply_text(read_transcript(t))
 
 
 class TestSeats:
@@ -150,7 +151,7 @@ class TestSeats:
 
 class TestHandback:
     def setup_round(self, h: Harness) -> tuple[str, str]:
-        init_with_tool(h)
+        h.init()
         h.brief(1, "cand")
         meta = h.keys(1)["judges"][0]
         return brief_text(h, 1), judge_json(
@@ -167,37 +168,33 @@ class TestHandback:
     def test_a_handback_only_judge_is_recorded(self, h: Harness) -> None:
         brief, raw = self.setup_round(h)
         t = transcript(h, "hb1", brief, tools=[{"message": raw}])
-        assert last_reply(t, load_config(h.tmp / "c.toml")) == raw
+        assert last_reply(t) == raw
         assert self.record_cli(h, "hb1", t)[0] == 0
         (result,) = results_by_judge(round_dir(h.run, 1))[1]
         assert result["ok"], result["errors"]
 
     def test_the_handback_wins_over_any_text(self, h: Harness) -> None:
         brief, raw = self.setup_round(h)
-        cfg = load_config(h.tmp / "c.toml")
         assert (
-            last_reply(
-                transcript(h, "p", brief, "I will score now.", tools=[{"message": raw}]), cfg
-            )
+            last_reply(transcript(h, "p", brief, "I will score now.", tools=[{"message": raw}]))
             == raw
         )
         retried = transcript(h, "r", brief, tools=[{"message": {"items": {}}}, {"message": raw}])
-        assert last_reply(retried, cfg) == raw
+        assert last_reply(retried) == raw
 
-    def test_without_the_setting_no_tool_is_read(self, h: Harness) -> None:
+    def test_another_tool_is_never_read_as_the_handback(self, h: Harness) -> None:
         h.init()
         h.brief(1, "cand")
-        t = transcript(h, "hbX", brief_text(h, 1), tools=[{"message": "x"}])
+        t = transcript(h, "hbX", brief_text(h, 1), tools=[{"message": "x"}], tool="ReturnToCaller")
         with pytest.raises(EvalError, match="no assistant reply"):
             last_reply(t)
 
     def test_a_malformed_handback_is_never_read_as_a_reply(self, h: Harness) -> None:
         brief, raw = self.setup_round(h)
-        cfg = load_config(h.tmp / "c.toml")
         for agent, tool_input in (("A", {"message": extract_json(raw)}), ("B", {"text": raw}),
                                   ("C", {"message": "  "}), ("E", raw)):  # fmt: skip
             with pytest.raises(MalformedReply, match="malformed"):
-                last_reply(transcript(h, agent, brief, tools=[tool_input]), cfg)
+                last_reply(transcript(h, agent, brief, tools=[tool_input]))
 
     def test_a_malformed_handback_is_recorded_rejected(self, h: Harness) -> None:
         brief, raw = self.setup_round(h)
@@ -242,17 +239,14 @@ class TestRefusedHandback:
         return p
 
     def test_a_refused_handback_is_not_the_reply(self, h: Harness) -> None:
-        init_with_tool(h)
-        cfg = load_config(h.tmp / "c.toml")
+        h.init()
         p = self.rows(h, {"is_error": True, "content": "not allowed"})
-        assert handback_messages(p, cfg) == []
-        assert last_reply(p, cfg) == "the delivered text"
+        assert last_reply(p) == "the delivered text"
 
     def test_a_delivered_handback_still_wins(self, h: Harness) -> None:
-        init_with_tool(h)
-        cfg = load_config(h.tmp / "c.toml")
+        h.init()
         p = self.rows(h, {"content": "ok"})
-        assert last_reply(p, cfg) == "the handback"
+        assert last_reply(p) == "the handback"
 
 
 class TestPeekedSeat:
@@ -278,8 +272,7 @@ class TestPeekedSeat:
 
 class TestRefusedHandbackEdges:
     def test_an_error_result_without_an_id_skips_no_call(self, h: Harness) -> None:
-        init_with_tool(h)
-        cfg = load_config(h.tmp / "c.toml")
+        h.init()
         p = h.tmp / "noid.jsonl"
         call = {"type": "tool_use", "name": TOOL, "input": {"message": "the handback"}}
         result = {"type": "tool_result", "is_error": True, "content": "some other refusal"}
@@ -290,10 +283,10 @@ class TestRefusedHandbackEdges:
             {"type": "assistant", "message": {"content": [text]}},
         ]
         p.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-        assert last_reply(p, cfg) == "the handback", "delivered: it wins over the later text"
+        assert last_reply(p) == "the handback", "delivered: it wins over the later text"
 
     def test_a_refused_handback_verdict_still_blocks_a_void(self, h: Harness) -> None:
-        init_with_tool(h)
+        h.init()
         h.brief(1, "cand")
         call = {
             "type": "tool_use",
@@ -340,9 +333,8 @@ class TestRefusedOnly:
         return p
 
     def test_a_refused_only_verdict_is_recorded_from_the_transcript(self, h: Harness) -> None:
-        init_with_tool(h)
+        h.init()
         h.brief(1, "cand")
-        cfg = load_config(h.tmp / "c.toml")
         meta = h.keys(1)["judges"][0]
         verdict = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
         call = {"type": "tool_use", "id": "tuR", "name": TOOL, "input": {"message": verdict}}
@@ -361,27 +353,24 @@ class TestRefusedOnly:
             {"type": "user", "message": {"content": [result]}},
         ]
         t.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-        assert last_reply(t, cfg) == verdict
-        r = record_reply(h.run, 1, 1, "refonly", last_reply(t, cfg), False, "transcript", t)
+        assert last_reply(t) == verdict
+        r = record_reply(h.run, 1, 1, "refonly", last_reply(t), False, "transcript", t)
         assert r["ok"], r["errors"]
 
     def test_the_last_of_several_refused_verdicts_is_read(self, h: Harness) -> None:
-        init_with_tool(h)
-        cfg = load_config(h.tmp / "c.toml")
-        assert last_reply(self.refused(h, "first verdict", "last verdict"), cfg) == "last verdict"
+        h.init()
+        assert last_reply(self.refused(h, "first verdict", "last verdict")) == "last verdict"
 
     def test_a_malformed_earlier_refused_handback_does_not_hide_the_last(self, h: Harness) -> None:
-        init_with_tool(h)
-        cfg = load_config(h.tmp / "c.toml")
-        assert last_reply(self.refused(h, 42, "the last verdict"), cfg) == "the last verdict"
+        h.init()
+        assert last_reply(self.refused(h, 42, "the last verdict")) == "the last verdict"
 
     def test_a_malformed_last_refused_handback_is_a_malformed_reply(self, h: Harness) -> None:
-        init_with_tool(h)
-        cfg = load_config(h.tmp / "c.toml")
+        h.init()
         with pytest.raises(MalformedReply):
-            last_reply(self.refused(h, "an earlier verdict", 42), cfg)
+            last_reply(self.refused(h, "an earlier verdict", 42))
         with pytest.raises(MalformedReply):
-            last_reply(self.refused(h, ["not", "text"]), cfg)
+            last_reply(self.refused(h, ["not", "text"]))
 
     def test_an_empty_tool_setting_reads_no_tool_call(self, h: Harness) -> None:
         h.init()
@@ -462,23 +451,3 @@ class TestDefaultHandback:
         h.init()
         h.brief(1, "cand")
         assert void(h, "quiet", transcript(h, "quiet", brief_text(h, 1)))["void"]
-
-    def test_a_run_frozen_without_the_handback_keeps_its_value(self, h: Harness) -> None:
-        cfg = h.tmp / "c.toml"
-        cfg.write_text('[transcript]\nhandback_tool = ""\n')
-        sp = h.tmp / "spec.json"
-        sp.write_text(json.dumps(make_spec()))
-        init_run(h.run, sp, load_config(cfg))
-        h.brief(1, "cand")
-        t = self.real_shape(h, "a04d", self.a_reply(h))
-        r = record_from(h.run, 1, 1, "a04d", False, t)
-        assert not r["ok"] and "SubagentHandback" in r["errors"][0]
-
-
-def test_an_empty_handback_setting_reads_no_tool(tmp_path: Path) -> None:
-    cfg = tmp_path / "c.toml"
-    cfg.write_text('[transcript]\nhandback_tool = ""\n')
-    block = {"type": "tool_use", "id": "t1", "name": "", "input": {"message": "a reply"}}
-    t = tmp_path / "t.jsonl"
-    t.write_text(json.dumps({"type": "assistant", "message": {"content": [block]}}) + "\n")
-    assert handback_messages(t, load_config(cfg)) == []

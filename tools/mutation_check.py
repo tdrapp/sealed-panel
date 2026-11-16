@@ -42,6 +42,8 @@ LEARN = f"{PKG}/learning/learn.py"
 RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 TEXT = f"{PKG}/text.py"
 TRANSCRIPT, REPLY, SEAT = (f"{PKG}/{m}.py" for m in ("transcript", "reply", "seat"))
+AGENT_JSONL = f"{PKG}/hosts/agent_jsonl.py"
+ROLLOUT_JSONL = f"{PKG}/hosts/rollout_jsonl.py"
 MEASURE = f"{PKG}/measure.py"
 # FROZEN is run.py, the frozen run directory (RUN is the judge runner).
 RUBRIC, FROZEN, STEPS = (f"{PKG}/{m}.py" for m in ("rubric", "run", "steps"))
@@ -116,8 +118,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "whole-brief check off": (REC, "if brief not in prompt:", "if False:"),
     "prompt extras unrecorded": (
         REC,
-        "extra_chars = len(prompt) - len(brief)",
-        "extra_chars = 0",
+        "return t, len(prompt) - len(brief)",
+        "return t, 0",
     ),
     "void without the brief id": (
         REC,
@@ -137,40 +139,35 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "real = list(prior)",
     ),
     "handback ignored": (
-        TRANSCRIPT,
-        "    if handed:\n        last = handed[-1]",
-        "    if False:\n        last = handed[-1]",
+        AGENT_JSONL,
+        "    if delivered:\n        last = delivered[-1]",
+        "    if False:\n        last = delivered[-1]",
     ),
     "refused handback read as delivered": (
-        TRANSCRIPT,
-        "            if not include_refused and call_id is not None and call_id in refused:",
-        "            if False:",
+        AGENT_JSONL,
+        "        if not include_refused and call_id is not None and call_id in refused:",
+        "        if False:",
     ),
     "refused error without an id skips id-less calls": (
-        TRANSCRIPT,
+        AGENT_JSONL,
         "if not include_refused and call_id is not None and call_id in refused:",
         "if not include_refused and call_id in refused:",
     ),
     "void cap boundary": (SEAT, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
     "refused verdict not read when nothing was delivered": (
-        TRANSCRIPT,
-        "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if refused:",
-        "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if False:",
+        AGENT_JSONL,
+        "    refused = _handbacks(entries, include_refused=True)\n    if refused:",
+        "    refused = _handbacks(entries, include_refused=True)\n    if False:",
     ),
     "an earlier malformed refusal hides the last": (
-        TRANSCRIPT,
-        "        if refused[-1] is None:\n            raise MalformedReply(",
-        "        if None in refused:\n            raise MalformedReply(",
+        AGENT_JSONL,
+        "        if refused[-1] is None:\n            return None, ",
+        "        if None in refused:\n            return None, ",
     ),
     "malformed refused verdict read as text": (
-        TRANSCRIPT,
-        "        if refused[-1] is None:\n            raise MalformedReply(",
-        "        if False:\n            raise MalformedReply(",
-    ),
-    "empty handback tool not skipped": (
-        TRANSCRIPT,
-        "    if not tool:\n        return []",
-        "    if False:\n        return []",
+        AGENT_JSONL,
+        "        if refused[-1] is None:\n            return None, ",
+        "        if False:\n            return None, ",
     ),
     "pasted reply on a peeked seat": (
         SEAT,
@@ -178,9 +175,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "malformed handback read as text": (
-        TRANSCRIPT,
-        "        if last is None:\n            raise MalformedReply(",
-        "        if False:\n            raise MalformedReply(",
+        AGENT_JSONL,
+        "        if last is None:\n            return None, ",
+        "        if False:\n            return None, ",
     ),
     "measure flag overrides threshold": (
         MEASURE,
@@ -213,9 +210,132 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '            for r in rejected\n            if r.get("void")',
         "            for r in rejected\n            if False",
     ),
-    "unrecorded agents ignored": (AGG, "if unrecorded:", "if False:"),
+    "unrecorded agents ignored": (
+        AGG,
+        "    if judges:\n        raise EvalError(",
+        "    if False:\n        raise EvalError(",
+    ),
+    "sessions holding a brief elsewhere ignored": (AGG, "    if others:\n", "    if False:\n"),
     "sealed panel aggregated unmeasured": (AGG, "if missing:", "if False:"),
-    "missing transcript folder crashes": (AGG, "if not folder.is_dir():", "if False:"),
+    # The scan for unrecorded judges: bounded, and failing closed on what it cannot read.
+    "an unreadable sibling holding a brief id read by its file name": (
+        AGG,
+        '    except EvalError as exc:\n        raise EvalError(\n            f"{f} holds a brief id',
+        '    except EvalError as exc:\n        return Transcript(f, None, "")\n'
+        '        raise EvalError(\n            f"{f} holds a brief id',
+    ),
+    "every sibling parsed, a brief id or not": (
+        AGG,
+        "    if not hits:\n        return [], []\n",
+        "",
+    ),
+    # A session that launched a recorded judge is exempt only without a brief id in its prompt.
+    "the top-level session with a brief in its prompt exempt": (
+        AGG,
+        "    return [(judge, t.agent_id or f.stem) for nonce, judge in hits.items() if nonce in "
+        "t.prompt]\n",
+        "    return []\n",
+    ),
+    "the top-level session without a brief in its prompt refused": (
+        AGG,
+        "(_top_level(f, hits, cfg), []) if top else _other(f, hits, cfg)",
+        "_other(f, hits, cfg)",
+    ),
+    "a session holding a brief elsewhere passed": (
+        AGG,
+        "return briefed, [] if briefed else [(judge, aid) for judge in hits.values()]",
+        "return briefed, []",
+    ),
+    "a recorded session counted as unrecorded": (
+        AGG,
+        "for judge, aid in found if aid not in recorded}",
+        "for judge, aid in found}",
+    ),
+    "the main session not scanned": (
+        AGENT_JSONL,
+        "    mains = {f for p in paths for f in _sessions(p)}\n",
+        "    mains: set[Path] = set()\n",
+    ),
+    "the main session not taken for the top-level session": (
+        AGENT_JSONL,
+        "    return {f for p in paths for f in _sessions(p)}\n",
+        "    return set()\n",
+    ),
+    "the session id of the entries ignored": (
+        AGENT_JSONL,
+        ' | {e.get("sessionId") for e in read_lines(path).entries}',
+        "",
+    ),
+    "the session folder's name ignored": (
+        AGENT_JSONL,
+        "    ids = {tree.parent.name} | ",
+        "    ids = ",
+    ),
+    "a session id with a path read as a file name": (
+        AGENT_JSONL,
+        'return {tree.parent.parent / f"{i}.jsonl" for i in ids if _plain(i)}',
+        'return {tree.parent.parent / f"{i}.jsonl" for i in ids if isinstance(i, str)}',
+    ),
+    # The scan: brief ids searched a chunk at a time; the cap fails closed.
+    "a brief id across two chunks missed": (
+        AGG,
+        "            tail = window[-width:]\n",
+        '            tail = ""\n',
+    ),
+    "the top-level session read whole past the cap": (
+        AGG,
+        "    big = f.stat().st_size > MAX_SCAN_BYTES\n",
+        "    big = False\n",
+    ),
+    "a top-level session with no output in its start exempt": (
+        AGG,
+        "if t is None or (big and not t.replied):",
+        "if t is None:",
+    ),
+    "an unreadable start of a top-level session read": (
+        AGG,
+        "    if t is None or (big and not t.replied):\n",
+        "    if big and not t.replied:\n",
+    ),
+    "a large session holding a brief read anyway": (
+        AGG,
+        "    if f.stat().st_size > MAX_SCAN_BYTES:\n        raise EvalError(\n",
+        "    if False:\n        raise EvalError(\n",
+    ),
+    "the sibling scan unbounded": (AGG, "    if len(found) > MAX_SIBLINGS:\n", "    if False:\n"),
+    "transcripts older than the briefs scanned": (
+        AGENT_JSONL,
+        "and f.stat().st_mtime >= since",
+        "and True",
+    ),
+    "the host side files scanned": (AGENT_JSONL, "not f.name.endswith(SIDE_FILES)", "True"),
+    "the workflow journal scanned": (AGENT_JSONL, "f.name not in HOST_LOGS", "True"),
+    "rollouts older than the briefs scanned": (
+        ROLLOUT_JSONL,
+        "            if f.stat().st_mtime >= since\n",
+        "            if True\n",
+    ),
+    "a session filed in another date folder not scanned": (
+        ROLLOUT_JSONL,
+        "    return folder.parent.parent.parent\n",
+        "    return folder\n",
+    ),
+    "the top-level session not found": (
+        ROLLOUT_JSONL,
+        'return {f for f, m in records.items() if m and m.get("id") in tops - {None}}',
+        "return set()",
+    ),
+    "a helper taken for the top-level session": (
+        ROLLOUT_JSONL,
+        "        if parents[current] is None:\n            return current\n",
+        "        return current\n",
+    ),
+    "a nested subagents folder not scanned": (AGENT_JSONL, 'root.rglob("*")', 'root.glob("*")'),
+    "the subagents tree not found": (
+        AGENT_JSONL,
+        'return next((p for p in path.parents if p.name == "subagents"), path.parent)',
+        "return path.parent",
+    ),
     "suspect jump off": (AGG, 'if e.get("paired_gain", 0) >= SUSPECT_JUMP', "if False"),
     "suspect jump exclusive": (
         AGG,
@@ -249,7 +369,28 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "rubric lock off": (FROZEN, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
         FROZEN,
-        "if frozen.fingerprint != read_text(lock).strip():",
+        "if fingerprint(raw) != read_text(lock).strip():",
+        "if False:",
+    ),
+    # A run frozen before the host adapters, read through the run format's forward rule.
+    "a run frozen with other field names read as the default format": (
+        FROZEN,
+        "    if changed:\n        raise EvalError(",
+        "    if False:\n        raise EvalError(",
+    ),
+    "the forward rule read before the lock check": (
+        FROZEN,
+        "    if fingerprint(data) != lock:\n        raise EvalError(CHANGED_AFTER_FREEZE)\n",
+        "",
+    ),
+    "a removed transcript field name accepted": (
+        SETTINGS,
+        '        if path == ("transcript",) and key in REMOVED_TRANSCRIPT_KEYS:\n',
+        "        if False:\n",
+    ),
+    "an unknown transcript format accepted": (
+        SETTINGS,
+        'if data["transcript"]["format"] not in TRANSCRIPT_FORMATS:',
         "if False:",
     ),
     "declared choice unchecked": (
@@ -746,10 +887,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "the whole-brief check compared raw": (
         REC,
-        '        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
-        "        prompt = normalise(transcript_prompt(transcript, cfg))\n",
-        '        brief = read_text(rdir / f"brief_j{judge}.md")\n'
-        "        prompt = transcript_prompt(transcript, cfg)\n",
+        '    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
+        "    prompt = normalise(t.prompt)\n",
+        '    brief = read_text(rdir / f"brief_j{judge}.md")\n    prompt = t.prompt\n',
     ),
     "the re-roll hash taken raw": (
         TEXT,
@@ -759,9 +899,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "a pasted brief looked for raw before a void": (
         REC,
         '    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
-        "    pasted = brief in normalise(transcript_prompt(transcript, cfg))\n",
-        '    brief = read_text(rdir / f"brief_j{judge}.md")\n'
-        "    pasted = brief in transcript_prompt(transcript, cfg)\n",
+        "    pasted = brief in normalise(t.prompt)\n",
+        '    brief = read_text(rdir / f"brief_j{judge}.md")\n    pasted = brief in t.prompt\n',
     ),
     "one quote for all compared raw": (
         REPLY,
@@ -965,7 +1104,61 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if failure:\n            raise\n",
         "        raise\n",
     ),
-    "a judge that used a tool is read": (REC, "    if tools_used:\n", "    if False:\n"),
+    "a judge that used a tool is read": (REC, "    if t.tools:\n", "    if False:\n"),
+    "a judge with a later input is read": (REC, "    if t.later_inputs:\n", "    if False:\n"),
+    "a forked judge read": (REC, "    if t.fork:\n", "    if False:\n"),
+    # The rollout-jsonl adapter.
+    "a fork marker ignored": (
+        ROLLOUT_JSONL,
+        "return any(k in meta for k in FORK_KEYS) or sessions > 1",
+        "return sessions > 1",
+    ),
+    "a second session record ignored": (
+        ROLLOUT_JSONL,
+        "return any(k in meta for k in FORK_KEYS) or sessions > 1",
+        "return any(k in meta for k in FORK_KEYS)",
+    ),
+    "a later turn not counted": (
+        ROLLOUT_JSONL,
+        'i["type"] == "task_started" or (i["type"] in INPUTS and not _is_output(i, me))',
+        '(i["type"] in INPUTS and not _is_output(i, me))',
+    ),
+    "a later rollout message not counted": (
+        ROLLOUT_JSONL,
+        'i["type"] == "task_started" or (i["type"] in INPUTS and not _is_output(i, me))',
+        'i["type"] == "task_started"',
+    ),
+    "a rollout without a session record read": (
+        ROLLOUT_JSONL,
+        '    if first.get("type") != "session_meta" or not isinstance(meta.get("id"), str):\n',
+        "    if False:\n",
+    ),
+    "a model item of another shape read": (
+        ROLLOUT_JSONL,
+        "            if not _item_ok(item):\n",
+        "            if False:\n",
+    ),
+    "an unknown rollout item not counted as a call": (
+        ROLLOUT_JSONL,
+        '    return item["type"] not in INPUTS | {REASONING, "task_started"}\n',
+        "    return False\n",
+    ),
+    "the host's developer messages counted in the prompt": (
+        ROLLOUT_JSONL,
+        'if (i["type"] == "message" and i["role"] == "user") or i["type"] == "agent_message"',
+        'if i["type"] in ("message", "agent_message")',
+    ),
+    "a later agent message not counted": (
+        ROLLOUT_JSONL,
+        '(i["type"] in INPUTS and not _is_output(i, me))',
+        '(i["type"] in ("message", "additional_tools") and not _is_output(i, me))',
+    ),
+    "a session record without an id read": (
+        ROLLOUT_JSONL,
+        ' or not isinstance(meta.get("id"), str)',
+        "",
+    ),
+    "a cut-off rollout read": (ROLLOUT_JSONL, "reply_problem=lines.cut_off,", 'reply_problem="",'),
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
@@ -1004,24 +1197,19 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "{len(e['rejected_judges'])} rejected or void",
     ),
     "a tool call not read as a reply for a void": (
-        REC,
-        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
-        "replied = bool(assistant_texts(transcript, cfg))",
+        AGENT_JSONL,
+        "replied=bool(calls) or bool(_texts(entries)),",
+        "replied=bool(_texts(entries)),",
     ),
     "a text not read as a reply for a void": (
-        REC,
-        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
-        "replied = bool(tool_calls(transcript, cfg))",
+        AGENT_JSONL,
+        "replied=bool(calls) or bool(_texts(entries)),",
+        "replied=bool(calls),",
     ),
     "a tool call without a reply leaves the seat stuck": (
         REC,
-        "            if not judge_tools(transcript, frozen):\n                raise\n",
+        "            if not t.tools:\n                raise\n",
         "            raise\n",
-    ),
-    "no handback tool by default": (
-        DEFAULTS,
-        'handback_tool = "SubagentHandback"',
-        'handback_tool = ""',
     ),
     # What the MCP server trusts.
     "a run with other settings served": (MCP, "        if differ:\n", "        if False:\n"),
@@ -1144,10 +1332,119 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except RecursionError:  # parsed, but too deep to write back: never a reason to lose it\n",
         "    except ZeroDivisionError:\n",
     ),
-    "a server tool call not seen": (
-        TRANSCRIPT,
-        """str(b.get(t["block_type_key"])).endswith(""",
-        """str(b.get(t["block_type_key"])).__eq__(""",
+    "an unknown assistant block not counted as a call": (
+        AGENT_JSONL,
+        'if b["type"] not in NOT_CALLS',
+        'if b["type"] == TOOL_BLOCK',
+    ),
+    # The agent-jsonl adapter: inputs after the judge's first output.
+    "a later string input not counted": (
+        AGENT_JSONL,
+        'return isinstance(content, str) or any(b["type"] != "tool_result" for b in content)',
+        'return any(b["type"] != "tool_result" for b in content)',
+    ),
+    "a later text block not counted": (
+        AGENT_JSONL,
+        'return isinstance(content, str) or any(b["type"] != "tool_result" for b in content)',
+        "return isinstance(content, str)",
+    ),
+    "a later attachment not counted": (
+        AGENT_JSONL,
+        'return e["type"] == "attachment" and e["attachment"]["type"] not in',
+        'return False and e["attachment"]["type"] not in',
+    ),
+    "the host's snapshot counted as a later input": (
+        AGENT_JSONL,
+        'e["attachment"]["type"] not in LATER_HOST_ATTACHMENTS',
+        'e["attachment"]["type"] is not None',
+    ),
+    "the prompt counted as a later input": (
+        AGENT_JSONL,
+        "later_inputs=sum(_is_input(e) for e in entries[first + 1 :]),",
+        "later_inputs=sum(_is_input(e) for e in entries),",
+    ),
+    "reasoning taken as the first output": (
+        AGENT_JSONL,
+        'any(b["type"] not in REASONING for b in _blocks(e))',
+        "_blocks(e)",
+    ),
+    "the host's own message counted in the prompt": (
+        AGENT_JSONL,
+        'if e["type"] == "user" and not _host_own(e):',
+        'if e["type"] == "user":',
+    ),
+    # The agent-jsonl adapter: a message from an agent is an input, the host's own is not.
+    "an agent's message read as the host's own": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None or queued\n',
+        "    return False\n",
+    ),
+    "an origin on the attachment ignored": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None or queued\n',
+        '    return e.get("origin") is not None or queued\n',
+    ),
+    "an origin on the entry ignored": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None or queued\n',
+        "    return inner is not None or queued\n",
+    ),
+    "a queued command without an origin read as the host's": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None or queued\n',
+        '    return e.get("origin") is not None or inner is not None\n',
+    ),
+    "an agent's attachment after the output not counted": (
+        AGENT_JSONL,
+        "    if _agent_origin(e):\n        return True\n",
+        "",
+    ),
+    "the host's own message after the output counted as an input": (
+        AGENT_JSONL,
+        "        if _host_own(e):\n            return False\n",
+        "",
+    ),
+    "an agent's attachment left out of the prompt": (
+        AGENT_JSONL,
+        'elif e["type"] == "attachment" and _agent_origin(e):',
+        "elif False:",
+    ),
+    "an agent attachment without a prompt left out": (
+        AGENT_JSONL,
+        'else json.dumps(e["attachment"])',
+        'else ""',
+    ),
+    "a later user entry with a tool result and text not counted": (
+        AGENT_JSONL,
+        'any(b["type"] != "tool_result" for b in content)',
+        'all(b["type"] != "tool_result" for b in content)',
+    ),
+    # The agent-jsonl adapter: a structure it does not recognise.
+    "an entry of another shape read": (
+        AGENT_JSONL,
+        "        if problem:\n            raise FormatError(",
+        "        if False:\n            raise FormatError(",
+    ),
+    "a file without messages read": (
+        AGENT_JSONL,
+        '    if not any(e["type"] in MESSAGES for e in entries):\n',
+        "    if False:\n",
+    ),
+    "two agent ids read as one": (AGENT_JSONL, "    if len(ids) > 1:\n", "    if False:\n"),
+    "an untyped block accepted": (
+        AGENT_JSONL,
+        'isinstance(b, dict) and isinstance(b.get("type"), str) for b in content',
+        "isinstance(b, dict) for b in content",
+    ),
+    "an assistant string content accepted": (
+        AGENT_JSONL,
+        '        return kind == "user"\n',
+        "        return True\n",
+    ),
+    "an attachment without a type accepted": (
+        AGENT_JSONL,
+        'return "" if isinstance(a, dict) and isinstance(a.get("type"), str) else "an attachment"',
+        'return ""',
     ),
     "ctrl-c prints a traceback": (
         f"{PKG}/cli.py",
@@ -1160,12 +1457,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        except ZeroDivisionError as exc:\n            if on_seat:",
     ),
     "the handback tool counted as a tool use": (
-        TRANSCRIPT,
+        AGENT_JSONL,
         "if (kind, name) != exempt})",
         "if True})",
     ),
     "the handback exempt by name only": (
-        TRANSCRIPT,
+        AGENT_JSONL,
         "if (kind, name) != exempt})",
         "if name != exempt[1]})",
     ),
@@ -1260,13 +1557,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # A transcript cut off on its last line.
     "a cut-off last line read as the earlier reply": (
         TRANSCRIPT,
-        "if lines and lines[-1][1] is None:",
+        "if numbered and numbered[-1][1] is None:",
         "if False:",
     ),
     "a line separator inside a string splits the line": (
         TRANSCRIPT,
-        'read_text(transcript).split("\\n")',
-        "read_text(transcript).splitlines()",
+        'enumerate(text.split("\\n"), start=1)',
+        "enumerate(text.splitlines(), start=1)",
     ),
     # A candidate that addresses a judge: blocked unless the spec acknowledges it.
     "a flagged candidate converges": (

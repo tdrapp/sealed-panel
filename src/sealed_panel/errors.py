@@ -13,6 +13,11 @@ class MalformedReply(EvalError):
     """A reply the transcript holds in a shape that cannot be read: recorded as rejected."""
 
 
+class FormatError(EvalError):
+    """A transcript whose structure its format's adapter does not recognise: refused, never
+    guessed."""
+
+
 class SeatTaken(EvalError):
     """A seat another call is judging right now, or one that already holds a valid reply."""
 

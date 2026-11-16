@@ -2,7 +2,8 @@
 
 The defaults define the shape: an override may only set keys that exist there, with a value
 of the same type. Settings that guard the protocol have hard bounds, so an override can
-tighten a guard but never switch it off. A section 0.4.0 fixed in code is refused, by name.
+tighten a guard but never switch it off. A section 0.4.0 fixed in code, and a transcript field
+name 0.4.1 replaced with host adapters, is refused, by name.
 """
 
 from __future__ import annotations
@@ -31,6 +32,32 @@ REMOVED_SECTIONS = {
         "--library or $SEALED_PANEL_RUBRICS"
     ),
 }
+# The field names of a transcript entry, settings of [transcript] until 0.4.1 replaced them with
+# host adapters, with the value 0.4.0 froze by default: a file that sets one is refused, naming
+# it, and a run frozen with exactly these values reads as `format = "agent-jsonl"` (run.py).
+REMOVED_TRANSCRIPT_KEYS: dict[str, str] = {
+    "role_key": "type",
+    "assistant_role": "assistant",
+    "user_role": "user",
+    "message_key": "message",
+    "content_key": "content",
+    "block_type_key": "type",
+    "text_block_type": "text",
+    "text_key": "text",
+    "agent_id_key": "agentId",
+    "handback_tool": "SubagentHandback",
+    "tool_block_type": "tool_use",
+    "tool_name_key": "name",
+    "tool_input_key": "input",
+    "tool_message_key": "message",
+    "tool_id_key": "id",
+    "tool_result_type": "tool_result",
+    "tool_result_id_key": "tool_use_id",
+    "tool_error_key": "is_error",
+}
+# The transcript formats a host adapter reads: the keys of sealed_panel.hosts.FORMATS, which a
+# test holds equal. The first one reads what the field names above described.
+TRANSCRIPT_FORMATS = ("agent-jsonl", "rollout-jsonl")
 SEVERITY_NAMES = ("blocking", "material", "cosmetic", "none")
 
 # Hard bounds. A value outside them is refused, in a configuration file or in a spec.
@@ -46,8 +73,6 @@ MIN_FRAGMENT_CHARS_FLOOR = 6
 MAX_BAD_SHARE_CEILING = Fraction(1, 3)
 SEVERITY_CEILINGS = {"blocking": 3, "material": 4}
 MAX_JUDGES_PER_PERSONA = 9
-# Transcript keys that may be empty: an empty handback tool means none is read.
-OPTIONAL_TRANSCRIPT_KEYS = frozenset({"handback_tool"})
 # Seconds a judge process may run, at least and at most.
 JUDGE_TIMEOUT_BOUNDS = (1, 3600)
 # Bytes a judge may write to stdout, at least and at most.
@@ -91,6 +116,8 @@ def merge(
         where = ".".join((*path, key))
         if not path and key in REMOVED_SECTIONS:
             raise ConfigError(removed_message(key, value))
+        if path == ("transcript",) and key in REMOVED_TRANSCRIPT_KEYS:
+            raise ConfigError(removed_transcript_message(override))
         if key not in base:
             raise ConfigError(f"unknown configuration key {where}")
         current = base[key]
@@ -116,6 +143,20 @@ def removed_message(section: str, value: Any) -> str:
     return (
         f"{', '.join(keys)}: no longer a setting, fixed in code since 0.4.0 "
         f"({REMOVED_SECTIONS[section]}); remove [{section}] from the configuration file"
+    )
+
+
+def removed_transcript_message(section: Mapping[str, Any]) -> str:
+    """The refusal of the transcript field names 0.4.1 removed, naming each one the file sets.
+
+    Args:
+        section: The [transcript] table of the file.
+    """
+    keys = ", ".join(f"transcript.{k}" for k in section if k in REMOVED_TRANSCRIPT_KEYS)
+    return (
+        f"{keys}: no longer a setting since 0.4.1: a host adapter reads each transcript format "
+        "by its own structure, and transcript.format names the format; remove the field names "
+        "from the configuration file"
     )
 
 
@@ -195,10 +236,8 @@ def bound_errors(data: Mapping[str, Any]) -> list[str]:
     root = str((data.get("mcp") or {}).get("root", ""))
     if root.strip() and not (root.startswith("~") or Path(root).is_absolute()):
         errors.append(f"mcp.root must be an absolute path or start with ~, got {root!r}")
-    transcript = data["transcript"]
-    for key, value in transcript.items():
-        if isinstance(value, str) and not value and key not in OPTIONAL_TRANSCRIPT_KEYS:
-            errors.append(f"transcript.{key} must not be empty")
+    if data["transcript"]["format"] not in TRANSCRIPT_FORMATS:
+        errors.append(f"transcript.format must be one of: {', '.join(TRANSCRIPT_FORMATS)}")
     return errors
 
 
@@ -339,9 +378,9 @@ class Config:
         return Fraction(self.section("quotes")["max_bad_share"])
 
     @property
-    def transcript(self) -> dict[str, Any]:
-        """The field names read in a judge's transcript."""
-        return self.section("transcript")
+    def transcript_format(self) -> str:
+        """The format of the judges' transcripts: the host adapter that reads them."""
+        return str(self.section("transcript")["format"])
 
     @property
     def judge(self) -> JudgeSettings:

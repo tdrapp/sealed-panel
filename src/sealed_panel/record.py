@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from .errors import EvalError, MalformedReply
+from .hosts import read_transcript
 from .ledger import results_by_judge, used_agent_ids, used_reply_hashes
 from .model import RUNNER, Attempt, Proof, RoundKeys, Seat
 from .reply import check_output, extract_json
@@ -21,15 +22,7 @@ from .seat import calibrate, check_seat, check_void_cap, seat_lock
 from .settings import Config
 from .store import dump_json, load_json, read_text, round_dir, under_run_lock
 from .text import normalise
-from .transcript import (
-    assistant_texts,
-    judge_tools,
-    last_reply,
-    tool_calls,
-    transcript_agent_id,
-    transcript_prompt,
-    unreadable_lines,
-)
+from .transcript import Transcript, reply_text
 
 # Widths used in a recorded reply's file name.
 AGENT_TAG_CHARS = 12
@@ -57,18 +50,15 @@ def _void(
     judge: int,
     agent_id: str,
     meta: Seat,
-    transcript: Path,
+    t: Transcript,
     prior: list[Attempt],
-    cfg: Config,
 ) -> Attempt:
     """An agent that received a brief and stopped without a reply: recorded as void so the
     round can be aggregated. A void clears the unrecorded-agent block but never fills a seat.
     Refused when the agent got the whole brief and left any reply: that reply is recorded."""
     brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
-    pasted = brief in normalise(transcript_prompt(transcript, cfg))
-    # Fails closed: any tool call counts as a reply, whichever its name, because a runtime may
-    # deliver the answer through a tool this run does not know. Only silence can be voided.
-    replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))
+    pasted = brief in normalise(t.prompt)
+    replied = t.replied
     if pasted and replied:
         raise EvalError(
             "this judge got the brief and replied: record its reply, it cannot be voided"
@@ -88,7 +78,7 @@ def _void(
         "agent_id": agent_id,
         "persona": meta["persona"],
         "source": "void",
-        "transcript": str(transcript),
+        "transcript": str(t.path),
         "reply_sha256": hashlib.sha256(f"void:{agent_id}".encode()).hexdigest(),
     }
     _store(rdir, judge, agent_id, "", result)
@@ -198,6 +188,54 @@ def record_reply(
         )
 
 
+def transcript_refusals(t: Transcript) -> list[str]:
+    """Why a judge's transcript disqualifies its reply, whatever the reply says: a tool used,
+    a session carrying another one's history, an input after its first output.
+
+    Args:
+        t: The transcript, as its format's adapter read it.
+    """
+    fresh = "brief a fresh judge on the same brief"
+    errors = []
+    if t.tools:
+        errors.append(
+            f"the judge used a tool ({', '.join(t.tools)}): a judge gets no tools, so it could "
+            f"have read the run; {fresh}"
+        )
+    if t.fork:
+        errors.append(
+            "the judge's session is a fork: it carries another session's history, which can "
+            f"hold the run's labels or other judges' replies; {fresh}"
+        )
+    if t.later_inputs:
+        errors.append(
+            f"the judge got {t.later_inputs} input(s) after its first output: an input after an "
+            f"answer can steer or re-roll it; {fresh}"
+        )
+    return errors
+
+
+def _read_proof(
+    rdir: Path, judge: int, transcript: Path | None, void: bool, cfg: Config
+) -> tuple[Transcript | None, int]:
+    """The judge's transcript, read by the adapter of the run's transcript format, and how
+    many characters its prompt holds beyond the brief. A prompt without the whole brief is
+    refused, except for a void, which only shows the agent never answered."""
+    if transcript is None:
+        return None, 0
+    t = read_transcript(transcript, cfg)
+    if void:
+        return t, 0
+    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
+    prompt = normalise(t.prompt)
+    if brief not in prompt:
+        raise EvalError(
+            f"this transcript's prompt does not contain brief j{judge} verbatim: "
+            "paste the brief file's text"
+        )
+    return t, len(prompt) - len(brief)
+
+
 @under_run_lock
 def record_attempt(
     run: Path,
@@ -233,24 +271,15 @@ def record_attempt(
         )
     if (rdir / "result.json").is_file():
         raise EvalError("this round is already aggregated: a late judge would be panel shopping")
-    extra_chars = 0
     if void and runner is None:
         if transcript is None:
             raise EvalError("a void needs the agent's transcript, to show it never replied")
         if meta["nonce"] not in read_text(transcript):
             raise EvalError(f"this transcript never saw brief j{judge}: nothing to void")
-    elif transcript is not None:
-        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))
-        prompt = normalise(transcript_prompt(transcript, cfg))
-        if brief not in prompt:
-            raise EvalError(
-                f"this transcript's prompt does not contain brief j{judge} verbatim: "
-                "paste the brief file's text"
-            )
-        extra_chars = len(prompt) - len(brief)
+    t, extra_chars = _read_proof(rdir, judge, transcript, void, cfg)
     prior = results_by_judge(rdir).get(judge, [])
-    if void and transcript is not None:
-        return _void(rdir, judge, agent_id, meta, transcript, prior, cfg)
+    if void and t is not None:
+        return _void(rdir, judge, agent_id, meta, t, prior)
     if void and runner is not None:
         return _runner_void(rdir, judge, agent_id, meta, raw, runner, prior)
     digest = hashlib.sha256(
@@ -261,17 +290,10 @@ def record_attempt(
     check_seat(judge, prior, source, cfg)
     dim_ids = [d["id"] for d in dims_for(spec, meta["persona"])]
     texts = {role: read_text(rdir / f"{role}.md") for role in set(meta["key"].values())}
-    tools_used = judge_tools(transcript, cfg) if transcript is not None else []
+    refusals = transcript_refusals(t) if t is not None else []
     result: Attempt
-    if tools_used:
-        result = {
-            "ok": False,
-            "errors": [
-                f"the judge used a tool ({', '.join(tools_used)}): a judge gets no tools, so it "
-                "could have read the run; brief a fresh judge on the same brief"
-            ],
-            "items": {},
-        }
+    if refusals:
+        result = {"ok": False, "errors": refusals, "items": {}}
     else:
         try:
             if malformed:
@@ -292,7 +314,7 @@ def record_attempt(
             "source": source,
             "transcript": str(transcript) if transcript else None,
             "prompt_extra_chars": extra_chars,
-            "unreadable_lines": len(unreadable_lines(transcript)) if transcript else 0,
+            "unreadable_lines": len(t.unreadable) if t is not None else 0,
         }
     )
     if runner is not None:
@@ -335,19 +357,19 @@ def record_from(
         raise EvalError("give the judge's transcript or its pasted reply, not both")
     if transcript is None:
         return record_reply(run, rnd, judge, agent_id, str(output), sealed, "output")
-    frozen = run_config(run)
-    found = transcript_agent_id(transcript, frozen)
+    t = read_transcript(transcript, run_config(run))
+    found = t.agent_id
     if found and found != agent_id:
         raise EvalError(f"the agent id {agent_id} does not match the transcript's agent {found}")
     raw, source, malformed = "", ("void" if void else "transcript"), ""
     if not void:
         try:
-            raw = last_reply(transcript, frozen)
+            raw = reply_text(t)
         except MalformedReply as exc:
             malformed = str(exc)
         except EvalError as exc:
             # No reply, but tool calls: it cannot be voided, so it is recorded as rejected.
-            if not judge_tools(transcript, frozen):
+            if not t.tools:
                 raise
             malformed = str(exc)
     return record_reply(run, rnd, judge, agent_id, raw, sealed, source, transcript, void, malformed)

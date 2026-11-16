@@ -154,7 +154,7 @@ layers = [
     "runner | report",
     "aggregate",
     "record | measure",
-    "reply | seat | brief",
+    "reply | seat | brief | hosts",
     "run | templates | transcript",
     "rubric | decide | ledger",
     "model | text",

@@ -199,9 +199,12 @@ A known-good equal to the candidate made the calibration check pass by construct
 
 ## Vendor names
 
-The project stays vendor-neutral: docs, code and commit messages say "a model CLI" or "your
-agent host". One path is the single accepted exception: the plugin folder at the repository
-root, whose name the host requires.
+The project stays vendor-neutral: the core, its docs and commit messages say "a model CLI",
+"your agent host" or "a host adapter", and name an adapter by its format id. Hosts are named
+plainly only where sealed-panel integrates with them: the host adapters
+(`src/sealed_panel/hosts/`) and their tests (`tests/test_hosts*.py`, `tests/hosts/`),
+`docs/integrations.md`, `docs/hosts/`, `hosts/`, `examples/hosts/`, and the plugin folder at the
+repository root and `.mcp.json`, whose names the host requires.
 
 ## Maintainers
 

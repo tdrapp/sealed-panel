@@ -878,10 +878,10 @@ class TestFrozenConfiguration:
         is an unknown key."""
         h.init()
         data = json.loads((h.run / "config.json").read_text())
-        data["transcript"]["tool_block_type"] = "nothing"
-        data["transcript.tool_block_type"] = "tool_use"
+        data["transcript"]["format"] = "nothing"
+        data["transcript.format"] = "agent-jsonl"
         relock(h.run, data)
-        with pytest.raises(EvalError, match=r"unknown configuration key 'transcript\.tool_block"):
+        with pytest.raises(EvalError, match=r"unknown configuration key 'transcript\.format'"):
             run_config(h.run)
 
     def test_a_missing_key_is_refused(self, h: Harness) -> None:
@@ -970,10 +970,10 @@ class TestFrozenConfiguration:
     def test_a_present_old_value_still_differs(self, h: Harness) -> None:
         h.init()
         data = json.loads((h.run / "config.json").read_text())
-        data["transcript"]["handback_tool"] = ""
+        data["limits"]["max_replacements"] = 0  # falsy, and still a difference
         relock(h.run, data)
         assert config_differences(run_config(h.run), default_config()) == [
-            "transcript.handback_tool"
+            "limits.max_replacements"
         ]
 
 

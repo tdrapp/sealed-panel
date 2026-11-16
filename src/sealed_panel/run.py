@@ -13,7 +13,15 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 from .errors import EvalError
 from .model import FORMAT_SINCE, INJECTION_ACK, SCHEMA_VERSION, FrozenSpec, Spec
 from .rubric import rubric_hash, validate_spec
-from .settings import MISSING_KEY, UNKNOWN_KEY, Config, schema_errors
+from .settings import (
+    MISSING_KEY,
+    REMOVED_TRANSCRIPT_KEYS,
+    TRANSCRIPT_FORMATS,
+    UNKNOWN_KEY,
+    Config,
+    fingerprint,
+    schema_errors,
+)
 from .store import (
     contained,
     dump_json,
@@ -318,20 +326,47 @@ def frozen_config_refusal(shape: list[str]) -> str:
     return f"the frozen configuration is damaged: {'; '.join(shape)}"
 
 
+CHANGED_AFTER_FREEZE = (
+    "the configuration changed after the freeze: scores are no longer comparable. "
+    "Start a new run directory."
+)
+
+
+def _transcript_format_supplied(data: dict[str, Any], lock: str) -> dict[str, Any]:
+    """A run frozen before 0.4.1 holds the transcript field names and no `format` (the run
+    format's forward rule, docs/protocol.md section 11): checked against its config.lock as
+    written first, then read as the format those names described, when they hold the values
+    0.4.0 froze by default. A run frozen with other field names is refused, naming them: no
+    adapter reads what they described."""
+    section = data.get("transcript")
+    if not isinstance(section, dict) or set(section) != set(REMOVED_TRANSCRIPT_KEYS):
+        return data
+    if fingerprint(data) != lock:
+        raise EvalError(CHANGED_AFTER_FREEZE)
+    changed = [f"transcript.{k}" for k, v in REMOVED_TRANSCRIPT_KEYS.items() if section[k] != v]
+    if changed:
+        raise EvalError(
+            f"this run was frozen with transcript field names this release has no adapter for "
+            f"({', '.join(changed)}): finish it with the release that created it "
+            f"({FORMAT_SINCE[SCHEMA_VERSION]}), installed from its tag: {_INSTALL_TAG}"
+        )
+    return {**data, "transcript": {"format": TRANSCRIPT_FORMATS[0]}}
+
+
 def run_config(run: Path) -> Config:
     """The configuration frozen at init."""
     refuse_older_run(run)
     lock = run / "config.lock"
     if not lock.exists():
         raise EvalError(f"{run} is not initialised (sealed-panel init)")
-    data = load_json(run / "config.json")
+    raw = load_json(run / "config.json")
+    data = (
+        _transcript_format_supplied(raw, read_text(lock).strip()) if isinstance(raw, dict) else raw
+    )
     shape = schema_errors(data) if isinstance(data, dict) else ["not a table"]
     if shape:
         raise EvalError(frozen_config_refusal(shape))
     frozen = Config(data)
-    if frozen.fingerprint != read_text(lock).strip():
-        raise EvalError(
-            "the configuration changed after the freeze: scores are no longer comparable. "
-            "Start a new run directory."
-        )
+    if fingerprint(raw) != read_text(lock).strip():
+        raise EvalError(CHANGED_AFTER_FREEZE)
     return frozen

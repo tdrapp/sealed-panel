@@ -58,10 +58,13 @@ are in [docs/decisions/](docs/decisions/).
 
 ## Neutrality
 
-The project is vendor-neutral. Code, docs, tests, examples and commit messages say "a model
-CLI", "a model", "your agent host", never the name of a model vendor, a model, or an agent
-host. The one exception is the files a host requires under its own name: the plugin folder at
-the root and `.mcp.json`. Model ids in examples are placeholders such as `my-model-2026-01-15`.
-Plain ASCII punctuation in prose: no long dashes, no curly quotes. A style check the
-maintainer runs as a commit hook (kept outside the repository) refuses both; a reviewer checks
-them on every pull request.
+The project is vendor-neutral. The core, its docs (the protocol, the README, the CHANGELOG), its
+tests and commit messages say "a model CLI", "a model", "your agent host" or "a host adapter",
+never the name of a model vendor, a model, or an agent host, and name an adapter by its format
+id. Hosts are named plainly only in the material that integrates with them: the host adapters
+(`src/sealed_panel/hosts/`), their tests (`tests/test_hosts*.py`, `tests/hosts/`),
+`docs/integrations.md`, `docs/hosts/`, `hosts/`, `examples/hosts/`, and the files a host
+requires under its own name (the plugin folder at the root and `.mcp.json`). Model ids in
+examples are placeholders such as `my-model-2026-01-15`. Plain ASCII punctuation in prose: no
+long dashes, no curly quotes. A style check the maintainer runs as a commit hook (kept outside
+the repository) refuses both; a reviewer checks them on every pull request.
