@@ -181,15 +181,27 @@ Known limits:
   host adds on its own is planned with the result file of the next release.
 - What a host adds as its own, before or after the first output, is not counted: an adapter
   trusts the host's own marks. A host message that steers a judge is not seen.
-- Instructions a host may inject through session state the adapter skips are not seen (see the
-  `rollout-jsonl` section).
+- The adapter does not read session-state lines; instructions a host injects through them are
+  not seen and not counted (see the `rollout-jsonl` section).
 
-Before a round is aggregated, the transcripts the adapter lists for the recorded ones are read
-for the round's brief ids: an agent that holds one and was never recorded blocks the round
-(record it, or record it as a void when it never replied). Only files changed since the round
-was briefed (minus 60 seconds) are read, at most 1000; past that, aggregation is refused rather
-than stop short. A file that holds a brief id and cannot be read also blocks the round. A file
-changed before the briefs, or whose date was set back, is not read.
+Before a round is aggregated, the transcripts the adapter lists for the recorded ones (below,
+for each format) are read for the round's brief ids. A session that holds one and was never
+recorded blocks the round:
+
+- a brief id in its prompt (its inputs before its first output) makes it a judge, even when it
+  then launched a recorded judge: record it (as a void when it never replied). A helper agent
+  given a brief's text in its launch prompt, only to pass it on, is such a judge: give it the
+  brief's path instead;
+- a brief id only elsewhere (it read a brief, or passed one on) blocks the round too, unless
+  the session launched one of the recorded judges: an orchestrator that reads the brief files
+  through a tool after its first output and starts the judges is exempt. Any other session that
+  read a brief must be recorded if it judged; otherwise start each judge as a subagent of the
+  session that briefs it, and pass a brief by its path.
+
+Only files changed since the round was briefed (minus 60 seconds) are read, at most 1000; past
+that, aggregation is refused rather than stop short. A file that holds a brief id and cannot be
+read also blocks the round. A file changed before the briefs, or whose date was set back, is not
+read.
 
 ### Claude Code: `agent-jsonl`
 
@@ -210,10 +222,12 @@ written by versions 2.1.219 to 2.1.325:
   Project instructions (your instruction files) arrive as an attachment, so the report does not
   flag them on this host; launching from an empty directory keeps the project's own out.
 - Messages from agents carry an `origin`, on the entry or on its attachment: `coordinator` (the
-  agent that launched the subagent), `peer` (another agent) or `task-notification`. No origin
-  measured names the host, so any origin, of a kind known or not, is an agent's: before the
-  first output it is part of the prompt, so the whole-brief check and the extra-text flag see a
-  steer sent right after launch; after it, it is a later input.
+  agent that launched the subagent), `peer` (another agent) or `task-notification`; older host
+  versions write queued commands with none (182 `queued_command` attachments, versions 2.1.260
+  to 2.1.280), so every queued command is an agent's too. No origin measured names the host, so
+  any origin, of a kind known or not, is an agent's: before the first output it is part of the
+  prompt, so the whole-brief check and the extra-text flag see a steer sent right after
+  launch; after it, it is a later input.
 - After the first output, the host adds `prompt_snapshot` attachments and the result of the
   handback call, and may repeat a message of its own (1 of the 413; 9 files hold that same
   message): all allowed. Any other attachment, and any user entry with text that is not the
@@ -228,7 +242,14 @@ written by versions 2.1.219 to 2.1.325:
   transcripts read without a structure refusal.
 
 The scan for unrecorded judges reads every file under the session's `subagents/` folder, at any
-depth, but the host's side files (`*.meta.json`, `*.prefix.json`).
+depth, but the host's side files (`*.meta.json`, `*.prefix.json`), and the session's main file,
+`~/.claude/projects/<project>/<session>.jsonl`, named by the `sessionId` every entry of a
+subagent's transcript carries (measured: one session per transcript, whose file exists, 3,564 of
+3,564; the folder above `subagents/` has the same name in 3,563, and both names are tried). The
+sessions that launched a recorded judge are that main session and the subagents above the judge,
+from the `parentAgentId` of each one's `*.meta.json` (281 of 281 name a transcript of the same
+tree). So a judge run as the main session, with the brief as its prompt, that then starts the
+recorded judge as its subagent, blocks the round.
 
 ### Codex CLI: `rollout-jsonl`
 
@@ -261,19 +282,18 @@ versions 0.162.0 and 0.163.0 (alpha builds):
   input, as is any input item that is not the judge's own output.
 - Line types the host adds between versions (`turn_context`, `token_usage_record` and others)
   are skipped; the adapter checks the session record and every model item.
-- Known limit: `world_state` lines hold instruction text, and are skipped. Their project
-  instructions also appear as a user message of the same file (10 of 10), which is counted;
-  their collaboration and permission instructions (17 and 14) appear in no message, and the
-  files do not show whether the host renders them to the model. Instructions the host may
-  inject through session state are not seen by the adapter.
+- Known limit: the adapter does not read session-state lines (`world_state`), which hold
+  instruction text; instructions the host injects through them are not seen and not counted.
+  (Their project instructions also appear as a user message of the same file, 10 of 10, which
+  is counted.)
 
 The scan for unrecorded judges reads every rollout under the sessions root (`~/.codex/sessions`)
 changed since the round was briefed, whatever its date folder or parent session: a judge
 started by a helper subagent, or a session started days before it got the brief, is read. The
-sessions that launched the recorded judges (each one's parent, that parent's parent, and so on)
-hold the briefs they passed down and are left out. A top-level session that pastes the briefs
-but launched no recorded judge as its subagent is read, and blocks the round: start the judges
-as its subagents, or give `codex exec` the brief file rather than pasting it.
+sessions that launched the recorded judges are each one's parent session, that parent's parent,
+and so on, from the session records. A top-level session that pastes the briefs but launched no
+recorded judge as its subagent blocks the round: start the judges as its subagents, or give
+`codex exec` the brief file rather than pasting it.
 
 Not verified with a real judge session on this host: which options start a session without
 tools, whether a subagent can be started in another directory, and how a subagent hands its
