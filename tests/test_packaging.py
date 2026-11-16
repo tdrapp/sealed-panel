@@ -164,6 +164,14 @@ def test_the_docs_pin_every_install_line_to_this_release() -> None:
         assert found and set(found) == {__version__}, path.relative_to(ROOT)
 
 
+def test_a_host_folder_names_no_other_release() -> None:
+    # A host's README and configuration name the release they install (a tag to clone, a
+    # server pin) and no other: one left behind at a release installs the old one.
+    for path in [*HOSTS.glob("*/README.md"), *HOSTS.glob("*/*.toml")]:
+        found = set(re.findall(r"\bv(\d+\.\d+\.\d+)\b", path.read_text(encoding="utf-8")))
+        assert found == {__version__}, path.relative_to(ROOT)
+
+
 def test_the_readme_names_this_version() -> None:
     path = ROOT / "README.md"
     if not path.exists():
