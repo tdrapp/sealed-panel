@@ -99,9 +99,11 @@ A judge can take a minute and they run one after the other, so through the MCP t
 panel with its `judges` parameter (`judges: [1, 2]`, then `[3, 4]`) to keep each call under your
 host's tool timeout. A seat another call holds is skipped, never judged twice.
 
-Otherwise launch all judges at once. Each judge is a **fresh** agent context, with no tools,
-whose whole prompt is the brief file's text pasted verbatim, preceded by the instructions in
-`judge.md` when your tool supports a system prompt or an agent definition (an `eval-judge`
+Otherwise launch all judges at once, from your own top-level session: never through a helper
+agent, and never show a brief to an agent you do not record (a session that handled a brief
+without being recorded blocks the round). Each judge is a **fresh** agent context, with no
+tools, whose whole prompt is the brief file's text pasted verbatim, preceded by the instructions
+in `judge.md` when your tool supports a system prompt or an agent definition (an `eval-judge`
 agent, when your host provides one, carries them). Never reuse a judge, never add your
 reasoning, an earlier score, or which item is which. Never use an agent that can read the run
 directory.

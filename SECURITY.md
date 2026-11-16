@@ -73,15 +73,17 @@ The adversaries:
   prompt, so the whole-brief check and the extra-text flag see it) and after it (rejected). In
   `agent-jsonl`, an agent's message is one with an `origin` or a queued command (older host
   versions write those with no origin). Before a round is aggregated, the transcripts the
-  adapter lists for the recorded ones are read for the round's brief ids. A session that holds
-  one and is not recorded blocks the round: as a judge when the id is in its prompt (its inputs
-  before its first output), even if it launched a recorded judge, so a judge that briefs a
-  second one and keeps the better is caught; otherwise unless it launched a recorded judge (an
-  orchestrator that reads the briefs through a tool after its first output). One that cannot
-  be read blocks it too.
+  adapter lists for the recorded ones are searched for the round's brief ids. A session that
+  holds one anywhere and is not recorded blocks the round, as a judge when the id is in its
+  prompt (its inputs before its first output). The one exception is the top-level session the
+  recorded judges were launched from, when no brief id is in its own prompt: it may read the
+  briefs and pass them on. So judges are launched by the top-level session itself, each as a
+  fresh subagent; a helper or standby agent that handles a brief blocks the round. A file that
+  cannot be read, or one too large to read whole, blocks it too.
 - **Every re-roll path through the commands and tools that this version knows of is refused**,
   or flagged in the report where it cannot be checked (a pasted reply, a changed judge
-  environment, text added around a brief).
+  environment, text added around a brief). What the transcript scan cannot see (a brief shown
+  without its id, files outside its reach) is listed under "What a transcript does not prove".
 - **A judge reply cannot break the reader or hang the runner.** A reply past its byte cap, a
   timeout, a non-zero exit, deep nesting or a huge integer ends as a void or a rejected reply,
   never a crash.
@@ -116,11 +118,13 @@ The adversaries:
   it shows as a call or puts the brief after the first output. The scan for unrecorded judges
   reads only files changed since the round was briefed (minus 60 seconds), under the recorded
   transcripts' folder tree (`agent-jsonl`) or sessions root (`rollout-jsonl`), and refuses past
-  1000 files; a judge whose file lies elsewhere, or whose date was set back, is not found. A
-  session that launched a recorded judge is exempt when no brief id is in its prompt: one that
-  read a brief through a tool after its first output and judged it before launching the
-  recorded judge is not caught. A helper given a brief's text in its launch prompt blocks the
-  round as a judge (pass a brief's path instead).
+  1000 files; a judge whose file lies elsewhere, or whose date was set back, is not found. The
+  scan recognises a judge only by a brief id written verbatim in its file: an agent shown a
+  brief with its id line removed or split is not found. That is a preview of the brief by an
+  agent that is never recorded; sealed-panel cannot stop an author from showing a text to
+  another model. What it guarantees is about the recorded panel (each judge blind and fresh,
+  given the whole brief verbatim, one valid reply per seat), and that a judge recorded, or
+  briefed with its id, cannot be discarded.
 - **Field names of a transcript.** Until 0.4.1, `[transcript]` held the field names the one
   reader used; they are no longer settings, so a configuration cannot point the reader at other
   fields. A file that sets one is refused; a run frozen with values other than the 0.4.0
@@ -196,7 +200,8 @@ tool writes it after `init`.
 | The host's own messages are not inputs | a legitimate judge refused for what its host repeats | in (a false refusal) | `test_a_host_message_after_the_output_is_not_an_input`, `test_a_tool_free_judge_is_read_with_no_prompt_extra`, `test_a_one_turn_tool_free_judge_is_read`; mutations `the host's own message counted in the prompt`, `the host's own message after the output counted as an input`, `the host's snapshot counted as a later input`, `the host's developer messages counted in the prompt` |
 | The scan for unrecorded judges: bounded, refusing past the cap, an unreadable file holding a brief id blocking | a judge launched and kept quiet; a scan that stops short | in | `test_the_scan_is_bounded`, `test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round` (both formats), `test_an_unreadable_sibling_without_a_brief_id_is_skipped`, `test_a_file_older_than_the_briefs_is_not_scanned`, `test_a_rollout_older_than_the_briefs_is_not_scanned`; mutations `the sibling scan unbounded`, `an unreadable sibling holding a brief id read by its file name`, `every sibling parsed, a brief id or not`, `transcripts older than the briefs scanned`, `rollouts older than the briefs scanned` |
 | The scan's reach: the whole `subagents/` tree and the main session file (`agent-jsonl`); the whole sessions root, whatever the date folder or parent (`rollout-jsonl`) | a judge launched from a workflow folder, by a helper agent, as the main session, or in a session filed days earlier | in | `test_a_workflow_subfolder_is_scanned`, `test_judges_in_a_workflow_subfolder_scan_the_whole_tree`, `test_the_host_side_files_are_not_scanned`, `test_a_main_session_started_with_a_brief_is_a_judge`, `test_a_main_session_named_by_the_entries_session_id_is_read`, `test_a_judge_started_by_a_helper_subagent_blocks_the_round`, `test_a_session_filed_days_earlier_blocks_the_round`, `test_a_sibling_filed_the_next_day_blocks_the_round`; mutations `a nested subagents folder not scanned`, `the subagents tree not found`, `the host side files scanned`, `the main session not scanned`, `the session id of the entries ignored`, `the session folder's name ignored`, `a session filed in another date folder not scanned` |
-| A session that launched a recorded judge is exempt only when no brief id is in its prompt; a session with a brief id in its prompt is a judge; another session holding one elsewhere blocks with its own message | a judge that briefs a second judge and keeps the better; a judge run as the main session | in | `test_a_launcher_with_the_brief_in_its_prompt_is_a_judge`, `test_a_launcher_without_the_brief_in_its_prompt_is_exempt`, `test_every_launcher_without_the_brief_in_its_prompt_is_exempt`, `test_a_helper_given_the_brief_text_blocks_the_round`, `test_another_session_holding_a_brief_elsewhere_blocks_the_round`, `test_a_main_session_that_passed_the_briefs_on_is_exempt`, `test_a_parent_subagent_given_the_brief_text_is_a_judge`, `test_a_parent_subagent_given_the_path_is_exempt`, `test_a_grandparent_subagent_given_the_path_is_exempt`, `test_another_subagent_holding_a_brief_elsewhere_blocks`, `test_an_id_that_is_not_a_plain_name_names_no_file`; mutations `a launcher with a brief in its prompt exempt`, `a launcher without a brief in its prompt refused`, `a session holding a brief elsewhere passed`, `a recorded session counted as unrecorded`, `sessions holding a brief elsewhere ignored`, `the sessions that launched the judges counted as judges`, `only the judges' parent left out`, `the main session not a launcher`, `a parent subagent not a launcher`, `only the direct parent subagent a launcher`, `a session id with a path read as a file name`, `a parent id with a pattern read as a file name` |
+| Only the top-level session the recorded judges were launched from is exempt, and only when no brief id is in its prompt; any other unrecorded session holding a brief id anywhere blocks, as a judge when it is in its prompt | a judge that briefs a second judge and keeps the better; a standby agent shown the brief later; a helper; a judge run as the main session | in | `test_a_launcher_with_the_brief_in_its_prompt_is_a_judge`, `test_a_launcher_without_the_brief_in_its_prompt_is_exempt`, `test_a_helper_that_launched_the_judges_blocks_the_round` (both formats), `test_a_helper_given_the_brief_text_blocks_the_round`, `test_a_helper_given_the_brief_text_is_a_judge`, `test_a_standby_agent_shown_the_brief_blocks_the_round` (both formats, later input and tool output), `test_another_session_holding_a_brief_elsewhere_blocks_the_round`, `test_a_main_session_that_passed_the_briefs_on_is_exempt`, `test_a_main_session_that_read_the_briefs_through_a_tool_is_exempt`, `test_another_subagent_holding_a_brief_elsewhere_blocks`, `test_the_top_level_session_is_found_above_a_helper`, `test_an_agent_recorded_from_a_pasted_reply_is_recorded`, `test_an_id_that_is_not_a_plain_name_names_no_file`; mutations `the top-level session with a brief in its prompt exempt`, `the top-level session without a brief in its prompt refused`, `a session holding a brief elsewhere passed`, `a recorded session counted as unrecorded`, `sessions holding a brief elsewhere ignored`, `the top-level session not found`, `a helper taken for the top-level session`, `the main session not taken for the top-level session`, `a session id with a path read as a file name` |
+| No silent size skip: a file is searched for brief ids whatever its size; one holding a brief id and too large to read whole blocks; the top-level session's prompt is read from the start of its file, and a start without an output blocks | a judge hidden in a file past the cap | in | `test_a_brief_id_split_across_two_chunks_is_found`, `test_a_large_subagent_holding_a_brief_blocks`, `test_a_large_subagent_without_a_brief_is_skipped`, `test_a_large_main_session_is_read_from_its_start`, `test_a_large_main_session_with_a_brief_in_its_prompt_is_a_judge`, `test_a_main_session_with_no_output_within_the_cap_blocks`, `test_a_main_session_whose_start_shows_no_output_blocks`; mutations `a brief id across two chunks missed`, `a large session holding a brief read anyway`, `the top-level session read whole past the cap`, `a top-level session with no output in its start exempt`, `an unreadable start of a top-level session read` |
 | The transcript field names removed; a closed list of formats | a configuration pointing the reader at fields that hide a call or an input | in | `test_a_removed_field_name_is_refused_by_name`, `TestFrozenBeforeTheAdapters`, `test_out_of_bound_values_refused`; mutations `a removed transcript field name accepted`, `an unknown transcript format accepted`, `a run frozen with other field names read as the default format`, `the forward rule read before the lock check` |
 
 ## Reporting a vulnerability

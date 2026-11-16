@@ -200,9 +200,11 @@ three kinds of proof, and the report says which one each round used.
   the reply before it, which may be a draft the judge replaced. The scan for unrecorded agents
   reads the transcripts the adapter lists for the recorded ones (the folder tree or the sessions
   root they sit in), changed since the round was briefed, at most 1000 (more refuse the
-  aggregation). A session holding a brief id of the round and not recorded blocks it: as a
-  judge when the id is in its prompt, even if it launched a recorded judge; otherwise unless it
-  launched one. One that holds a brief id and cannot be read refuses it too. Through MCP a
+  aggregation). A session holding a brief id of the round anywhere and not recorded blocks
+  it, as a judge when the id is in its prompt; the one exception is the top-level session the
+  recorded judges were launched from, when no brief id is in its own prompt. So judges are
+  launched by the top-level session itself. One that holds a brief id and cannot be read, or
+  is too large to read whole, refuses it too. Through MCP a
   transcript counts only under a `--transcript-root`, away from the root, its links followed and
   refused unless it stays there: a file the author wrote in its workspace is no proof. Host-mode
   `record` holds the seat's lock too, so two concurrent calls never both pass the seat check. An
