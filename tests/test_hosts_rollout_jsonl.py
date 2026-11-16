@@ -313,3 +313,9 @@ class TestSiblingScan:
         f = tmp_path / "rollout-1.jsonl"
         f.write_text(json.dumps(session()) + "\n")
         assert rollout_jsonl.siblings(f, 0.0) == [f]
+
+    def test_a_first_line_that_is_not_json_has_no_session_record(self, tmp_path: Path) -> None:
+        f = tmp_path / "rollout-1.jsonl"
+        f.write_text("not json\n")
+        assert rollout_jsonl._session_of(f) is None
+        assert rollout_jsonl.siblings(f, 0.0) == [f]  # listed: the scan reads it for brief ids
