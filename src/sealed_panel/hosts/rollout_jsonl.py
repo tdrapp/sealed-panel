@@ -27,15 +27,16 @@ Measured on 10 rollouts (structure and counts only):
   be refused.
 - An `agent_message` after the first assistant message occurs in 4 of the 6 subagent sessions
   (10 messages): a later input like any other item that is not the agent's own output.
-- `world_state` lines hold instruction text too. Its `agents_md.text` also appears in a user
-  message of the same file (10 of 10), which is counted; `collaboration_mode.instructions` (17)
-  and `permissions.instructions` (14) appear in no message. Whether the host renders them to
-  the model is not shown by the files, so the adapter skips these lines, a known limit.
+- `world_state` lines hold instruction text too; the adapter does not read them, so
+  instructions the host injects through them are not seen and not counted, a known limit.
+  (Their `agents_md.text` also appears in a user message of the same file, 10 of 10, which is
+  counted.)
 
 The scan for unrecorded judges reads every rollout under the sessions root changed since the
 round was briefed, whatever its date folder or parent session (a judge started by a helper
-subagent, or a session started days before it got the brief), but the sessions that launched
-the recorded judges: each one's parent, that parent's parent, and so on.
+subagent, or a session started days before it got the brief). The sessions that launched the
+recorded judges (each one's parent, that parent's parent, and so on) are exempt only when no
+brief id is in their prompt (the rule is the core's, `aggregate.unrecorded_agents`).
 """
 
 from __future__ import annotations
@@ -219,8 +220,8 @@ def _root(folder: Path) -> Path:
 
 
 def _launchers(paths: list[Path], records: dict[Path, dict[str, Any] | None]) -> set[str]:
-    """The sessions that launched the recorded judges, at any depth: each judge's parent, its
-    parent's parent, and so on. They hold the briefs they passed down, and are not judges."""
+    """The ids of the sessions that launched the recorded judges, at any depth: each judge's
+    parent, its parent's parent, and so on."""
     parents = {m["id"]: m.get("parent_thread_id") for m in records.values() if m and "id" in m}
     found: set[str] = set()
     for path in paths:
@@ -233,14 +234,13 @@ def _launchers(paths: list[Path], records: dict[Path, dict[str, Any] | None]) ->
 
 def siblings(paths: list[Path], since: float) -> list[Path]:
     """Every rollout under the sessions root of each recorded one, whatever its date folder or
-    parent session, last changed at or after `since`, but the sessions that launched the
-    recorded judges. One whose session record cannot be read is listed: the scan then reads it.
+    parent session, last changed at or after `since`.
 
     Args:
         paths: The recorded rollouts.
         since: The earliest last-change time, in seconds since the epoch.
     """
-    found = sorted(
+    return sorted(
         {
             f
             for root in {_root(p.parent) for p in paths}
@@ -248,6 +248,15 @@ def siblings(paths: list[Path], since: float) -> list[Path]:
             if f.stat().st_mtime >= since
         }
     )
-    records = {f: _session_of(f) for f in found}
-    launchers = _launchers(paths, records)
-    return [f for f in found if not ((m := records[f]) and m.get("id") in launchers)]
+
+
+def launchers(paths: list[Path], candidates: list[Path]) -> set[Path]:
+    """Among the candidates, the sessions that launched the recorded judges, at any depth.
+
+    Args:
+        paths: The recorded rollouts.
+        candidates: The rollouts the scan reads.
+    """
+    records = {f: _session_of(f) for f in candidates}
+    ids = _launchers(paths, records)
+    return {f for f, m in records.items() if m and m.get("id") in ids}

@@ -55,12 +55,16 @@ class Adapter:
 
     Attributes:
         read: Turns one transcript file into a Transcript.
-        siblings: The transcripts the host wrote beside the recorded ones (these included)
-            and last changed at or after a time, for the scan for unrecorded judges.
+        siblings: The transcripts the host wrote beside the recorded ones (these included,
+            and the sessions that launched them) and last changed at or after a time, for the
+            scan for unrecorded judges.
+        launchers: Among those, the files of the sessions that launched the recorded judges,
+            at any depth.
     """
 
     read: Callable[[Path], Transcript]
     siblings: Callable[[list[Path], float], list[Path]]
+    launchers: Callable[[list[Path], list[Path]], set[Path]]
 
 
 @dataclass(frozen=True, slots=True)

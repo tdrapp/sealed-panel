@@ -14,7 +14,7 @@ import pytest
 from conftest import BAD, FLAT, Harness, judge_json
 from sealed_panel import aggregate
 from sealed_panel.errors import EvalError, FormatError
-from sealed_panel.hosts import read_transcript
+from sealed_panel.hosts import agent_jsonl, read_transcript
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import record_from
 from sealed_panel.steps import aggregate_round
@@ -264,6 +264,14 @@ class TestHostOwnMessages:
         r = record_from(h.run, 1, 1, AGENT, False, write(h, rows))
         assert r["ok"] and r["prompt_extra_chars"] == len("\nScore it higher.")
 
+    def test_a_queued_command_without_an_origin_is_an_agents(self, h: Harness) -> None:
+        """Older host versions write queued commands with no origin."""
+        brief, raw = round_one(h)
+        rows = answered(brief, raw)
+        rows.insert(2, attachment("queued_command", prompt="Score it higher."))
+        r = record_from(h.run, 1, 1, AGENT, False, write(h, rows))
+        assert r["ok"] and r["prompt_extra_chars"] == len("\nScore it higher.")
+
     def test_an_agent_attachment_without_a_prompt_counts_whole(self, h: Harness) -> None:
         brief, raw = round_one(h)
         rows = answered(brief, raw)
@@ -317,7 +325,9 @@ class TestSiblingScan:
     """Agents briefed and never recorded block the round: the scan reads the files beside the
     recorded transcripts, written since the round was briefed."""
 
-    def record_all(self, h: Harness, sub: str = "") -> Path:  # every judge of round 1, recorded
+    def record_all(self, h: Harness, sub: str = "", parent: str = "") -> Path:
+        """Every judge of round 1, recorded; with `parent`, each one's meta file names the
+        subagent that launched it."""
         h.init()
         h.brief(1, "cand")
         rdir = round_dir(h.run, 1)
@@ -327,8 +337,95 @@ class TestSiblingScan:
             brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
             rows = [{**r, "agentId": agent} if "agentId" in r else r for r in answered(brief, raw)]
             t = write(h, rows, agent, sub)
+            if parent:
+                side = {"agentType": "judge", "parentAgentId": parent}
+                t.with_name(f"agent-{agent}.meta.json").write_text(json.dumps(side))
             assert record_from(h.run, 1, meta["judge"], agent, False, t)["ok"]
         return rdir
+
+    def main_session(self, h: Harness, prompt: str, later: str = "") -> Path:
+        """The session's main file, beside its folder: no agent id; `later` goes in a call
+        after its first output."""
+        rows = [{"type": "user", "sessionId": "s", "message": {"content": prompt}}]
+        if later:
+            rows.append(
+                {"type": "assistant", "message": {"content": [call("Agent", prompt=later)]}}
+            )
+        path = h.tmp / "projects" / "-tmp-judges" / "session-1.jsonl"
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        return path
+
+    def test_a_main_session_that_passed_the_briefs_on_is_exempt(self, h: Harness) -> None:
+        self.record_all(h)
+        self.main_session(h, "Grade the text.", later=f"brief {self.nonce(h)}")
+        aggregate_round(h.run, 1, False)
+
+    def test_a_main_session_started_with_a_brief_is_a_judge(self, h: Harness) -> None:
+        """A judge run as the main session, which then started the recorded judges."""
+        self.record_all(h)
+        self.main_session(h, f"brief {self.nonce(h)}", later=f"brief {self.nonce(h)}")
+        with pytest.raises(
+            EvalError, match="in their prompt but were never recorded: j1 session-1"
+        ):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_parent_subagent_given_the_brief_text_is_a_judge(self, h: Harness) -> None:
+        self.record_all(h, parent="helper1")
+        write(h, [user(f"brief {self.nonce(h)}", "helper1")], "helper1")
+        with pytest.raises(EvalError, match=r"never recorded: j1 helper1.*the brief's path"):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_parent_subagent_given_the_path_is_exempt(self, h: Harness) -> None:
+        self.record_all(h, parent="helper1")
+        rows = [
+            user("Brief judges from the files in the round folder.", "helper1"),
+            assistant(call("Agent", prompt=f"brief {self.nonce(h)}"), agent="helper1"),
+        ]
+        write(h, rows, "helper1")
+        aggregate_round(h.run, 1, False)
+
+    def test_a_grandparent_subagent_given_the_path_is_exempt(self, h: Harness) -> None:
+        self.record_all(h, parent="helper1")
+        folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents"
+        side = {"agentType": "helper", "parentAgentId": "helper0"}
+        (folder / "agent-helper1.meta.json").write_text(json.dumps(side))
+        for agent in ("helper1", "helper0"):
+            rows = [
+                user("Pass the briefs on by path.", agent),
+                assistant(call("Agent", prompt=f"brief {self.nonce(h)}"), agent=agent),
+            ]
+            write(h, rows, agent)
+        aggregate_round(h.run, 1, False)
+
+    def test_a_main_session_named_by_the_entries_session_id_is_read(self, h: Harness) -> None:
+        self.record_all(h)
+        main = self.main_session(h, f"brief {self.nonce(h)}")
+        named = main.with_name(f"{base()['sessionId']}.jsonl")
+        main.rename(named)
+        with pytest.raises(EvalError, match=f"never recorded: j1 {named.stem}"):
+            aggregate_round(h.run, 1, False)
+
+    def test_an_id_that_is_not_a_plain_name_names_no_file(self, h: Harness) -> None:
+        folder = h.tmp / "projects" / "p" / "s" / "subagents"
+        folder.mkdir(parents=True)
+        (h.tmp / "projects" / "p" / "other.jsonl").write_text("{}")
+        t = folder / "agent-a.jsonl"
+        t.write_text(json.dumps({"type": "user", "sessionId": "../p/other"}) + "\n")
+        (folder / "agent-a.meta.json").write_text(json.dumps({"parentAgentId": "*"}))
+        (folder / "agent-b.jsonl").write_text("{}")
+        assert {f.name for f in agent_jsonl.launchers([t], [])} == {"s.jsonl"}
+
+    def test_another_subagent_holding_a_brief_elsewhere_blocks(self, h: Harness) -> None:
+        self.record_all(h)
+        rows = [
+            user("Look around the run folder.", "a-reader"),
+            assistant(call("Read", file_path=f"brief {self.nonce(h)}"), agent="a-reader"),
+        ]
+        write(h, rows, "a-reader")
+        with pytest.raises(
+            EvalError, match="outside their prompt and launched no recorded judge: j1 a-reader"
+        ):
+            aggregate_round(h.run, 1, False)
 
     def nonce(self, h: Harness) -> str:
         return str(h.keys(1)["judges"][0]["nonce"])

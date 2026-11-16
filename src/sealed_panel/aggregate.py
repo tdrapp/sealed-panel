@@ -22,6 +22,7 @@ from .model import (
 from .rubric import dims_for
 from .settings import Config
 from .store import load_json
+from .transcript import Transcript
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
 MAX_SCAN_BYTES = 20_000_000
@@ -45,11 +46,11 @@ def _scanned(proofs: set[Path], cfg: Config, since: float) -> list[Path]:
     return [f for f in found if f.is_file() and f.stat().st_size <= MAX_SCAN_BYTES]
 
 
-def _agent_of(f: Path, cfg: Config) -> str:
-    """The agent a transcript holding a brief id belongs to; one that cannot be read is
-    refused, since it could be a judge launched and kept quiet."""
+def _transcript_of(f: Path, cfg: Config) -> Transcript:
+    """A transcript holding a brief id, read; one that cannot be read is refused, since it
+    could be a judge launched and kept quiet."""
     try:
-        return read_transcript(f, cfg).agent_id or f.stem
+        return read_transcript(f, cfg)
     except EvalError as exc:
         raise EvalError(
             f"{f} holds a brief id of this round but cannot be read ({exc}): every agent that "
@@ -59,20 +60,45 @@ def _agent_of(f: Path, cfg: Config) -> str:
 
 def unrecorded_agents(
     keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config, since: float = 0.0
-) -> list[tuple[int, str]]:
-    """Agents whose transcript (beside a recorded one, as the run's transcript format lists
-    them, written since `since`) holds one of this round's brief ids but who were never
-    recorded: launching several and keeping the best."""
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+    """Sessions (as the run's transcript format lists them, written since `since`) that hold
+    one of this round's brief ids and were never recorded: launching several judges and
+    keeping the best. Two lists of (judge, agent id). Judges: a brief id in the session's
+    prompt, its inputs before its first output; a session that launched a recorded judge is one
+    too when its prompt holds a brief id. Others: a brief id elsewhere, in a session that
+    launched no recorded judge."""
     nonces = {j.get("nonce"): j["judge"] for j in keys["judges"] if j.get("nonce")}
     recorded = {r["agent_id"] for rs in by_judge.values() for r in rs}
-    proofs = {Path(t) for rs in by_judge.values() for r in rs if (t := r.get("transcript"))}
-    found = []
-    for f in _scanned(proofs, cfg, since):
+    proofs = {Path(p) for rs in by_judge.values() for r in rs if (p := r.get("transcript"))}
+    found = _scanned(proofs, cfg, since)
+    launchers = adapter(cfg).launchers(sorted(proofs), found)
+    judges: list[tuple[int, str]] = []
+    others: list[tuple[int, str]] = []
+    for f in found:
         text = f.read_text(encoding="utf-8", errors="replace")
-        judges = [judge for nonce, judge in nonces.items() if nonce in text]
-        if judges and (aid := _agent_of(f, cfg)) not in recorded:
-            found += [(judge, aid) for judge in judges]
-    return sorted(set(found))
+        hits = {nonce: judge for nonce, judge in nonces.items() if nonce in text}
+        if not hits:
+            continue
+        briefed, elsewhere = _sorted_out(_transcript_of(f, cfg), hits, recorded, f in launchers)
+        judges += briefed
+        others += elsewhere
+    return sorted(set(judges)), sorted(set(others))
+
+
+def _sorted_out(
+    t: Transcript, hits: dict[str, int], recorded: set[str], launcher: bool
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
+    """One session holding brief ids: a judge when one is in its prompt, launcher or not;
+    otherwise another session, unless it launched a recorded judge; nothing when recorded."""
+    aid = t.agent_id or t.path.stem
+    briefed = [judge for nonce, judge in hits.items() if nonce in t.prompt]
+    if aid in recorded:
+        return [], []
+    if briefed:
+        return [(judge, aid) for judge in briefed], []
+    if launcher:
+        return [], []
+    return [], [(judge, aid) for judge in hits.values()]
 
 
 def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> DimensionResult:
@@ -162,14 +188,32 @@ def _check_complete(
             "fills a seat; brief a fresh replacement on the same brief (stopping after two "
             "replies is a re-roll)"
         )
-    briefed = (rdir / "keys.json").stat().st_mtime - BRIEF_SLACK_S
-    unrecorded = unrecorded_agents(keys, by_judge, cfg, briefed)
-    if unrecorded:
+    _refuse_unrecorded(keys, by_judge, cfg, (rdir / "keys.json").stat().st_mtime)
+
+
+def _refuse_unrecorded(
+    keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config, briefed_at: float
+) -> None:
+    """Refuse a round some session received a brief of and was never recorded: a judge kept
+    quiet (record it), or a session holding a brief elsewhere (record it if it judged, else
+    launch judges from the session that briefs them)."""
+    judges, others = unrecorded_agents(keys, by_judge, cfg, briefed_at - BRIEF_SLACK_S)
+    if judges:
         raise EvalError(
-            "agents received a brief of this round but were never recorded: "
-            + ", ".join(f"j{j} {aid}" for j, aid in unrecorded)
+            "agents received a brief of this round in their prompt but were never recorded: "
+            + ", ".join(f"j{j} {aid}" for j, aid in judges)
             + "; record every agent you briefed, rejected or not (a void for one that never "
-            "replied)"
+            "replied). An agent given a brief's text only to pass it on is a judge too: give it "
+            "the brief's path instead"
+        )
+    if others:
+        raise EvalError(
+            "sessions hold a brief id of this round outside their prompt and launched no "
+            "recorded judge: "
+            + ", ".join(f"j{j} {aid}" for j, aid in others)
+            + "; one that judged (it read a brief) must be recorded, as a void if it never "
+            "replied; otherwise start each judge as a subagent of the session that briefs it, "
+            "and pass a brief by its path"
         )
 
 

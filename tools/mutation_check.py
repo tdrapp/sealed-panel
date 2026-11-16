@@ -210,19 +210,85 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         '            for r in rejected\n            if r.get("void")',
         "            for r in rejected\n            if False",
     ),
-    "unrecorded agents ignored": (AGG, "if unrecorded:", "if False:"),
+    "unrecorded agents ignored": (
+        AGG,
+        "    if judges:\n        raise EvalError(",
+        "    if False:\n        raise EvalError(",
+    ),
+    "sessions holding a brief elsewhere ignored": (AGG, "    if others:\n", "    if False:\n"),
     "sealed panel aggregated unmeasured": (AGG, "if missing:", "if False:"),
     # The scan for unrecorded judges: bounded, and failing closed on what it cannot read.
     "an unreadable sibling holding a brief id read by its file name": (
         AGG,
         '    except EvalError as exc:\n        raise EvalError(\n            f"{f} holds a brief id',
-        "    except EvalError as exc:\n        return f.stem\n        raise EvalError(\n"
-        '            f"{f} holds a brief id',
+        '    except EvalError as exc:\n        return Transcript(f, None, "")\n'
+        '        raise EvalError(\n            f"{f} holds a brief id',
     ),
     "every sibling parsed, a brief id or not": (
         AGG,
-        "if judges and (aid := _agent_of(f, cfg)) not in recorded:",
-        "if (aid := _agent_of(f, cfg)) not in recorded and judges:",
+        "        if not hits:\n            continue\n",
+        "",
+    ),
+    # A session that launched a recorded judge is exempt only without a brief id in its prompt.
+    "a launcher with a brief in its prompt exempt": (
+        AGG,
+        "    if briefed:\n        return [(judge, aid) for judge in briefed], []\n",
+        "    if briefed and not launcher:\n        return [(judge, aid) for judge in briefed], []\n",
+    ),
+    "a launcher without a brief in its prompt refused": (
+        AGG,
+        "    if launcher:\n        return [], []\n",
+        "",
+    ),
+    "a session holding a brief elsewhere passed": (
+        AGG,
+        "    return [], [(judge, aid) for judge in hits.values()]\n",
+        "    return [], []\n",
+    ),
+    "a recorded session counted as unrecorded": (
+        AGG,
+        "    if aid in recorded:\n        return [], []\n",
+        "",
+    ),
+    "the main session not scanned": (
+        AGENT_JSONL,
+        "    mains = {f for p in paths for f in _sessions(p)}\n",
+        "    mains: set[Path] = set()\n",
+    ),
+    "the main session not a launcher": (
+        AGENT_JSONL,
+        "return {f for p in paths for f in _sessions(p) | _parents(p)}",
+        "return {f for p in paths for f in _parents(p)}",
+    ),
+    "a parent subagent not a launcher": (
+        AGENT_JSONL,
+        "return {f for p in paths for f in _sessions(p) | _parents(p)}",
+        "return {f for p in paths for f in _sessions(p)}",
+    ),
+    "only the direct parent subagent a launcher": (
+        AGENT_JSONL,
+        "        found.add(nxt)\n        current = nxt\n",
+        "        found.add(nxt)\n        return found\n",
+    ),
+    "the session id of the entries ignored": (
+        AGENT_JSONL,
+        ' | {e.get("sessionId") for e in read_lines(path).entries}',
+        "",
+    ),
+    "the session folder's name ignored": (
+        AGENT_JSONL,
+        "    ids = {tree.parent.name} | ",
+        "    ids = ",
+    ),
+    "a session id with a path read as a file name": (
+        AGENT_JSONL,
+        'return {tree.parent.parent / f"{i}.jsonl" for i in ids if _plain(i)}',
+        'return {tree.parent.parent / f"{i}.jsonl" for i in ids if isinstance(i, str)}',
+    ),
+    "a parent id with a pattern read as a file name": (
+        AGENT_JSONL,
+        "if _plain(parent) else None",
+        "if isinstance(parent, str) else None",
     ),
     "the sibling scan unbounded": (AGG, "    if len(found) > MAX_SIBLINGS:\n", "    if False:\n"),
     "transcripts older than the briefs scanned": (
@@ -231,11 +297,6 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "and True",
     ),
     "the host side files scanned": (AGENT_JSONL, "not f.name.endswith(SIDE_FILES)", "True"),
-    "a rollout without a session record left out of the scan": (
-        ROLLOUT_JSONL,
-        'return [f for f in found if not ((m := records[f]) and m.get("id") in launchers)]',
-        'return [f for f in found if (m := records[f]) and m.get("id") not in launchers]',
-    ),
     "rollouts older than the briefs scanned": (
         ROLLOUT_JSONL,
         "            if f.stat().st_mtime >= since\n",
@@ -248,8 +309,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "the sessions that launched the judges counted as judges": (
         ROLLOUT_JSONL,
-        'return [f for f in found if not ((m := records[f]) and m.get("id") in launchers)]',
-        "return found",
+        'return {f for f, m in records.items() if m and m.get("id") in ids}',
+        "return set()",
     ),
     "only the judges' parent left out": (
         ROLLOUT_JSONL,
@@ -1302,18 +1363,23 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # The agent-jsonl adapter: a message from an agent is an input, the host's own is not.
     "an agent's message read as the host's own": (
         AGENT_JSONL,
-        '    return e.get("origin") is not None or inner is not None\n',
+        '    return e.get("origin") is not None or inner is not None or queued\n',
         "    return False\n",
     ),
     "an origin on the attachment ignored": (
         AGENT_JSONL,
-        '    return e.get("origin") is not None or inner is not None\n',
-        '    return e.get("origin") is not None\n',
+        '    return e.get("origin") is not None or inner is not None or queued\n',
+        '    return e.get("origin") is not None or queued\n',
     ),
     "an origin on the entry ignored": (
         AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None or queued\n',
+        "    return inner is not None or queued\n",
+    ),
+    "a queued command without an origin read as the host's": (
+        AGENT_JSONL,
+        '    return e.get("origin") is not None or inner is not None or queued\n',
         '    return e.get("origin") is not None or inner is not None\n',
-        "    return inner is not None\n",
     ),
     "an agent's attachment after the output not counted": (
         AGENT_JSONL,

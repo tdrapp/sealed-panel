@@ -289,10 +289,19 @@ class TestSiblingScan:
             rows = [*opening(brief, sid=sid, parent=PARENT), *closing(raw)]
             assert record_from(h.run, 1, meta["judge"], sid, False, write(h, rows, sid))["ok"]
 
-    def hidden(self, h: Harness, day: str = "16", month: str = "11", **who: Any) -> Path:
-        """A rollout holding judge 1's brief, never recorded."""
+    def hidden(
+        self, h: Harness, day: str = "16", month: str = "11", later: bool = False, **who: Any
+    ) -> Path:
+        """A rollout holding judge 1's brief, never recorded: in its prompt, or, with `later`,
+        only after its first output (a session that read the brief, or passed it on)."""
         nonce = h.keys(1)["judges"][0]["nonce"]
-        rows = [*opening(f"brief {nonce}", **who), *closing("{}")]
+        if later:
+            passed = item("function_call", name="spawn_agent", arguments=f"brief {nonce}")
+            rows = [*opening("Grade the text."), message("assistant", "On it."), passed]
+        else:
+            rows = [*opening(f"brief {nonce}", **who), *closing("{}")]
+        if later:
+            rows[0] = session(**who)
         path = write(h, rows, str(who.get("sid", "hidden")))
         if (month, day) != ("11", "16"):
             moved = path.parent.parent.parent / month / day / path.name
@@ -306,10 +315,27 @@ class TestSiblingScan:
         with pytest.raises(EvalError, match="never recorded: j1 hidden-1"):
             aggregate_round(h.run, 1, False)
 
-    def test_the_parent_session_is_not_a_sibling(self, h: Harness) -> None:
+    def test_a_launcher_without_the_brief_in_its_prompt_is_exempt(self, h: Harness) -> None:
         self.record_all(h)
-        self.hidden(h, sid=PARENT)  # the session that briefed the judges, in its own folder
+        self.hidden(h, later=True, sid=PARENT)  # passed the briefs on after its first output
         aggregate_round(h.run, 1, False)
+
+    def test_a_launcher_with_the_brief_in_its_prompt_is_a_judge(self, h: Harness) -> None:
+        """A judge that read the brief, answered, then started the recorded judge on it."""
+        self.record_all(h)
+        self.hidden(h, sid=PARENT)
+        with pytest.raises(
+            EvalError, match=f"in their prompt but were never recorded: j1 {PARENT}"
+        ):
+            aggregate_round(h.run, 1, False)
+
+    def test_another_session_holding_a_brief_elsewhere_blocks_the_round(self, h: Harness) -> None:
+        self.record_all(h)
+        self.hidden(h, later=True, sid="a-reader", parent=PARENT)
+        with pytest.raises(
+            EvalError, match="outside their prompt and launched no recorded judge: j1 a-reader"
+        ):
+            aggregate_round(h.run, 1, False)
 
     def test_a_judge_started_by_a_helper_subagent_blocks_the_round(self, h: Harness) -> None:
         self.record_all(h)
@@ -323,8 +349,7 @@ class TestSiblingScan:
         with pytest.raises(EvalError, match="never recorded: j1 old-folder-1"):
             aggregate_round(h.run, 1, False)
 
-    def test_every_session_that_launched_the_judges_is_left_out(self, h: Harness) -> None:
-        """The judges' parent, and its parent, hold the briefs they passed down."""
+    def record_under_a_helper(self, h: Harness) -> None:
         round_one(h)
         rdir = round_dir(h.run, 1)
         for meta in h.keys(1)["judges"]:
@@ -333,9 +358,22 @@ class TestSiblingScan:
             brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
             rows = [*opening(brief, sid=sid, parent="a-helper"), *closing(raw)]
             assert record_from(h.run, 1, meta["judge"], sid, False, write(h, rows, sid))["ok"]
-        self.hidden(h, sid="a-helper", parent=PARENT)
-        self.hidden(h, sid=PARENT)
+
+    def test_every_launcher_without_the_brief_in_its_prompt_is_exempt(self, h: Harness) -> None:
+        """The judges' parent, and its parent, passed the briefs down after their first output."""
+        self.record_under_a_helper(h)
+        self.hidden(h, later=True, sid="a-helper", parent=PARENT)
+        self.hidden(h, later=True, sid=PARENT)
         aggregate_round(h.run, 1, False)
+
+    def test_a_helper_given_the_brief_text_blocks_the_round(self, h: Harness) -> None:
+        self.record_under_a_helper(h)
+        self.hidden(h, sid="a-helper", parent=PARENT)
+        self.hidden(h, later=True, sid=PARENT)
+        with pytest.raises(
+            EvalError, match=r"never recorded: j1 a-helper.*give it the brief's path"
+        ):
+            aggregate_round(h.run, 1, False)
 
     def test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round(self, h: Harness) -> None:
         self.record_all(h)

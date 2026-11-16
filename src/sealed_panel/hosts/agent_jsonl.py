@@ -19,7 +19,9 @@ Who wrote an entry, measured on 3,564 transcripts (413 tool-free; structure and 
   `coordinator` (the agent that launched the subagent: 385 user entries, 54 attachments),
   `peer` (7 and 54) or `task-notification` (65 and 383). No origin names the host, so any origin,
   of a kind known or not, is an agent's: before the first output it is part of the prompt (the
-  whole-brief check and the extra-text count see it), after it a later input.
+  whole-brief check and the extra-text count see it), after it a later input. Older host
+  versions (2.1.260 to 2.1.280) write queued commands with no origin (182 `queued_command`
+  attachments), so every queued command is an agent's too.
 - Attachments before the first output (environment, model, date, project instructions in 385 of
   the 413, and others) are the host's and are not counted. After it, the host adds only
   `prompt_snapshot` attachments (380) and the tool results of the handback call (355); a user
@@ -34,6 +36,7 @@ without the brief, both refused; a fork that passes both is not detected.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -130,12 +133,15 @@ def _first_output(entries: list[dict[str, Any]]) -> int:
 
 def _agent_origin(e: dict[str, Any]) -> bool:
     """Whether an entry comes from an agent rather than from the host: it carries an `origin`,
-    on itself or on its attachment. Every origin measured names an agent or a task (the agent
-    that launched the judge, another agent, a task notification); none names the host, so any
-    origin, of a kind known or not, is an agent's."""
+    on itself or on its attachment, or it is a queued command. Every origin measured names an
+    agent or a task (the agent that launched the judge, another agent, a task notification);
+    none names the host, so any origin, of a kind known or not, is an agent's. Queued commands
+    from older host versions carry no origin (182 measured), so one is an agent's whatever it
+    carries."""
     attachment = e.get("attachment")
     inner = attachment.get("origin") if isinstance(attachment, dict) else None
-    return e.get("origin") is not None or inner is not None
+    queued = isinstance(attachment, dict) and attachment.get("type") == "queued_command"
+    return e.get("origin") is not None or inner is not None or queued
 
 
 def _host_own(e: dict[str, Any]) -> bool:
@@ -276,6 +282,8 @@ def read(path: Path) -> Transcript:
 
 # Files the host writes beside a subagent's transcript that are not transcripts.
 SIDE_FILES = (".meta.json", ".prefix.json")
+# A session or agent id read from a file, before it names another file.
+PLAIN_NAME = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def _tree(path: Path) -> Path:
@@ -285,20 +293,66 @@ def _tree(path: Path) -> Path:
     return next((p for p in path.parents if p.name == "subagents"), path.parent)
 
 
+def _plain(name: Any) -> bool:
+    """A value fit to name a file: letters, digits, `_` and `-` only."""
+    return isinstance(name, str) and PLAIN_NAME.fullmatch(name) is not None
+
+
+def _sessions(path: Path) -> set[Path]:
+    """The main session file a subagent transcript belongs to, `<project>/<session>.jsonl`
+    beside the session's folder. Measured: every subagent transcript names one session in its
+    entries' `sessionId`, whose file exists (3,564 of 3,564); the folder above `subagents/` has
+    the same name in 3,563. Both names are tried; none for a transcript under no `subagents/`."""
+    tree = next((p for p in path.parents if p.name == "subagents"), None)
+    if tree is None:
+        return set()
+    ids = {tree.parent.name} | {e.get("sessionId") for e in read_lines(path).entries}
+    return {tree.parent.parent / f"{i}.jsonl" for i in ids if _plain(i)}
+
+
+def _parents(path: Path) -> set[Path]:
+    """The subagents that launched this one, at any depth, from the `parentAgentId` of each
+    one's meta file (measured: 281 of 281 name a transcript of the same tree)."""
+    tree, current = _tree(path), path
+    found: set[Path] = set()
+    while True:
+        try:
+            meta = json.loads(current.with_name(current.stem + ".meta.json").read_text("utf-8"))
+        except (OSError, ValueError, RecursionError):
+            return found
+        parent = meta.get("parentAgentId") if isinstance(meta, dict) else None
+        nxt = next(tree.rglob(f"agent-{parent}.jsonl"), None) if _plain(parent) else None
+        if nxt is None or nxt in found:
+            return found
+        found.add(nxt)
+        current = nxt
+
+
 def siblings(paths: list[Path], since: float) -> list[Path]:
     """Every file under the `subagents/` folder of each recorded transcript's session, at any
-    depth, last changed at or after `since`, the host's side files left out. A purged folder
-    lists nothing.
+    depth, the host's side files left out, and the main session file each belongs to, last
+    changed at or after `since`. A purged folder lists nothing.
 
     Args:
         paths: The recorded transcripts.
         since: The earliest last-change time, in seconds since the epoch.
     """
+    tree = {f for root in {_tree(p) for p in paths} for f in root.rglob("*")}
+    mains = {f for p in paths for f in _sessions(p)}
     return sorted(
-        {
-            f
-            for root in {_tree(p) for p in paths}
-            for f in root.rglob("*")
-            if f.is_file() and not f.name.endswith(SIDE_FILES) and f.stat().st_mtime >= since
-        }
+        f
+        for f in tree | mains
+        if f.is_file() and not f.name.endswith(SIDE_FILES) and f.stat().st_mtime >= since
     )
+
+
+def launchers(paths: list[Path], candidates: list[Path]) -> set[Path]:
+    """The files of the sessions that launched the recorded judges: each one's main session and
+    the subagents above it.
+
+    Args:
+        paths: The recorded transcripts.
+        candidates: The files the scan reads (unused: the launchers are found from the
+            recorded transcripts alone).
+    """
+    return {f for p in paths for f in _sessions(p) | _parents(p)}

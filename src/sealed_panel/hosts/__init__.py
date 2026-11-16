@@ -16,8 +16,8 @@ from . import agent_jsonl, rollout_jsonl
 # Every format sealed-panel reads, by the id `[transcript] format` takes. Closed: a format is
 # added in code, with its tests, never by a setting.
 FORMATS: dict[str, Adapter] = {
-    "agent-jsonl": Adapter(read=agent_jsonl.read, siblings=agent_jsonl.siblings),
-    "rollout-jsonl": Adapter(read=rollout_jsonl.read, siblings=rollout_jsonl.siblings),
+    "agent-jsonl": Adapter(agent_jsonl.read, agent_jsonl.siblings, agent_jsonl.launchers),
+    "rollout-jsonl": Adapter(rollout_jsonl.read, rollout_jsonl.siblings, rollout_jsonl.launchers),
 }
 
 
