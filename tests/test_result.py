@@ -8,6 +8,7 @@ import re
 import stat
 import types
 import typing
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from sealed_panel.errors import EvalError
 from sealed_panel.model import RESULT_FILE, RESULT_SCHEMA_VERSION, ResultFile
 from sealed_panel.record import record_reply
 from sealed_panel.report import HASH_CHARS, render_report
-from sealed_panel.result import GradeResult, result_view
+from sealed_panel.result import GradeResult, release, result_view, write_result
 from sealed_panel.steps import aggregate_round
 from sealed_panel.store import round_dir
 
@@ -176,6 +177,22 @@ class TestTheFile:
         h.full(1, "cand", FLAT)
         assert result_view(h.run) is None
         assert not (h.run / RESULT_FILE).exists()
+
+    def test_never_written_without_a_sealed_panel(self, h: Harness) -> None:
+        h.init()
+        h.full(1, "cand", FLAT)
+        with pytest.raises(EvalError, match="no sealed panel is aggregated"):
+            write_result(h.run)
+        assert not (h.run / RESULT_FILE).exists()
+
+    def test_the_release_is_unknown_when_not_installed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def missing(name: str) -> str:
+            raise metadata.PackageNotFoundError(name)
+
+        monkeypatch.setattr(metadata, "version", missing)
+        assert release() == "unknown"
 
     def test_written_by_the_sealed_aggregate_owner_only(self, h: Harness) -> None:
         h.init()

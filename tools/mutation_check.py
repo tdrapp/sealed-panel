@@ -1803,6 +1803,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        if version > RESULT_SCHEMA_VERSION:\n",
         "        if False:\n",
     ),
+    "a result file written without a sealed panel": (
+        RESULT,
+        "    if view is None:\n",
+        "    if False:\n",
+    ),
     "a damaged result file read": (
         RESULT,
         "        if set(data) != expected:\n",
