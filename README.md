@@ -335,19 +335,23 @@ every refusal holds. Learning (rubric candidates, your own read of the grade) is
 host can answer a confirmation by itself, so it stays on the command line, where a person
 decides.
 
-**As a plugin.** The repository is a plugin and its own marketplace for agent hosts that
-install plugins from git. It starts the MCP server with `uvx`, and brings the skill and a judge
-agent. It works out of the box: it reads judge transcripts from the host's own folder under your
-home, and you can change that folder in the plugin's settings (`/config`). Start the host from
-a project directory, not from your home folder:
+**Per host.** Everything one agent host reads sits in its own folder under `hosts/`, with a
+README: a plugin, for hosts that install plugins from git, and a skill folder with its server
+configuration, for hosts that read skill folders. The repository is the plugin's marketplace,
+and its entry installs the plugin folder alone, at the release tag. The plugin starts the MCP
+server with `uvx`, and brings the skill and a judge agent. It works out of the box: it reads
+judge transcripts from the host's own folder under your home, and you can change that folder in
+the plugin's settings (`/config`). Start the host from a project directory, not from your home
+folder:
 
 ```
 /plugin marketplace add tdrapp/sealed-panel
 /plugin install sealed-panel@sealed-panel
 ```
 
-Hosts that read `.agents/skills/` find the skill there; their TOML configuration for the
-server is in the integrations guide.
+For hosts that read `.agents/skills/`, copy `hosts/<host>/skills/sealed-panel/` into your
+user skill folder and add the server table of that folder's `config.toml` to the host's
+configuration; the folder's README says where.
 
 **API pipelines.** Set `[judge] command` to a script that reads the brief on stdin and prints
 your model's answer, name its API key in `[judge] env_allow`, and call `judge_round` from
@@ -412,16 +416,17 @@ sealed-panel/
     complexity_check.py  no function grows past complexity_baseline.json
     complexity_baseline.json  the complexity budget, entry by entry
     check_commit_msg.py  the commit-msg hook: Conventional Commits, subject under 72
+    build_hosts.py       writes each host's copy of skill/ (a test keeps them equal)
   skill/
     SKILL.md             the procedure an agent follows (the one source of the skill)
     judge.md             the judge instructions
     spec.example.json    a spec to start from
     spec-reference.md    every spec key
-  skills/sealed-panel/   copy of skill/ for the plugin (a test keeps them equal)
-  .agents/skills/sealed-panel/  copy of skill/ for hosts that read .agents/skills
-  agents/eval-judge.md   the plugin's judge agent, from skill/judge.md
-  .mcp.json              the plugin's MCP server, started with uvx
-  plugin folder          plugin.json and marketplace.json, at the root
+  hosts/                 one folder per agent host, everything that host reads, with a README
+    <plugin host>/       the plugin: manifest, .mcp.json (the server, started with uvx),
+                         agents/eval-judge.md, skills/sealed-panel/
+    <skill host>/        skills/sealed-panel/ and config.toml (the server table)
+  plugin folder          marketplace.json alone, at the root, where its host looks for it
   examples/announcement/
     spec.json            the example rubric
     facts.md             the facts the judges may trust

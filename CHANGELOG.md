@@ -18,9 +18,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A judge whose session carries another session's history (a fork) is rejected, and so is a
   judge that got an input after its first output, beyond what its host adds on its own: an
   input after an answer can ask again, a re-roll. Each refusal has a mutation.
+- `tools/build_hosts.py` writes each host's copy of the skill, and the body of the plugin's
+  judge agent, from `skill/`; `--check` lists what drifted and writes nothing.
 
 ### Changed
 
+- **Breaking:** Everything one agent host reads moved into that host's folder under `hosts/`,
+  each with a README: the plugin (its manifest, `.mcp.json`, `agents/eval-judge.md` and its
+  skill copy) moved from the repository root to its host's folder, and the skill copy that sat
+  in `.agents/skills/sealed-panel/` moved, with the server table of the integration guide as a
+  `config.toml`, to the other host's folder. The root keeps only the marketplace file, whose
+  entry now installs the plugin folder alone (a `git-subdir` source) at the release tag. An
+  installed plugin keeps working at 0.4.0; to update, refresh the marketplace once 0.4.1 is
+  tagged (`/plugin marketplace update sealed-panel`), then update the plugin; the host's
+  section of `docs/integrations.md` gives the commands. A host started in a clone no longer
+  finds the skill in the repository's `.agents/skills/`: copy
+  `hosts/<host>/skills/sealed-panel/` into your user skill folder.
 - **Breaking:** A transcript whose structure its adapter does not recognise is refused (nothing
   is stored) instead of read past: an entry of a checked type with another shape, an untyped
   content block, a file with no message, two agent ids in one file. Before: entries of another
