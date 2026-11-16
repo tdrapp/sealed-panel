@@ -3,6 +3,7 @@ same checks as a spec file."""
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import sys
@@ -72,6 +73,23 @@ def test_a_spec_built_in_python_freezes_like_its_file(tmp_path: Path) -> None:
     from_file = init_run(tmp_path / "file", path)
     from_spec = init_run(tmp_path / "spec", spec)
     assert from_file == from_spec == rubric_hash(load_frozen(tmp_path / "spec"))
+
+
+def test_init_run_leaves_the_spec_unchanged(tmp_path: Path) -> None:
+    """init_run completes a template reference (sha256, modified) in the dict it freezes: that
+    dict is a copy, never the caller's frozen Spec."""
+    data = make_spec()
+    spec = Spec(
+        title=data["title"],
+        purpose=data["purpose"],
+        personas=tuple(data["personas"]),
+        dimensions=tuple(data["dimensions"]),
+        template={"id": "message", "version": 1},
+    )
+    before = copy.deepcopy(spec)
+    init_run(tmp_path / "run", spec, library=tmp_path / "library")
+    assert spec == before and spec.template == {"id": "message", "version": 1}
+    assert set(load_frozen(tmp_path / "run")["template"]) == {"id", "version", "sha256", "modified"}
 
 
 def test_a_spec_built_in_python_is_refused_like_a_file(tmp_path: Path) -> None:

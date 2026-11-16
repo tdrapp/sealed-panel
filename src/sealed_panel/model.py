@@ -394,11 +394,13 @@ class Spec:
 
     def to_json(self) -> dict[str, Any]:
         """The spec as a spec file holds it: every key given, in field order, sequences as
-        lists, and nothing for a key left at None or empty."""
+        lists, and nothing for a key left at None or empty. Every value is a copy, so freezing
+        the result never changes this Spec."""
         out: dict[str, Any] = {}
         for f in fields(self):
             value = getattr(self, f.name)
             if value is None or value == ():
                 continue
-            out[f.name] = [copy.deepcopy(v) for v in value] if isinstance(value, tuple) else value
+            # A copy: init_run completes the template reference in place.
+            out[f.name] = copy.deepcopy(list(value) if isinstance(value, tuple) else value)
         return out

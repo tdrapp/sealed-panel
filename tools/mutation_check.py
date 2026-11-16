@@ -773,6 +773,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    errors = [f\"{MISSING_KEY} {'.'.join((*path, k))!r}\" for k in shape if k not in data]\n",
         "    errors: list[str] = []\n",
     ),
+    "a Spec changed by init_run": (
+        f"{PKG}/model.py",
+        "out[f.name] = copy.deepcopy(list(value) if isinstance(value, tuple) else value)",
+        "out[f.name] = list(value) if isinstance(value, tuple) else value",
+    ),
     "a blank required anchor accepted": (
         RUBRIC,
         "if not (isinstance(anchors.get(lvl), str) and anchors[lvl].strip())",
