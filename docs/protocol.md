@@ -187,23 +187,25 @@ three kinds of proof, and the report says which one each round used.
   neutral record it returns (the prompt, the reply, the tools called, the agent id, the inputs
   after the first output, and whether the session is a fork). An adapter reads its format by its
   own structure and refuses a file it does not recognise, rather than guess. The judge's prompt
-  must contain the whole brief; text added around it, project instructions the host injects
-  included, is counted and reported, and an agent that holds a brief id but was never recorded
-  blocks the aggregation. A transcript showing that the judge called any tool other than its
-  format's handback tool is rejected, and any item the adapter does not know as a message or
-  reasoning counts as a tool call: a judge with a tool could have read the run's keys and known
-  which item is the candidate. A session that carries another session's history (a fork) is
-  rejected: that history can hold the labels or other judges' replies. An input that reached the
-  judge after its first output, beyond what its host adds on its own, is rejected: asking again
-  after an answer is a re-roll. A transcript whose last line is cut off is rejected, never read
-  back to the reply before it, which may be a draft the judge replaced. The scan for unrecorded
-  agents reads the transcripts the adapter lists beside a recorded one, written since the round
-  was briefed, at most 1000 (more refuse the aggregation); one that holds a brief id and cannot
-  be read refuses it too. Through MCP a transcript counts only under a `--transcript-root`, away
-  from the root, its links followed and refused unless it stays there: a file the author wrote
-  in its workspace is no proof. Host-mode `record` holds the seat's lock too, so two concurrent
-  calls never both pass the seat check. An author with shell access to that folder can still
-  forge one, so the runner stays the strong proof.
+  must contain the whole brief; text added around it is counted and reported (an input the host
+  marks as its own is not; project instructions are marked so by one format and not by the
+  other, see the known limits), and an agent that holds a brief id but was never recorded blocks
+  the aggregation. A transcript showing that the judge called any tool other than its format's
+  handback tool is rejected, and any item the adapter does not know as a message or reasoning
+  counts as a tool call: a judge with a tool could have read the run's keys and known which item
+  is the candidate. A session that carries another session's history (a fork) is rejected: that
+  history can hold the labels or other judges' replies. An input that reached the judge after
+  its first output, beyond what its host adds on its own, is rejected: asking again after an
+  answer is a re-roll. A transcript whose last line is cut off is rejected, never read back to
+  the reply before it, which may be a draft the judge replaced. The scan for unrecorded agents
+  reads the transcripts the adapter lists for the recorded ones (the folder tree or the sessions
+  root they sit in), changed since the round was briefed, at most 1000 (more refuse the
+  aggregation); one that holds a brief id and cannot be read refuses it too. Through MCP a
+  transcript counts only under a `--transcript-root`, away from the root, its links followed and
+  refused unless it stays there: a file the author wrote in its workspace is no proof. Host-mode
+  `record` holds the seat's lock too, so two concurrent calls never both pass the seat check. An
+  author with shell access to that folder can still forge one, so the runner stays the strong
+  proof.
 - **Pasted (`record --output`).** Nothing shows that the judge received the brief verbatim,
   or that no other judge was asked and discarded. The report flags such rounds.
 
@@ -233,9 +235,11 @@ three kinds of proof, and the report says which one each round used.
 - Replacing rejected judges selects the panel toward judges that pass calibration, which can
   shift it.
 - The judges' prompt is checked only through transcripts: text added around the brief is counted
-  and reported, but its effect is not measured. What a host adds before the first output and
-  marks as its own in the transcript (its system messages, attached instruction files) is not
-  counted; [integrations.md](integrations.md#transcript-formats) says what each format marks.
+  and reported, but its effect is not measured. What a host adds and marks as its own in the
+  transcript (its system messages, attached instruction files) is not counted, before or after
+  the first output: project instructions are counted where a format leaves them unmarked, and
+  not where it marks them, so the same input is flagged for one host and not the other.
+  [integrations.md](integrations.md#transcript-formats) says what each format marks.
 - `record` and `judge` calls may overlap: each holds its seat's lock, and the run-wide checks
   (an agent id or a reply used twice in the run, a round briefed twice, a reading lost) run
   under the run's lock. Lock order: a call takes its seat locks first and the run lock last,

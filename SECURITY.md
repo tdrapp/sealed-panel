@@ -63,6 +63,17 @@ The adversaries:
   command takes runner replies only, on every seat; the library refuses a runner reply from any
   caller but the runner; every process started ends recorded, at worst as a void (recorded by
   the next call when the runner itself died).
+- **In host mode, a transcript is read by its format's adapter, which fails closed.** The run
+  freezes `[transcript] format`, and the adapter that format names, from a closed list in code,
+  reads every transcript of the run. A file whose structure the adapter does not recognise is
+  refused, never guessed. A judge whose transcript shows a call (any item that is neither a
+  message nor reasoning, the format's handback tool excepted), a session carrying another
+  session's history (a fork, where the format marks one), or an input after its first output is
+  rejected; a message from another agent counts as an input, before the first output (in the
+  prompt, so the whole-brief check and the extra-text flag see it) and after it (rejected).
+  Before a round is aggregated, the transcripts the adapter lists for the recorded ones are read
+  for the round's brief ids, and one that holds an id and is not recorded, or cannot be read,
+  blocks the round.
 - **Every re-roll path through the commands and tools that this version knows of is refused**,
   or flagged in the report where it cannot be checked (a pasted reply, a changed judge
   environment, text added around a brief).
@@ -90,6 +101,22 @@ The adversaries:
   shown next to the grade.
 - **An agent with a shell** can run the command line with a configuration of its own; the
   report shows that choice next to the grade.
+- **What a transcript does not prove.** In host mode the host launches the judge, and
+  sealed-panel sees only the file the host wrote: not the judge's tools, its model or its
+  directory, only what the file records. What the host marks as its own in a transcript (its
+  system messages, attached instruction files) is not counted as an input; a host message that
+  steers a judge is not seen. Lines a format's adapter skips (host metadata, session state that
+  may hold instructions) are not read, so instructions a host injects that way are not seen.
+  The first format (`agent-jsonl`) has no fork marker: a carried history is refused only when
+  it shows as a call or puts the brief after the first output. The scan for unrecorded judges
+  reads only files changed since the round was briefed (minus 60 seconds), under the recorded
+  transcripts' folder tree (`agent-jsonl`) or sessions root (`rollout-jsonl`), and refuses past
+  1000 files; a judge whose file lies elsewhere, or whose date was set back, is not found. The
+  sessions that launched the recorded judges (`rollout-jsonl`) are left out of it.
+- **Field names of a transcript.** Until 0.4.1, `[transcript]` held the field names the one
+  reader used; they are no longer settings, so a configuration cannot point the reader at other
+  fields. A file that sets one is refused; a run frozen with values other than the 0.4.0
+  defaults is refused and finished with 0.4.0.
 - **Locks against other programs.** `flock` is advisory: it binds sealed-panel's own calls
   only, and may not hold on a network filesystem (NFS).
 - **Unsupported platforms.** Windows is not supported.
@@ -148,6 +175,20 @@ tool writes it after `init`.
 | (none) | run directories readable by others under an open umask | in | added: every directory of a run is created 0700 | `test_every_file_a_run_holds_is_owner_only`; mutation `a run directory readable by others` |
 | Setting bounds and the overrides printed next to the grade | a setting that switches off a guard unseen | in | kept, unchanged | `test_every_changed_key_is_printed`; mutations `overrides hidden`, `run bounds off`, `judge timeout unbounded` |
 | No promote or reject tool on the MCP server | a rubric candidate promoted or rejected by the author | in | kept, unchanged | `test_tools_names_order_and_annotations`, `tests/test_mcp_schema.py` (no mutation: the guard is an absent tool) |
+
+### Added in 0.4.1: the transcript adapters
+
+| Guard | Threat it answers | Scope | Pinned by |
+|---|---|---|---|
+| A transcript of unknown structure refused (`FormatError`), nothing stored | a reader that skips what it does not know misses a call or a later input | in | `test_an_entry_of_another_shape_is_refused`, `test_a_file_of_another_format_is_refused`, `test_two_agent_ids_are_refused`, `test_an_item_of_another_shape_is_refused`, `test_a_file_without_a_session_record_is_refused`, `test_a_session_record_without_an_id_is_refused`; mutations `an entry of another shape read`, `a file without messages read`, `two agent ids read as one`, `an untyped block accepted`, `an assistant string content accepted`, `an attachment without a type accepted`, `a rollout without a session record read`, `a model item of another shape read`, `a session record without an id read` |
+| Any item that is neither a message nor reasoning counts as a call | a tool of a new type unseen, so a judge that read the run passes | in | `test_an_unknown_block_counts_as_a_call`, `test_an_unknown_item_counts_as_a_call`, `test_a_judge_that_ran_a_command_is_rejected`; mutations `an unknown assistant block not counted as a call`, `an unknown rollout item not counted as a call`, `a judge that used a tool is read` |
+| A fork rejected (`rollout-jsonl`: a fork key or a second session record) | a judge whose context holds the run's labels or other judges' replies | in; a fork in `agent-jsonl`, which has no marker: out, refused only through the prompt and call rules | `test_a_fork_is_rejected`, `test_either_fork_sign_is_enough`; mutations `a forked judge read`, `a fork marker ignored`, `a second session record ignored` |
+| An input after the first output rejected; every turn after it counts | asking a judge again after it answered: a re-roll | in | `test_an_input_after_the_first_output_is_refused`, `test_a_second_turn_is_rejected`, `test_a_turn_without_a_message_still_counts`, `test_a_message_within_the_turn_is_rejected`, `test_any_input_item_after_the_output_counts`, `test_reasoning_before_the_answer_is_not_an_output`; mutations `a judge with a later input is read`, `a later string input not counted`, `a later text block not counted`, `a later attachment not counted`, `a later user entry with a tool result and text not counted`, `an agent's attachment after the output not counted`, `a later turn not counted`, `a later rollout message not counted`, `a later agent message not counted`, `the prompt counted as a later input`, `reasoning taken as the first output` |
+| A message from another agent is an input: in the prompt before the first output, a later input after it | a steer sent to the judge right after launch, counted nowhere | in | `TestHostOwnMessages`, `test_an_input_after_the_first_output_is_refused`; mutations `an agent's message read as the host's own`, `an origin on the attachment ignored`, `an origin on the entry ignored`, `an agent's attachment left out of the prompt`, `an agent attachment without a prompt left out` |
+| The host's own messages are not inputs | a legitimate judge refused for what its host repeats | in (a false refusal) | `test_a_host_message_after_the_output_is_not_an_input`, `test_a_tool_free_judge_is_read_with_no_prompt_extra`, `test_a_one_turn_tool_free_judge_is_read`; mutations `the host's own message counted in the prompt`, `the host's own message after the output counted as an input`, `the host's snapshot counted as a later input`, `the host's developer messages counted in the prompt` |
+| The scan for unrecorded judges: bounded, refusing past the cap, an unreadable file holding a brief id blocking | a judge launched and kept quiet; a scan that stops short | in | `test_the_scan_is_bounded`, `test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round` (both formats), `test_an_unreadable_sibling_without_a_brief_id_is_skipped`, `test_a_file_older_than_the_briefs_is_not_scanned`, `test_a_rollout_older_than_the_briefs_is_not_scanned`; mutations `the sibling scan unbounded`, `an unreadable sibling holding a brief id read by its file name`, `every sibling parsed, a brief id or not`, `transcripts older than the briefs scanned`, `rollouts older than the briefs scanned`, `a rollout without a session record left out of the scan` |
+| The scan's reach: the whole `subagents/` tree (`agent-jsonl`); the whole sessions root, whatever the date folder or parent, the launching sessions excepted (`rollout-jsonl`) | a judge launched from a workflow folder, by a helper agent, or in a session filed days earlier | in | `test_a_workflow_subfolder_is_scanned`, `test_judges_in_a_workflow_subfolder_scan_the_whole_tree`, `test_the_host_side_files_are_not_scanned`, `test_a_judge_started_by_a_helper_subagent_blocks_the_round`, `test_a_session_filed_days_earlier_blocks_the_round`, `test_a_sibling_filed_the_next_day_blocks_the_round`, `test_every_session_that_launched_the_judges_is_left_out`, `test_the_parent_session_is_not_a_sibling`; mutations `a nested subagents folder not scanned`, `the subagents tree not found`, `the host side files scanned`, `a session filed in another date folder not scanned`, `the sessions that launched the judges counted as judges`, `only the judges' parent left out` |
+| The transcript field names removed; a closed list of formats | a configuration pointing the reader at fields that hide a call or an input | in | `test_a_removed_field_name_is_refused_by_name`, `TestFrozenBeforeTheAdapters`, `test_out_of_bound_values_refused`; mutations `a removed transcript field name accepted`, `an unknown transcript format accepted`, `a run frozen with other field names read as the default format`, `the forward rule read before the lock check` |
 
 ## Reporting a vulnerability
 

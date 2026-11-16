@@ -165,56 +165,70 @@ Every adapter refuses the same things, whatever the host:
 | A structure the adapter does not recognise | refuses it, stores nothing | a guess at an unknown format could miss a tool call or a later input; check `format`, or upgrade |
 | A tool call, other than the format's own handback tool; any item that is neither a message nor reasoning counts as one | records the attempt as rejected | a judge with a tool could have read the run and learned which item is the candidate |
 | A session that carries another session's history (a fork) | records the attempt as rejected | the history can hold the run's labels or other judges' replies |
-| An input after the judge's first output, beyond what the host adds on its own | records the attempt as rejected | an input after an answer can steer it or ask again: a re-roll |
-| Text before the first output besides the brief, project instructions included | records the attempt, and the report flags the characters added | the judge read more than its brief |
+| An input after the judge's first output, beyond what the host adds on its own; a message from another agent always counts | records the attempt as rejected | an input after an answer can steer it or ask again: a re-roll |
+| Text before the first output besides the brief, a message from another agent included | records the attempt, and the report flags the characters added | the judge read more than its brief |
 
 A rejected attempt counts against the seat's replacements: brief a fresh judge on the same
 brief. Launch judges from an empty directory: a host that injects project instructions reads
 them from the directory the agent starts in, and they reach the judge with its brief.
 
-Known limit: project instructions are flagged on one host and not on the other. Where the host
-marks them as its own (an attachment in `agent-jsonl`), they are not counted in the prompt, as
-in 0.4.0; where it does not (user messages in `rollout-jsonl`), they are counted and flagged. So
-the same kind of input shows in the report for one host only. A separate field for the context
-a host adds on its own is planned with the result file of the next release.
+Known limits:
 
-Before a round is aggregated, the transcripts the adapter lists beside each recorded one are
-read for the round's brief ids: an agent that holds one and was never recorded blocks the round
-(record it, or record it as a void when it never replied). Only files written since the round
-was briefed are read, at most 1000; past that, aggregation is refused rather than stop short. A
-file that holds a brief id and cannot be read also blocks the round.
+- Project instructions are flagged on one host and not on the other. Where the host marks them
+  as its own (an attachment in `agent-jsonl`), they are not counted in the prompt, as in 0.4.0;
+  where it does not (user messages in `rollout-jsonl`), they are counted and flagged. So the
+  same kind of input shows in the report for one host only. A separate field for the context a
+  host adds on its own is planned with the result file of the next release.
+- What a host adds as its own, before or after the first output, is not counted: an adapter
+  trusts the host's own marks. A host message that steers a judge is not seen.
+- Instructions a host may inject through session state the adapter skips are not seen (see the
+  `rollout-jsonl` section).
+
+Before a round is aggregated, the transcripts the adapter lists for the recorded ones are read
+for the round's brief ids: an agent that holds one and was never recorded blocks the round
+(record it, or record it as a void when it never replied). Only files changed since the round
+was briefed (minus 60 seconds) are read, at most 1000; past that, aggregation is refused rather
+than stop short. A file that holds a brief id and cannot be read also blocks the round. A file
+changed before the briefs, or whose date was set back, is not read.
 
 ### Claude Code: `agent-jsonl`
 
-The default format. Claude Code writes one JSONL file per subagent,
-`~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`, and every entry carries the
-subagent's `agentId`, the id to give `record --agent-id`. Give the plugin's server that
+The default format. Claude Code writes one JSONL file per subagent, `agent-<id>.jsonl`, under
+`~/.claude/projects/<project>/<session>/subagents/`, at its top or in subfolders such as
+`workflows/wf_<id>/`, and every entry carries the subagent's `agentId`, the id to give `record
+--agent-id`. Give the plugin's server that
 `projects` folder as its transcript root (the plugin does by default). The judge is the
 plugin's `eval-judge` agent, which has no tools (see [Agent host plugin](#agent-host-plugin));
 its answer is its last text, or the message of its `SubagentHandback` call in auto mode.
 
-What the adapter reads, from the 413 tool-free subagent transcripts among 3,563 measured,
+What the adapter reads, from the 413 tool-free subagent transcripts among 3,564 measured,
 written by versions 2.1.219 to 2.1.325:
 
-- Before the first output, the host adds a message of its own marked `isMeta` (355 of 413, the
-  same 341 characters each time) and attachments (environment, model, date, project
-  instructions). Neither is counted in the prompt: the prompt is every unmarked user text
-  before the first output. Project instructions (your instruction files) arrive as an
-  attachment, so the report does not flag them on this host; launching from an empty directory
-  keeps the project's own out.
+- The host's own messages are user entries marked `isMeta` that carry no `origin`. Before the
+  first output it adds one (355 of 413, the same 341 characters each time), with attachments
+  (environment, model, date, project instructions). None of these is counted in the prompt.
+  Project instructions (your instruction files) arrive as an attachment, so the report does not
+  flag them on this host; launching from an empty directory keeps the project's own out.
+- Messages from agents carry an `origin`, on the entry or on its attachment: `coordinator` (the
+  agent that launched the subagent), `peer` (another agent) or `task-notification`. No origin
+  measured names the host, so any origin, of a kind known or not, is an agent's: before the
+  first output it is part of the prompt, so the whole-brief check and the extra-text flag see a
+  steer sent right after launch; after it, it is a later input.
 - After the first output, the host adds `prompt_snapshot` attachments and the result of the
-  handback call, which are allowed. Any other attachment, and any user entry with text, counts
-  as a later input. 2 of the 413 transcripts had one (a host message after the answer) and
-  would be refused: the judge is briefed again.
-- No fork marker exists in this format: every entry of the 3,563 subagent transcripts measured
-  is marked as the subagent's. A history carried from another session would put that
-  session's prompt and calls before the brief, so the prompt check or the tool rule refuses it.
+  handback call, and may repeat a message of its own (1 of the 413; 9 files hold that same
+  message): all allowed. Any other attachment, and any user entry with text that is not the
+  host's own, counts as a later input. 1 of the 413 has one (3 messages from the agent that
+  launched it, after its answer) and would be refused: the judge is briefed again.
+- No fork marker exists in this format: every entry of the transcripts measured is marked as
+  the subagent's. A history carried from another session would put that session's prompt and
+  calls before the brief, so the prompt check or the tool rule refuses it; a fork that passes
+  both is not detected.
 - Entry types the host adds between versions (`api-request` and others) are skipped; the
-  adapter checks the shape of `user`, `assistant` and `attachment` entries only. All 3,563
+  adapter checks the shape of `user`, `assistant` and `attachment` entries only. All 3,564
   transcripts read without a structure refusal.
 
-The scan for unrecorded judges reads every file of the same `subagents/` folder but the host's
-side files (`*.meta.json`, `*.prefix.json`).
+The scan for unrecorded judges reads every file under the session's `subagents/` folder, at any
+depth, but the host's side files (`*.meta.json`, `*.prefix.json`).
 
 ### Codex CLI: `rollout-jsonl`
 
@@ -243,13 +257,23 @@ versions 0.162.0 and 0.163.0 (alpha builds):
   one turn: every input after its first output, and every turn started after it, counts as a
   later input. Of the 3 tool-free sessions measured, 2 had more than one turn and would be
   refused.
+- An `agent_message` after the first output (4 of the 6 subagent sessions hold one) is a later
+  input, as is any input item that is not the judge's own output.
 - Line types the host adds between versions (`turn_context`, `token_usage_record` and others)
   are skipped; the adapter checks the session record and every model item.
+- Known limit: `world_state` lines hold instruction text, and are skipped. Their project
+  instructions also appear as a user message of the same file (10 of 10), which is counted;
+  their collaboration and permission instructions (17 and 14) appear in no message, and the
+  files do not show whether the host renders them to the model. Instructions the host may
+  inject through session state are not seen by the adapter.
 
-The scan for unrecorded judges reads the rollouts filed on the recorded one's day and the days
-before and after it that belong to its group: subagents of the same parent session, or, for a
-session without a parent, sessions started in the same directory. The session that briefed the
-judges is not in its own group, so its copy of the briefs does not block the round.
+The scan for unrecorded judges reads every rollout under the sessions root (`~/.codex/sessions`)
+changed since the round was briefed, whatever its date folder or parent session: a judge
+started by a helper subagent, or a session started days before it got the brief, is read. The
+sessions that launched the recorded judges (each one's parent, that parent's parent, and so on)
+hold the briefs they passed down and are left out. A top-level session that pastes the briefs
+but launched no recorded judge as its subagent is read, and blocks the round: start the judges
+as its subagents, or give `codex exec` the brief file rather than pasting it.
 
 Not verified with a real judge session on this host: which options start a session without
 tools, whether a subagent can be started in another directory, and how a subagent hands its

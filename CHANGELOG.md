@@ -27,14 +27,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shape were skipped.
 - **Breaking:** Any assistant item that is neither text nor reasoning counts as a tool call,
   whatever its type. Before: only a type ending in `tool_use` did.
-- The prompt a transcript is checked against is every unmarked user input before the judge's
-  first output, not only the first user entry: a second one is counted as a prompt extra.
-- The scan for unrecorded judges reads the transcripts the run's adapter lists beside each
-  recorded one, last written since the round was briefed (minus 60 seconds), and refuses the
-  aggregation past 1000 rather than stop short. A file that holds a brief id of the round and
-  cannot be read refuses it too; a file without one is never parsed. Before: every file of the
-  recorded transcripts' folders was read. For `agent-jsonl`, the host's `*.meta.json` and
-  `*.prefix.json` side files are no longer read.
+- The prompt a transcript is checked against is every input before the judge's first output
+  but what the host marks as its own, not only the first user entry: a second one, or a message
+  from another agent (an entry carrying an `origin` in `agent-jsonl`, whatever its kind), is
+  counted as a prompt extra. A message from another agent after the first output is a later
+  input; the host's own message (marked `isMeta`, with no `origin`) is neither.
+- The scan for unrecorded judges reads the transcripts the run's adapter lists for the recorded
+  ones, last changed since the round was briefed (minus 60 seconds), and refuses the
+  aggregation past 1000 rather than stop short. For `agent-jsonl`, every file under the
+  session's `subagents/` folder at any depth, the host's `*.meta.json` and `*.prefix.json` side
+  files excepted; for `rollout-jsonl`, every session file under the sessions root, whatever its
+  date folder or parent, but the sessions that launched the recorded judges. A file that holds a
+  brief id of the round and cannot be read refuses it too; a file without one is never parsed.
+  Before: every file of the recorded transcripts' own folders was read.
 - A run frozen by 0.4.0 holds the transcript field names and no `format`: after its
   `config.lock` is checked as written, it reads as `agent-jsonl` when they hold the 0.4.0
   defaults (docs/protocol.md section 11).
