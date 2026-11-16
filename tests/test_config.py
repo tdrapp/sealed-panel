@@ -122,7 +122,7 @@ class TestBounds:
             ("[run]\njudges_per_persona = 1\n", "judges_per_persona must be >="),
             ("[run]\nmax_rounds = 0\n", "max_rounds must be >="),
             ("[run]\njudges_per_persona = 10\n", "judges_per_persona must be <= 9"),
-            ('[transcript]\nrole_key = ""\n', "transcript.role_key must not be empty"),
+            ('[transcript]\nformat = "plain-text"\n', "transcript.format must be one of"),
         ],
     )
     def test_out_of_bound_values_refused(self, tmp_path: Path, toml: str, match: str) -> None:

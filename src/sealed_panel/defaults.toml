@@ -43,32 +43,10 @@ min_fragment_chars = 6
 max_bad_share = "1/3"
 
 [transcript]
-# A transcript is a JSONL file. The reply is the last entry whose role_key equals
-# assistant_role and whose message holds at least one non-empty text block. The prompt is
-# the first entry whose role_key equals user_role; it must contain the whole brief.
-role_key = "type"
-assistant_role = "assistant"
-user_role = "user"
-message_key = "message"
-content_key = "content"
-block_type_key = "type"
-text_block_type = "text"
-text_key = "text"
-# Key holding the agent id. When present, it must equal --agent-id.
-agent_id_key = "agentId"
-# Some agent runtimes return a subagent's answer as a tool call rather than as a final text.
-# Name that tool here to read its message as the reply; empty means no tool is read. A
-# runtime without this tool is unaffected. A run frozen earlier keeps the value it has.
-handback_tool = "SubagentHandback"
-tool_block_type = "tool_use"
-tool_name_key = "name"
-tool_input_key = "input"
-tool_message_key = "message"
-# A handback whose tool result (in a user entry) is an error was refused and never delivered.
-tool_id_key = "id"
-tool_result_type = "tool_result"
-tool_result_id_key = "tool_use_id"
-tool_error_key = "is_error"
+# The format of the judges' transcripts: which host adapter reads them (docs/integrations.md
+# names each host's format). An adapter reads a transcript by its format's own structure and
+# refuses one it does not recognise.
+format = "agent-jsonl"
 
 [judge]
 # The judge runner. `sealed-panel judge` starts one process per brief with this argument list

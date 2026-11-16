@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
+from .hosts import read_transcript
 from .model import (
     Attempt,
     DimensionResult,
@@ -21,7 +22,6 @@ from .model import (
 from .rubric import dims_for
 from .settings import Config
 from .store import load_json
-from .transcript import transcript_agent_id
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
 MAX_SCAN_BYTES = 20_000_000
@@ -45,7 +45,7 @@ def unrecorded_agents(
             text = f.read_text(encoding="utf-8", errors="replace")
             for nonce, judge in nonces.items():
                 if nonce in text:
-                    aid = transcript_agent_id(f, cfg) or f.stem
+                    aid = read_transcript(f, cfg).agent_id or f.stem
                     if aid not in recorded:
                         found.append((judge, aid))
     return sorted(set(found))

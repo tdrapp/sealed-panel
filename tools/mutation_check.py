@@ -42,6 +42,7 @@ LEARN = f"{PKG}/learning/learn.py"
 RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 TEXT = f"{PKG}/text.py"
 TRANSCRIPT, REPLY, SEAT = (f"{PKG}/{m}.py" for m in ("transcript", "reply", "seat"))
+AGENT_JSONL = f"{PKG}/hosts/agent_jsonl.py"
 MEASURE = f"{PKG}/measure.py"
 # FROZEN is run.py, the frozen run directory (RUN is the judge runner).
 RUBRIC, FROZEN, STEPS = (f"{PKG}/{m}.py" for m in ("rubric", "run", "steps"))
@@ -116,8 +117,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "whole-brief check off": (REC, "if brief not in prompt:", "if False:"),
     "prompt extras unrecorded": (
         REC,
-        "extra_chars = len(prompt) - len(brief)",
-        "extra_chars = 0",
+        "return t, len(prompt) - len(brief)",
+        "return t, 0",
     ),
     "void without the brief id": (
         REC,
@@ -137,40 +138,35 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "real = list(prior)",
     ),
     "handback ignored": (
-        TRANSCRIPT,
-        "    if handed:\n        last = handed[-1]",
-        "    if False:\n        last = handed[-1]",
+        AGENT_JSONL,
+        "    if delivered:\n        last = delivered[-1]",
+        "    if False:\n        last = delivered[-1]",
     ),
     "refused handback read as delivered": (
-        TRANSCRIPT,
-        "            if not include_refused and call_id is not None and call_id in refused:",
-        "            if False:",
+        AGENT_JSONL,
+        "        if not include_refused and call_id is not None and call_id in refused:",
+        "        if False:",
     ),
     "refused error without an id skips id-less calls": (
-        TRANSCRIPT,
+        AGENT_JSONL,
         "if not include_refused and call_id is not None and call_id in refused:",
         "if not include_refused and call_id in refused:",
     ),
     "void cap boundary": (SEAT, "if len(voids) >= MAX_VOIDS:", "if len(voids) > MAX_VOIDS:"),
     "refused verdict not read when nothing was delivered": (
-        TRANSCRIPT,
-        "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if refused:",
-        "    refused = handback_messages(transcript, cfg, include_refused=True)\n    if False:",
+        AGENT_JSONL,
+        "    refused = _handbacks(entries, include_refused=True)\n    if refused:",
+        "    refused = _handbacks(entries, include_refused=True)\n    if False:",
     ),
     "an earlier malformed refusal hides the last": (
-        TRANSCRIPT,
-        "        if refused[-1] is None:\n            raise MalformedReply(",
-        "        if None in refused:\n            raise MalformedReply(",
+        AGENT_JSONL,
+        "        if refused[-1] is None:\n            return None, ",
+        "        if None in refused:\n            return None, ",
     ),
     "malformed refused verdict read as text": (
-        TRANSCRIPT,
-        "        if refused[-1] is None:\n            raise MalformedReply(",
-        "        if False:\n            raise MalformedReply(",
-    ),
-    "empty handback tool not skipped": (
-        TRANSCRIPT,
-        "    if not tool:\n        return []",
-        "    if False:\n        return []",
+        AGENT_JSONL,
+        "        if refused[-1] is None:\n            return None, ",
+        "        if False:\n            return None, ",
     ),
     "pasted reply on a peeked seat": (
         SEAT,
@@ -178,9 +174,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "malformed handback read as text": (
-        TRANSCRIPT,
-        "        if last is None:\n            raise MalformedReply(",
-        "        if False:\n            raise MalformedReply(",
+        AGENT_JSONL,
+        "        if last is None:\n            return None, ",
+        "        if False:\n            return None, ",
     ),
     "measure flag overrides threshold": (
         MEASURE,
@@ -249,7 +245,28 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "rubric lock off": (FROZEN, "if rubric_hash(spec) != read_text(lock).strip():", "if False:"),
     "config lock off": (
         FROZEN,
-        "if frozen.fingerprint != read_text(lock).strip():",
+        "if fingerprint(raw) != read_text(lock).strip():",
+        "if False:",
+    ),
+    # A run frozen before the host adapters, read through the run format's forward rule.
+    "a run frozen with other field names read as the default format": (
+        FROZEN,
+        "    if changed:\n        raise EvalError(",
+        "    if False:\n        raise EvalError(",
+    ),
+    "the forward rule read before the lock check": (
+        FROZEN,
+        "    if fingerprint(data) != lock:\n        raise EvalError(CHANGED_AFTER_FREEZE)\n",
+        "",
+    ),
+    "a removed transcript field name accepted": (
+        SETTINGS,
+        '        if path == ("transcript",) and key in REMOVED_TRANSCRIPT_KEYS:\n',
+        "        if False:\n",
+    ),
+    "an unknown transcript format accepted": (
+        SETTINGS,
+        'if data["transcript"]["format"] not in TRANSCRIPT_FORMATS:',
         "if False:",
     ),
     "declared choice unchecked": (
@@ -746,10 +763,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "the whole-brief check compared raw": (
         REC,
-        '        brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
-        "        prompt = normalise(transcript_prompt(transcript, cfg))\n",
-        '        brief = read_text(rdir / f"brief_j{judge}.md")\n'
-        "        prompt = transcript_prompt(transcript, cfg)\n",
+        '    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
+        "    prompt = normalise(t.prompt)\n",
+        '    brief = read_text(rdir / f"brief_j{judge}.md")\n    prompt = t.prompt\n',
     ),
     "the re-roll hash taken raw": (
         TEXT,
@@ -759,9 +775,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     "a pasted brief looked for raw before a void": (
         REC,
         '    brief = normalise(read_text(rdir / f"brief_j{judge}.md"))\n'
-        "    pasted = brief in normalise(transcript_prompt(transcript, cfg))\n",
-        '    brief = read_text(rdir / f"brief_j{judge}.md")\n'
-        "    pasted = brief in transcript_prompt(transcript, cfg)\n",
+        "    pasted = brief in normalise(t.prompt)\n",
+        '    brief = read_text(rdir / f"brief_j{judge}.md")\n    pasted = brief in t.prompt\n',
     ),
     "one quote for all compared raw": (
         REPLY,
@@ -1004,24 +1019,19 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "{len(e['rejected_judges'])} rejected or void",
     ),
     "a tool call not read as a reply for a void": (
-        REC,
-        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
-        "replied = bool(assistant_texts(transcript, cfg))",
+        AGENT_JSONL,
+        "replied=bool(calls) or bool(_texts(entries)),",
+        "replied=bool(_texts(entries)),",
     ),
     "a text not read as a reply for a void": (
-        REC,
-        "replied = bool(tool_calls(transcript, cfg)) or bool(assistant_texts(transcript, cfg))",
-        "replied = bool(tool_calls(transcript, cfg))",
+        AGENT_JSONL,
+        "replied=bool(calls) or bool(_texts(entries)),",
+        "replied=bool(calls),",
     ),
     "a tool call without a reply leaves the seat stuck": (
         REC,
-        "            if not judge_tools(transcript, frozen):\n                raise\n",
+        "            if not t.tools:\n                raise\n",
         "            raise\n",
-    ),
-    "no handback tool by default": (
-        DEFAULTS,
-        'handback_tool = "SubagentHandback"',
-        'handback_tool = ""',
     ),
     # What the MCP server trusts.
     "a run with other settings served": (MCP, "        if differ:\n", "        if False:\n"),
@@ -1145,9 +1155,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    except ZeroDivisionError:\n",
     ),
     "a server tool call not seen": (
-        TRANSCRIPT,
-        """str(b.get(t["block_type_key"])).endswith(""",
-        """str(b.get(t["block_type_key"])).__eq__(""",
+        AGENT_JSONL,
+        'if str(b.get("type")).endswith(TOOL_BLOCK)',
+        'if str(b.get("type")).__eq__(TOOL_BLOCK)',
     ),
     "ctrl-c prints a traceback": (
         f"{PKG}/cli.py",
@@ -1160,12 +1170,12 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "        except ZeroDivisionError as exc:\n            if on_seat:",
     ),
     "the handback tool counted as a tool use": (
-        TRANSCRIPT,
+        AGENT_JSONL,
         "if (kind, name) != exempt})",
         "if True})",
     ),
     "the handback exempt by name only": (
-        TRANSCRIPT,
+        AGENT_JSONL,
         "if (kind, name) != exempt})",
         "if name != exempt[1]})",
     ),
@@ -1260,13 +1270,13 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     # A transcript cut off on its last line.
     "a cut-off last line read as the earlier reply": (
         TRANSCRIPT,
-        "if lines and lines[-1][1] is None:",
+        "if numbered and numbered[-1][1] is None:",
         "if False:",
     ),
     "a line separator inside a string splits the line": (
         TRANSCRIPT,
-        'read_text(transcript).split("\\n")',
-        "read_text(transcript).splitlines()",
+        'read_text(path).split("\\n")',
+        "read_text(path).splitlines()",
     ),
     # A candidate that addresses a judge: blocked unless the spec acknowledges it.
     "a flagged candidate converges": (
