@@ -13,7 +13,7 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 from .errors import EvalError
 from .model import FORMAT_SINCE, INJECTION_ACK, SCHEMA_VERSION, FrozenSpec, Spec
 from .rubric import rubric_hash, validate_spec
-from .settings import MISSING_KEY, Config, schema_errors
+from .settings import MISSING_KEY, UNKNOWN_KEY, Config, schema_errors
 from .store import (
     contained,
     dump_json,
@@ -41,22 +41,11 @@ _FROM_ITS_TAG = (
     f"finish or read it with the version that created it, installed from its tag: {_INSTALL_TAG}"
 )
 NO_MARKER = (
-    f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it (0.4.0 "
-    f"changed what a run freezes, so it neither reads nor writes such a run: {_FROM_ITS_TAG}), "
+    f"this run has no {RUN_FILE}: either an earlier version of sealed-panel created it "
+    f"({FORMAT_SINCE[min(FORMAT_SINCE)]} changed what a run freezes, so it neither reads nor "
+    f"writes such a run: {_FROM_ITS_TAG}), "
     f"or its init was interrupted before writing {RUN_FILE}, which it writes last (start again "
     "in a new run directory)"
-)
-# Added to the refusal of a frozen configuration that lacks a key: this release has no value
-# for it, so the run comes from another release of its format.
-MISSING_KEY_STEP = (
-    f"A run of format {SCHEMA_VERSION} holds every setting of the release that froze it, and a "
-    "later release of the same format supplies any setting it added. This release has no value "
-    f"for that key: finish the run with the release that created it (run format {SCHEMA_VERSION}, "
-    f"sealed-panel {FORMAT_SINCE[SCHEMA_VERSION]} or later), installed from its tag: {_INSTALL_TAG}"
-)
-OLDER_RUN = (
-    "this run was created by an earlier version of sealed-panel: 0.4.0 changed what a run "
-    f"freezes, so it neither reads nor writes it; {_FROM_ITS_TAG}"
 )
 SALT_BYTES = 32
 FACTS_EXTENSIONS = ("md", "txt", "json", "yaml", "yml", "pdf", "csv", "html", "htm", "doc", "docx")
@@ -186,6 +175,24 @@ def run_salt(run: Path) -> bytes | None:
     return salt if len(salt) == SALT_BYTES else None
 
 
+def format_releases(version: int) -> str:
+    """The releases that write a run format, from FORMAT_SINCE: the first one, and the last one
+    when a later format exists. A format older than the table is written by a release before
+    its first entry.
+
+    Args:
+        version: The run format.
+    """
+    first = min(FORMAT_SINCE)
+    if version < first:
+        return f"a release before sealed-panel {FORMAT_SINCE[first]}"
+    since = FORMAT_SINCE[max(v for v in FORMAT_SINCE if v <= version)]
+    later = [FORMAT_SINCE[v] for v in sorted(FORMAT_SINCE) if v > version]
+    if later:
+        return f"sealed-panel {since} up to the release before {later[0]}"
+    return f"sealed-panel {since} or later"
+
+
 def refuse_older_run(run: Path) -> None:
     """Refuse a run created before 0.4.0, for every command, read or write: such a run has no
     `run.json` holding this version's schema. 0.4.0 changed what a run freezes, so it neither
@@ -212,11 +219,16 @@ def refuse_older_run(run: Path) -> None:
     if version > SCHEMA_VERSION:
         raise EvalError(
             f"this run was created by a newer version of sealed-panel (run format {version}; "
-            f"this version reads format {SCHEMA_VERSION}): upgrade sealed-panel to read or "
-            "finish it"
+            f"this version reads format {SCHEMA_VERSION}, written by "
+            f"{format_releases(SCHEMA_VERSION)}): upgrade sealed-panel to a release that "
+            f"writes format {version} to read or finish it"
         )
     if version < SCHEMA_VERSION:
-        raise EvalError(OLDER_RUN)
+        raise EvalError(
+            f"this run was created by an earlier version of sealed-panel (run format {version}, "
+            f"written by {format_releases(version)}); this version reads and writes format "
+            f"{SCHEMA_VERSION} only, so it neither reads nor writes the run: {_FROM_ITS_TAG}"
+        )
 
 
 def load_frozen(run: Path) -> FrozenSpec:
@@ -259,16 +271,31 @@ def writes_run(fn: Callable[Concatenate[Path, P], R]) -> Callable[Concatenate[Pa
 
 
 def frozen_config_refusal(shape: list[str]) -> str:
-    """Why a run's frozen configuration is refused; when it lacks a key, which release to finish
-    the run with.
+    """Why a run's frozen configuration is refused. Keys this release does not know, and only
+    those: a newer release of the run's format froze it (upgrade). Keys it lacks, and only
+    those: an earlier release of the format froze it, and this one has no value for them (finish
+    it with that release). Anything else: the file is damaged.
 
     Args:
         shape: What schema_errors found.
     """
-    refusal = f"the frozen configuration is damaged: {'; '.join(shape)}"
-    if any(e.startswith(MISSING_KEY) for e in shape):
-        refusal += f". {MISSING_KEY_STEP}"
-    return refusal
+    unknown = [e for e in shape if e.startswith(UNKNOWN_KEY)]
+    missing = [e for e in shape if e.startswith(MISSING_KEY)]
+    if shape and unknown == shape:
+        return (
+            f"this run was frozen by a newer release of run format {SCHEMA_VERSION}: its "
+            f"configuration holds settings this release does not know ({'; '.join(unknown)}). "
+            "Upgrade sealed-panel to read or finish it"
+        )
+    if shape and missing == shape:
+        return (
+            f"this run was frozen by an earlier release of run format {SCHEMA_VERSION}, without "
+            f"settings this release has no value for ({'; '.join(missing)}). A later release of "
+            "the same format supplies any setting it added, so finish the run with the release "
+            f"that created it ({format_releases(SCHEMA_VERSION)}, run format {SCHEMA_VERSION}), "
+            f"installed from its tag: {_INSTALL_TAG}"
+        )
+    return f"the frozen configuration is damaged: {'; '.join(shape)}"
 
 
 def run_config(run: Path) -> Config:

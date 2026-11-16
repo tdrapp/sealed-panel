@@ -24,15 +24,19 @@ INJECTION_ACK: Final = "injection_acknowledged"
 # adds a setting frozen into every run (a key of defaults.toml, so of config.json and of the
 # configuration's fingerprint), is one of two things:
 #   1. bump SCHEMA_VERSION and add its first release to FORMAT_SINCE: a run frozen without the
-#      key is then refused as older, with the release to finish it with; or
+#      key is then refused as older, and run.refuse_older_run builds that refusal, and the
+#      newer-run one, from FORMAT_SINCE, so each names the releases of the run's format; or
 #   2. keep the format, and have run.run_config give a run frozen without the key the value
 #      that reproduces how that run behaved, after checking config.lock against the file as
 #      written, never before.
 # Anything else makes a run of this format unreadable by that release (its frozen configuration
-# lacks a key), or changes the grade an earlier release would give it. docs/protocol.md
-# section 11 says the same for users.
+# lacks a key), or changes the grade an earlier release would give it. In the other direction,
+# a run frozen by a newer release of the same format holds a key this release does not know:
+# it is refused, with the advice to upgrade. docs/protocol.md section 11 says the same for
+# users.
 SCHEMA_VERSION: Final = 1
-# The first release that writes each run format.
+# The first release that writes each run format: the one table every refusal of a run of
+# another format, or of another release of this format, takes its release names from.
 FORMAT_SINCE: Final = {1: "0.4.0"}
 
 # The source of a reply read by the judge runner: sealed-panel wrote the brief and read the reply.

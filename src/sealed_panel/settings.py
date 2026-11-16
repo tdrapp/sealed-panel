@@ -380,8 +380,10 @@ def resolve(cfg: Config | None) -> Config:
     return default_config() if cfg is None else cfg
 
 
-# How schema_errors names a key a frozen configuration lacks.
+# How schema_errors names a key a frozen configuration lacks, and one it holds that the
+# defaults do not know.
 MISSING_KEY = "missing configuration key"
+UNKNOWN_KEY = "unknown configuration key"
 
 # Settings that place files and do not change a grade: never listed as overrides.
 NOT_GRADING = frozenset({"mcp.root"})
@@ -421,7 +423,7 @@ def schema_errors(
     for key, value in data.items():
         where = ".".join((*path, key))
         if key not in shape:
-            errors.append(f"unknown configuration key {where!r}")
+            errors.append(f"{UNKNOWN_KEY} {where!r}")
         elif isinstance(value, Mapping) and isinstance(shape[key], Mapping):
             errors += schema_errors(value, shape[key], (*path, key))
     return errors

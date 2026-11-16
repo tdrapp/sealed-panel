@@ -24,6 +24,7 @@ import pytest
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel import brief as brief_module
 from sealed_panel import cli, record, runner, store, templates
+from sealed_panel import run as run_module
 from sealed_panel.errors import ConfigError, EvalError, SeatTaken
 from sealed_panel.learning import candidates, learn
 from sealed_panel.ledger import results_by_judge
@@ -892,25 +893,59 @@ class TestFrozenConfiguration:
         with pytest.raises(EvalError, match=r"missing configuration key 'judge\.max_stderr_bytes'"):
             run_config(h.run)
 
-    def test_a_missing_key_names_the_release_to_finish_the_run_with(self, h: Harness) -> None:
-        """The run format's forward rule: a later release of the same format supplies a setting
-        it added, so a key this release has no value for sends the user to the release that
-        froze the run. An unknown key is not that case and gets no such step."""
+    def test_another_release_of_the_format_is_named_in_both_directions(self, h: Harness) -> None:
+        """The run format's forward rule. A key this release lacks a value for: an earlier release
+        of the format froze the run, finish it there. A key it does not know: a newer release
+        froze it, upgrade. Neither is called damaged."""
         h.init()
         data = json.loads((h.run / "config.json").read_text())
         del data["judge"]["max_stderr_bytes"]
         relock(h.run, data)
         with pytest.raises(EvalError) as missing:
             run_config(h.run)
-        step = "finish the run with the release that created it (run format 1, sealed-panel 0.4.0"
-        assert step in str(missing.value)
+        older = str(missing.value)
+        assert older.startswith("this run was frozen by an earlier release of run format 1")
+        assert "missing configuration key 'judge.max_stderr_bytes'" in older
+        assert "the release that created it (sealed-panel 0.4.0 or later, run format 1)" in older
+        assert "damaged" not in older
         data["judge"]["max_stderr_bytes"] = 1048576
         data["limits"]["extra"] = 1
         relock(h.run, data)
         with pytest.raises(EvalError) as unknown:
             run_config(h.run)
-        assert "unknown configuration key" in str(unknown.value)
-        assert step not in str(unknown.value)
+        newer = str(unknown.value)
+        assert newer.startswith("this run was frozen by a newer release of run format 1")
+        assert "unknown configuration key 'limits.extra'" in newer
+        assert "Upgrade sealed-panel" in newer and "damaged" not in newer
+        del data["judge"]["max_stderr_bytes"]
+        relock(h.run, data)
+        with pytest.raises(EvalError, match="the frozen configuration is damaged"):
+            run_config(h.run)  # both at once: no single release explains it
+
+    def test_a_raised_format_names_the_releases_of_each_format(
+        self, h: Harness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Raising the format is one entry in FORMAT_SINCE: the older-run and newer-run refusals
+        take their release names from it, so neither can ship naming the wrong releases."""
+        h.init()  # format 1
+        monkeypatch.setattr(run_module, "SCHEMA_VERSION", 2)
+        monkeypatch.setattr(run_module, "FORMAT_SINCE", {1: "0.4.0", 2: "0.4.3"})
+        with pytest.raises(EvalError) as older:
+            run_module.refuse_older_run(h.run)
+        assert "run format 1, written by sealed-panel 0.4.0 up to the release before 0.4.3" in str(
+            older.value
+        )
+        assert "reads and writes format 2 only" in str(older.value)
+        (h.run / "run.json").write_text('{"schema_version": 3}')
+        with pytest.raises(EvalError) as newer:
+            run_module.refuse_older_run(h.run)
+        assert "this version reads format 2, written by sealed-panel 0.4.3 or later" in str(
+            newer.value
+        )
+        assert "a release that writes format 3" in str(newer.value)
+        (h.run / "run.json").write_text('{"schema_version": 0}')
+        with pytest.raises(EvalError, match=r"written by a release before sealed-panel 0\.4\.0"):
+            run_module.refuse_older_run(h.run)
 
     def test_an_unknown_key_is_refused(self, h: Harness) -> None:
         h.init()

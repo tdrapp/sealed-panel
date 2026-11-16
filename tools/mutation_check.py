@@ -780,7 +780,22 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a missing configuration key names no release": (
         FROZEN,
-        "    if any(e.startswith(MISSING_KEY) for e in shape):\n",
+        "    if shape and missing == shape:\n",
+        "    if False:\n",
+    ),
+    "an unknown frozen key called damaged": (
+        FROZEN,
+        "    if shape and unknown == shape:\n",
+        "    if False:\n",
+    ),
+    "an older run named with this release's releases": (
+        FROZEN,
+        'f"written by {format_releases(version)}); this version',
+        'f"written by {format_releases(SCHEMA_VERSION)}); this version',
+    ),
+    "a format's releases given no end": (
+        FROZEN,
+        "    if later:\n",
         "    if False:\n",
     ),
     "a reserved name created by a caller": (

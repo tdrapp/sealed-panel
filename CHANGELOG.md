@@ -135,9 +135,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The run format has a forward rule, written next to `SCHEMA_VERSION` (now in
   `sealed_panel.model`) and in `docs/protocol.md` section 11: a later release that adds a
   setting frozen into every run either raises the format or supplies the value that reproduces
-  how a run frozen without it behaved. A frozen configuration missing a key is refused as
-  before ("missing configuration key ..."), and the refusal now names the release to finish the
-  run with (run format 1, sealed-panel 0.4.0 or later, installed from its tag).
+  how a run frozen without it behaved. The older-run and newer-run refusals name the releases
+  of each format from one table, `model.FORMAT_SINCE` (format to first release). Within a
+  format, a frozen configuration that lacks a key was "damaged" and now reads "this run was
+  frozen by an earlier release of run format 1, without settings this release has no value for
+  (missing configuration key ...)", with the releases to finish it with (sealed-panel 0.4.0 or
+  later, installed from its tag); one that holds a key this release does not know was "damaged"
+  and now reads "this run was frozen by a newer release of run format 1 ... Upgrade
+  sealed-panel". A configuration with both is still refused as damaged.
 - A spec and a template check their personas and dimensions against one field table
   (`rubric.PERSONA_FIELDS`, `rubric.DIMENSION_FIELDS`, and `rubric.missing_anchors` for the
   required anchors), each keeping its own rules explicit: a template holds exactly the keys

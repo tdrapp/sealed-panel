@@ -242,18 +242,26 @@ three kinds of proof, and the report says which one each round used.
 A run freezes its spec and its whole configuration, and `run.json` records the run format
 (`schema_version`, 1 since 0.4.0). Every command refuses a run of another format before it
 creates anything in it: an older run is finished with the release that created it, a newer one
-needs an upgrade.
+needs an upgrade. Both refusals name the releases that write each format, from one table
+(`FORMAT_SINCE` in `sealed_panel/model.py`: each format and the first release that writes it).
 
 A later release that adds a setting frozen into every run (a key of `defaults.toml`) does one
 of two things, so that a run frozen before it keeps its grade:
 
-- it raises the run format: a run frozen without the key is then refused as older, with the
-  release to finish it with; or
+- it raises the run format and adds the format to `FORMAT_SINCE`: a run frozen without the key
+  is then refused as older, naming the releases to finish it with; or
 - it keeps the format and supplies, for a run frozen without the key, the value that
   reproduces how that run behaved. It checks the run's `config.lock` against the file as
   written first, so the fingerprint still proves the configuration was not changed.
 
-A frozen configuration that lacks a key this release has no value for is refused, and the
-refusal names the release to finish the run with: one of its format, from the first release
-that writes that format, installed from its tag. The rule is written next to `SCHEMA_VERSION`
-in `sealed_panel/model.py`.
+Within one format, a run and the release that opens it can differ in both directions:
+
+- the run was frozen by an earlier release, and its configuration lacks a key this release has
+  no value for: the refusal says so, names the key, and names the releases of the format to
+  finish the run with, installed from its tag;
+- the run was frozen by a newer release, and its configuration holds a key this release does
+  not know: the refusal says so, names the key, and says to upgrade.
+
+A configuration that both lacks a key and holds an unknown one is not explained by any one
+release, and is refused as damaged. The rule is written next to `SCHEMA_VERSION` in
+`sealed_panel/model.py`.
