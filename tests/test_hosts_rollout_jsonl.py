@@ -5,6 +5,8 @@ text."""
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +14,12 @@ import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json, make_spec
 from sealed_panel.errors import EvalError, FormatError
-from sealed_panel.hosts import read_transcript
+from sealed_panel.hosts import read_transcript, rollout_jsonl
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import record_from
 from sealed_panel.run import run_config
 from sealed_panel.settings import load_config
-from sealed_panel.steps import init_run
+from sealed_panel.steps import aggregate_round, init_run
 from sealed_panel.store import round_dir
 
 SESSION = "019a7c41-d09e-7b35-8f86-000000000001"
@@ -243,3 +245,71 @@ class TestUnknownStructure:
         brief, raw = round_one(h)
         extra = line("world_state", {"anything": True})
         assert recorded(h, [*opening(brief), extra, *closing(raw)])["ok"]
+
+
+class TestSiblingScan:
+    """The scan reads the rollouts of the judges' group (same parent session) filed on the
+    recorded rollout's day and the days around it."""
+
+    def record_all(self, h: Harness) -> None:
+        round_one(h)
+        rdir = round_dir(h.run, 1)
+        for meta in h.keys(1)["judges"]:
+            sid = f"{SESSION[:-1]}{meta['judge']}"
+            raw = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
+            brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
+            rows = [*opening(brief, sid=sid, parent=PARENT), *closing(raw)]
+            assert record_from(h.run, 1, meta["judge"], sid, False, write(h, rows, sid))["ok"]
+
+    def hidden(self, h: Harness, day: str = "16", **who: Any) -> Path:
+        """A rollout holding judge 1's brief, never recorded."""
+        nonce = h.keys(1)["judges"][0]["nonce"]
+        rows = [*opening(f"brief {nonce}", **who), *closing("{}")]
+        path = write(h, rows, "hidden")
+        if day != "16":
+            moved = path.parent.parent / day / path.name
+            moved.parent.mkdir(exist_ok=True)
+            path = path.rename(moved)
+        return path
+
+    def test_a_sibling_filed_the_next_day_blocks_the_round(self, h: Harness) -> None:
+        self.record_all(h)
+        self.hidden(h, day="17", sid="hidden-1", parent=PARENT)
+        with pytest.raises(EvalError, match="never recorded: j1 hidden-1"):
+            aggregate_round(h.run, 1, False)
+
+    def test_the_parent_session_is_not_a_sibling(self, h: Harness) -> None:
+        self.record_all(h)
+        self.hidden(h, sid=PARENT)  # the session that briefed the judges, in its own folder
+        aggregate_round(h.run, 1, False)
+
+    def test_a_subagent_of_another_parent_is_not_a_sibling(self, h: Harness) -> None:
+        self.record_all(h)
+        self.hidden(h, sid="other-1", parent="another-parent")
+        aggregate_round(h.run, 1, False)
+
+    def test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round(self, h: Harness) -> None:
+        self.record_all(h)
+        path = self.hidden(h, sid="hidden-2", parent=PARENT)
+        first = json.dumps(event("task_started"))  # no session record first: unreadable
+        path.write_text(first + "\n" + path.read_text())
+        with pytest.raises(EvalError, match="holds a brief id of this round but cannot be read"):
+            aggregate_round(h.run, 1, False)
+
+    def test_a_rollout_older_than_the_briefs_is_not_scanned(self, h: Harness) -> None:
+        self.record_all(h)
+        path = self.hidden(h, sid="hidden-3", parent=PARENT)
+        past = time.time() - 3600
+        os.utime(path, (past, past))
+        aggregate_round(h.run, 1, False)
+
+    def test_top_level_judges_group_by_directory(self, h: Harness) -> None:
+        mine = session()["payload"]
+        same = {**mine, "id": "x"}
+        assert rollout_jsonl._same_group(same, mine)
+        assert not rollout_jsonl._same_group({**same, "cwd": "/home/user/project"}, mine)
+
+    def test_a_folder_that_is_not_a_date_is_scanned_alone(self, tmp_path: Path) -> None:
+        f = tmp_path / "rollout-1.jsonl"
+        f.write_text(json.dumps(session()) + "\n")
+        assert rollout_jsonl.siblings(f, 0.0) == [f]

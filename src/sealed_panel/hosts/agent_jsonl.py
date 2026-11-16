@@ -231,3 +231,24 @@ def read(path: Path) -> Transcript:
         later_inputs=sum(_is_input(e) for e in entries[first + 1 :]),
         unreadable=lines.unreadable,
     )
+
+
+# Files the host writes beside a subagent's transcript that are not transcripts.
+SIDE_FILES = (".meta.json", ".prefix.json")
+
+
+def siblings(path: Path, since: float) -> list[Path]:
+    """Every file in the transcript's folder (the host's `subagents/` folder: one transcript per
+    subagent of the session) last changed at or after `since`, the host's side files left out.
+
+    Args:
+        path: A recorded transcript.
+        since: The earliest last-change time, in seconds since the epoch.
+    """
+    if not path.parent.is_dir():
+        return []  # a purged temporary folder: nothing left to compare
+    return [
+        f
+        for f in path.parent.iterdir()
+        if f.is_file() and not f.name.endswith(SIDE_FILES) and f.stat().st_mtime >= since
+    ]

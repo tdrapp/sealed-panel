@@ -29,6 +29,8 @@ Measured on 10 rollouts (structure and counts only):
 
 from __future__ import annotations
 
+import datetime
+import json
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,8 @@ from ..transcript import Transcript, read_lines
 INPUTS = frozenset({"message", "agent_message", "additional_tools"})
 REASONING = "reasoning"
 FORK_KEYS = ("forked_from_id", "subagent_history_start_ordinal")
+# Bytes read of a rollout's first line, its session record, when listing siblings.
+MAX_FIRST_LINE = 1_000_000
 
 
 def _payload(e: dict[str, Any]) -> dict[str, Any]:
@@ -181,3 +185,59 @@ def read(path: Path) -> Transcript:
         fork=_forked(meta, lines.entries),
         unreadable=lines.unreadable,
     )
+
+
+def _session_of(f: Path) -> dict[str, Any] | None:
+    """A rollout's session record, from its first line only; None when it has none."""
+    try:
+        with f.open("rb") as fh:
+            e = json.loads(fh.readline(MAX_FIRST_LINE))
+    except (OSError, ValueError, RecursionError):
+        return None
+    return _payload(e) if isinstance(e, dict) and e.get("type") == "session_meta" else None
+
+
+def _days(folder: Path) -> list[Path]:
+    """The rollout's date folder and the days before and after it: a session started near
+    midnight, or in another time zone, is filed under the next or the previous day."""
+    try:
+        day = datetime.date(
+            int(folder.parent.parent.name), int(folder.parent.name), int(folder.name)
+        )
+    except ValueError:
+        return [folder]
+    root = folder.parent.parent.parent
+    one = datetime.timedelta(days=1)
+    return [root / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" for d in (day - one, day, day + one)]
+
+
+def _same_group(meta: dict[str, Any], mine: dict[str, Any]) -> bool:
+    """Subagents of the same parent session; sessions without a parent, started in the same
+    directory."""
+    parent = meta.get("parent_thread_id")
+    if parent is not None or mine.get("parent_thread_id") is not None:
+        return bool(parent == mine.get("parent_thread_id"))
+    return bool(meta.get("cwd") == mine.get("cwd"))
+
+
+def siblings(path: Path, since: float) -> list[Path]:
+    """The rollouts of the same group (same parent session, or no parent and the same
+    directory) filed on the rollout's day or the days around it, last changed at or after
+    `since`. One whose session record cannot be read is listed: the scan then reads it.
+
+    Args:
+        path: A recorded rollout.
+        since: The earliest last-change time, in seconds since the epoch.
+    """
+    mine = _session_of(path) or {}
+    found = []
+    for day in _days(path.parent):
+        if not day.is_dir():
+            continue
+        for f in day.glob("rollout-*.jsonl"):
+            if f.stat().st_mtime < since:
+                continue
+            meta = _session_of(f)
+            if meta is None or _same_group(meta, mine):
+                found.append(f)
+    return found

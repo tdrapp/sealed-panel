@@ -51,13 +51,16 @@ class Transcript:
 
 @dataclass(frozen=True, slots=True)
 class Adapter:
-    """One transcript format: how to read a file of it.
+    """One transcript format: how to read a file of it, and where its siblings are.
 
     Attributes:
         read: Turns one transcript file into a Transcript.
+        siblings: The transcripts the host wrote beside one (the file itself included) and
+            last changed at or after a time, for the scan for unrecorded judges.
     """
 
     read: Callable[[Path], Transcript]
+    siblings: Callable[[Path, float], list[Path]]
 
 
 @dataclass(frozen=True, slots=True)

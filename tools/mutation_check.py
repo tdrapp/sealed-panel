@@ -212,7 +212,60 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "unrecorded agents ignored": (AGG, "if unrecorded:", "if False:"),
     "sealed panel aggregated unmeasured": (AGG, "if missing:", "if False:"),
-    "missing transcript folder crashes": (AGG, "if not folder.is_dir():", "if False:"),
+    "missing transcript folder crashes": (
+        AGENT_JSONL,
+        "    if not path.parent.is_dir():\n        return []",
+        "    if False:\n        return []",
+    ),
+    # The scan for unrecorded judges: bounded, and failing closed on what it cannot read.
+    "an unreadable sibling holding a brief id read by its file name": (
+        AGG,
+        '    except EvalError as exc:\n        raise EvalError(\n            f"{f} holds a brief id',
+        "    except EvalError as exc:\n        return f.stem\n        raise EvalError(\n"
+        '            f"{f} holds a brief id',
+    ),
+    "every sibling parsed, a brief id or not": (
+        AGG,
+        "if judges and (aid := _agent_of(f, cfg)) not in recorded:",
+        "if (aid := _agent_of(f, cfg)) not in recorded and judges:",
+    ),
+    "the sibling scan unbounded": (AGG, "    if len(found) > MAX_SIBLINGS:\n", "    if False:\n"),
+    "transcripts older than the briefs scanned": (
+        AGENT_JSONL,
+        "and f.stat().st_mtime >= since",
+        "and True",
+    ),
+    "the host side files scanned": (AGENT_JSONL, "not f.name.endswith(SIDE_FILES)", "True"),
+    "rollouts of another group scanned": (
+        ROLLOUT_JSONL,
+        "if meta is None or _same_group(meta, mine):",
+        "if True:",
+    ),
+    "a rollout without a session record left out of the scan": (
+        ROLLOUT_JSONL,
+        "if meta is None or _same_group(meta, mine):",
+        "if meta is not None and _same_group(meta, mine):",
+    ),
+    "adjacent days not scanned": (
+        ROLLOUT_JSONL,
+        "for d in (day - one, day, day + one)]",
+        "for d in (day,)]",
+    ),
+    "rollouts older than the briefs scanned": (
+        ROLLOUT_JSONL,
+        "            if f.stat().st_mtime < since:\n                continue\n",
+        "",
+    ),
+    "subagents of another parent scanned": (
+        ROLLOUT_JSONL,
+        'return bool(parent == mine.get("parent_thread_id"))',
+        "return True",
+    ),
+    "top-level sessions in another directory scanned": (
+        ROLLOUT_JSONL,
+        'return bool(meta.get("cwd") == mine.get("cwd"))',
+        "return True",
+    ),
     "suspect jump off": (AGG, 'if e.get("paired_gain", 0) >= SUSPECT_JUMP', "if False"),
     "suspect jump exclusive": (
         AGG,

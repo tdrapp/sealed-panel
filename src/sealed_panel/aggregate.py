@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .decide import SUSPECT_JUMP
 from .errors import EvalError
-from .hosts import read_transcript
+from .hosts import adapter, read_transcript
 from .model import (
     Attempt,
     DimensionResult,
@@ -25,29 +25,54 @@ from .store import load_json
 
 # Files larger than this are skipped when looking for briefed but unrecorded agents.
 MAX_SCAN_BYTES = 20_000_000
+# Transcripts the scan for unrecorded agents reads at most; past it, aggregation is refused.
+MAX_SIBLINGS = 1000
+# Seconds before the round's briefs a transcript may have been last written and still be read:
+# one written earlier cannot hold a brief id of this round.
+BRIEF_SLACK_S = 60
+
+
+def _scanned(proofs: set[Path], cfg: Config, since: float) -> list[Path]:
+    """The transcripts beside the recorded ones that the scan reads, as the run's format lists
+    them; refused past MAX_SIBLINGS, so the scan stays bounded and never stops short."""
+    siblings = adapter(cfg).siblings
+    found = sorted({f for t in proofs for f in siblings(t, since)})
+    if len(found) > MAX_SIBLINGS:
+        raise EvalError(
+            f"{len(found)} transcripts were written beside the recorded ones since this round "
+            f"was briefed, more than the {MAX_SIBLINGS} the scan for unrecorded judges reads: "
+            "launch judges where the host writes few other transcripts"
+        )
+    return [f for f in found if f.is_file() and f.stat().st_size <= MAX_SCAN_BYTES]
+
+
+def _agent_of(f: Path, cfg: Config) -> str:
+    """The agent a transcript holding a brief id belongs to; one that cannot be read is
+    refused, since it could be a judge launched and kept quiet."""
+    try:
+        return read_transcript(f, cfg).agent_id or f.stem
+    except EvalError as exc:
+        raise EvalError(
+            f"{f} holds a brief id of this round but cannot be read ({exc}): every agent that "
+            "received a brief must be recorded, and this one cannot be"
+        ) from exc
 
 
 def unrecorded_agents(
-    keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config
+    keys: RoundKeys, by_judge: dict[int, list[Attempt]], cfg: Config, since: float = 0.0
 ) -> list[tuple[int, str]]:
-    """Agents whose transcript (in a folder a recorded transcript came from) holds one of this
-    round's brief ids but who were never recorded: launching several and keeping the best."""
+    """Agents whose transcript (beside a recorded one, as the run's transcript format lists
+    them, written since `since`) holds one of this round's brief ids but who were never
+    recorded: launching several and keeping the best."""
     nonces = {j.get("nonce"): j["judge"] for j in keys["judges"] if j.get("nonce")}
     recorded = {r["agent_id"] for rs in by_judge.values() for r in rs}
-    folders = {Path(t).parent for rs in by_judge.values() for r in rs if (t := r.get("transcript"))}
+    proofs = {Path(t) for rs in by_judge.values() for r in rs if (t := r.get("transcript"))}
     found = []
-    for folder in folders:
-        if not folder.is_dir():
-            continue  # a purged temporary folder: nothing left to compare
-        for f in folder.iterdir():
-            if not f.is_file() or f.stat().st_size > MAX_SCAN_BYTES:
-                continue
-            text = f.read_text(encoding="utf-8", errors="replace")
-            for nonce, judge in nonces.items():
-                if nonce in text:
-                    aid = read_transcript(f, cfg).agent_id or f.stem
-                    if aid not in recorded:
-                        found.append((judge, aid))
+    for f in _scanned(proofs, cfg, since):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        judges = [judge for nonce, judge in nonces.items() if nonce in text]
+        if judges and (aid := _agent_of(f, cfg)) not in recorded:
+            found += [(judge, aid) for judge in judges]
     return sorted(set(found))
 
 
@@ -138,7 +163,8 @@ def _check_complete(
             "fills a seat; brief a fresh replacement on the same brief (stopping after two "
             "replies is a re-roll)"
         )
-    unrecorded = unrecorded_agents(keys, by_judge, cfg)
+    briefed = (rdir / "keys.json").stat().st_mtime - BRIEF_SLACK_S
+    unrecorded = unrecorded_agents(keys, by_judge, cfg, briefed)
     if unrecorded:
         raise EvalError(
             "agents received a brief of this round but were never recorded: "

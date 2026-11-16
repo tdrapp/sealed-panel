@@ -4,16 +4,20 @@ structure measured on real ones: the keys, entry types and their order, never th
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from conftest import BAD, FLAT, Harness, judge_json
+from sealed_panel import aggregate
 from sealed_panel.errors import EvalError, FormatError
 from sealed_panel.hosts import read_transcript
 from sealed_panel.ledger import results_by_judge
 from sealed_panel.record import record_from
+from sealed_panel.steps import aggregate_round
 from sealed_panel.store import round_dir
 
 AGENT = "a7c41d09e2b35f86"
@@ -244,3 +248,61 @@ class TestUnknownStructure:
         rows = [*answered(brief, raw), assistant(text("x"), agent="other-agent")]
         with pytest.raises(FormatError, match="carries 2 agent ids"):
             read_transcript(write(h, rows))
+
+
+class TestSiblingScan:
+    """Agents briefed and never recorded block the round: the scan reads the files beside the
+    recorded transcripts, written since the round was briefed."""
+
+    def record_all(self, h: Harness) -> Path:  # every judge of round 1, recorded
+        h.init()
+        h.brief(1, "cand")
+        rdir = round_dir(h.run, 1)
+        for meta in h.keys(1)["judges"]:
+            agent = f"judge{meta['judge']}"
+            raw = judge_json(meta, h.texts(1, meta), {"candidate": FLAT, "control": BAD})
+            brief = (rdir / f"brief_j{meta['judge']}.md").read_text()
+            rows = [{**r, "agentId": agent} if "agentId" in r else r for r in answered(brief, raw)]
+            assert record_from(h.run, 1, meta["judge"], agent, False, write(h, rows, agent))["ok"]
+        return rdir
+
+    def nonce(self, h: Harness) -> str:
+        return str(h.keys(1)["judges"][0]["nonce"])
+
+    def test_an_unreadable_sibling_holding_a_brief_id_blocks_the_round(self, h: Harness) -> None:
+        self.record_all(h)
+        odd = {"type": "assistant", "message": {"content": f"brief {self.nonce(h)}"}}
+        write(h, [odd], "hidden")
+        with pytest.raises(EvalError, match="holds a brief id of this round but cannot be read"):
+            aggregate_round(h.run, 1, False)
+
+    def test_an_unreadable_sibling_without_a_brief_id_is_skipped(self, h: Harness) -> None:
+        self.record_all(h)
+        write(h, [{"type": "assistant", "message": {"content": "no brief here"}}], "other")
+        aggregate_round(h.run, 1, False)
+
+    def test_a_readable_sibling_holding_a_brief_id_blocks_the_round(self, h: Harness) -> None:
+        self.record_all(h)
+        write(h, [user(f"brief {self.nonce(h)}", "kept-quiet")], "kept-quiet")
+        with pytest.raises(EvalError, match="never recorded: j1 kept-quiet"):
+            aggregate_round(h.run, 1, False)
+
+    def test_the_host_side_files_are_not_scanned(self, h: Harness) -> None:
+        self.record_all(h)
+        folder = h.tmp / "projects" / "-tmp-judges" / "session-1" / "subagents"
+        meta = {"agentType": "judge", "description": f"brief {self.nonce(h)}"}
+        (folder / "agent-judge1.meta.json").write_text(json.dumps(meta))
+        aggregate_round(h.run, 1, False)
+
+    def test_a_file_older_than_the_briefs_is_not_scanned(self, h: Harness) -> None:
+        self.record_all(h)
+        old = write(h, [user(f"brief {self.nonce(h)}", "old")], "old")
+        past = time.time() - 3600
+        os.utime(old, (past, past))
+        aggregate_round(h.run, 1, False)
+
+    def test_the_scan_is_bounded(self, h: Harness, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.record_all(h)
+        monkeypatch.setattr(aggregate, "MAX_SIBLINGS", 2)
+        with pytest.raises(EvalError, match="more than the 2 the scan for unrecorded judges"):
+            aggregate_round(h.run, 1, False)

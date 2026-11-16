@@ -2,7 +2,7 @@
   "src/sealed_panel/aggregate.py:_check_complete": 14,
   "src/sealed_panel/aggregate.py:_dimension_entry": 16,
   "src/sealed_panel/aggregate.py:aggregate": 43,
-  "src/sealed_panel/aggregate.py:unrecorded_agents": 17,
+  "src/sealed_panel/aggregate.py:unrecorded_agents": 14,
   "src/sealed_panel/brief.py:_check_loop": 13,
   "src/sealed_panel/brief.py:build_brief": 14,
   "src/sealed_panel/brief.py:write_briefs": 24,
