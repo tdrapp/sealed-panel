@@ -11,12 +11,13 @@ from pathlib import Path
 
 from ..settings import Config, resolve
 from ..transcript import Adapter, Transcript
-from . import agent_jsonl
+from . import agent_jsonl, rollout_jsonl
 
 # Every format sealed-panel reads, by the id `[transcript] format` takes. Closed: a format is
 # added in code, with its tests, never by a setting.
 FORMATS: dict[str, Adapter] = {
     "agent-jsonl": Adapter(read=agent_jsonl.read),
+    "rollout-jsonl": Adapter(read=rollout_jsonl.read),
 }
 
 

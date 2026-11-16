@@ -56,7 +56,7 @@ REMOVED_TRANSCRIPT_KEYS: dict[str, str] = {
 }
 # The transcript formats a host adapter reads: the keys of sealed_panel.hosts.FORMATS, which a
 # test holds equal. The first one reads what the field names above described.
-TRANSCRIPT_FORMATS = ("agent-jsonl",)
+TRANSCRIPT_FORMATS = ("agent-jsonl", "rollout-jsonl")
 SEVERITY_NAMES = ("blocking", "material", "cosmetic", "none")
 
 # Hard bounds. A value outside them is refused, in a configuration file or in a spec.

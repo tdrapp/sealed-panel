@@ -43,6 +43,7 @@ RUN, MCP = f"{PKG}/runner.py", f"{PKG}/mcp_server.py"
 TEXT = f"{PKG}/text.py"
 TRANSCRIPT, REPLY, SEAT = (f"{PKG}/{m}.py" for m in ("transcript", "reply", "seat"))
 AGENT_JSONL = f"{PKG}/hosts/agent_jsonl.py"
+ROLLOUT_JSONL = f"{PKG}/hosts/rollout_jsonl.py"
 MEASURE = f"{PKG}/measure.py"
 # FROZEN is run.py, the frozen run directory (RUN is the judge runner).
 RUBRIC, FROZEN, STEPS = (f"{PKG}/{m}.py" for m in ("rubric", "run", "steps"))
@@ -982,6 +983,49 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a judge that used a tool is read": (REC, "    if t.tools:\n", "    if False:\n"),
     "a judge with a later input is read": (REC, "    if t.later_inputs:\n", "    if False:\n"),
+    "a forked judge read": (REC, "    if t.fork:\n", "    if False:\n"),
+    # The rollout-jsonl adapter.
+    "a fork marker ignored": (
+        ROLLOUT_JSONL,
+        "return any(k in meta for k in FORK_KEYS) or sessions > 1",
+        "return sessions > 1",
+    ),
+    "a second session record ignored": (
+        ROLLOUT_JSONL,
+        "return any(k in meta for k in FORK_KEYS) or sessions > 1",
+        "return any(k in meta for k in FORK_KEYS)",
+    ),
+    "a later turn not counted": (
+        ROLLOUT_JSONL,
+        'i["type"] == "task_started" or (i["type"] in INPUTS and not _is_output(i, me))',
+        '(i["type"] in INPUTS and not _is_output(i, me))',
+    ),
+    "a later rollout message not counted": (
+        ROLLOUT_JSONL,
+        'i["type"] == "task_started" or (i["type"] in INPUTS and not _is_output(i, me))',
+        'i["type"] == "task_started"',
+    ),
+    "a rollout without a session record read": (
+        ROLLOUT_JSONL,
+        '    if first.get("type") != "session_meta" or not isinstance(meta.get("id"), str):\n',
+        "    if False:\n",
+    ),
+    "a model item of another shape read": (
+        ROLLOUT_JSONL,
+        "            if not _item_ok(item):\n",
+        "            if False:\n",
+    ),
+    "an unknown rollout item not counted as a call": (
+        ROLLOUT_JSONL,
+        '    return item["type"] not in INPUTS | {REASONING, "task_started"}\n',
+        "    return False\n",
+    ),
+    "the host's developer messages counted in the prompt": (
+        ROLLOUT_JSONL,
+        'if (i["type"] == "message" and i["role"] == "user") or i["type"] == "agent_message"',
+        'if i["type"] in ("message", "agent_message")',
+    ),
+    "a cut-off rollout read": (ROLLOUT_JSONL, "reply_problem=lines.cut_off,", 'reply_problem="",'),
     # Paths and files of a run.
     "paths outside the root accepted": (
         MCP,
