@@ -10,12 +10,13 @@ reads the configuration frozen into the run.
 
 `init` writes `run.json` with the run format (`schema_version`), last. Every command, read or
 write, refuses a run before creating anything in it when `run.json` is missing (a run created
-by a version before 0.4.0, to finish or read with that version, installed from its tag; or an
-interrupted init, to start again), holds a newer format (upgrade), or cannot be read
-(damaged). Within a format, a run whose frozen configuration lacks a setting this release has
-no value for was frozen by an earlier release: it is refused with the releases to finish it
-with; one holding a setting this release does not know was frozen by a newer release: it is
-refused with the advice to upgrade ([protocol.md](protocol.md), section 11).
+before 0.4.0: this version cannot continue a run created before 0.4.0: start a new run with this
+version, or finish the old one with the version that created it; or an interrupted init, to
+start again), holds a newer format (upgrade), or cannot be read (damaged). Within a format, a
+run whose frozen configuration lacks a setting this release has no value for was frozen by an
+earlier release: it is refused with the releases to finish it with; one holding a setting this
+release does not know was frozen by a newer release: it is refused with the advice to upgrade
+([protocol.md](protocol.md), section 11).
 
 `--round N` is required for a loop round. With `--sealed` it is optional and defaults to 1,
 since a run has one sealed panel.

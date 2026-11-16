@@ -21,7 +21,7 @@ from .runner import judge_round
 from .settings import Config, load_config
 from .steps import aggregate_round, init_run
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 __all__ = [
     "SCHEMA_VERSION",

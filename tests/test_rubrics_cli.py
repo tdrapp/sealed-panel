@@ -148,6 +148,8 @@ class TestRunOfAnotherFormat:
             rc, out = run(capsys, *args)
             assert rc == 2 and MARKERS[how] in out, (how, args)
         if how in ("missing", "older"):
-            assert "@v<version>" in out
+            # No install line: start a new run, or finish it with the version that created it.
+            assert "start a new run with this version, or finish the old one" in out
+            assert "@v<version>" not in out
         assert sorted(p.relative_to(h.run) for p in h.run.rglob("*")) == before
         assert not private_library.exists()

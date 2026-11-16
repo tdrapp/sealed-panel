@@ -241,9 +241,12 @@ three kinds of proof, and the report says which one each round used.
 
 A run freezes its spec and its whole configuration, and `run.json` records the run format
 (`schema_version`, 1 since 0.4.0). Every command refuses a run of another format before it
-creates anything in it: an older run is finished with the release that created it, a newer one
-needs an upgrade. Both refusals name the releases that write each format, from one table
-(`FORMAT_SINCE` in `sealed_panel/model.py`: each format and the first release that writes it).
+creates anything in it: a run of an earlier release's format is finished with that release,
+installed from its tag, a newer one needs an upgrade. Both refusals name the releases that
+write each format, from one table (`FORMAT_SINCE` in `sealed_panel/model.py`: each format and
+the first release that writes it). A run without `run.json`, or of a format older than the
+table, was created before 0.4.0. This version cannot continue a run created before 0.4.0: start
+a new run with this version, or finish the old one with the version that created it.
 
 A later release that adds a setting frozen into every run (a key of `defaults.toml`) does one
 of two things, so that a run frozen before it keeps its grade:

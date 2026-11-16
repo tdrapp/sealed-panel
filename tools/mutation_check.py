@@ -721,13 +721,23 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a run of a newer format accepted": (
         FROZEN,
+        "    if version != SCHEMA_VERSION:\n",
+        "    if version < SCHEMA_VERSION:\n",
+    ),
+    "a newer run told it is older": (
+        FROZEN,
         "    if version > SCHEMA_VERSION:\n",
+        "    if False:\n",
+    ),
+    "a development run told to install its version": (
+        FROZEN,
+        "    if version < min(FORMAT_SINCE):\n",
         "    if False:\n",
     ),
     "a run of an older format accepted": (
         FROZEN,
-        "    if version < SCHEMA_VERSION:\n",
-        "    if False:\n",
+        "    if version != SCHEMA_VERSION:\n",
+        "    if version > SCHEMA_VERSION:\n",
     ),
     "the control compared raw": (
         BRIEF,

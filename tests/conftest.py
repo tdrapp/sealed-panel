@@ -251,7 +251,7 @@ def h(tmp_path: Path) -> Harness:
 
 MARKERS = {
     "missing": "this run has no run.json",
-    "older": "created by an earlier version of sealed-panel",
+    "older": "This version cannot continue a run created before 0.4.0",
     "newer": "created by a newer version of sealed-panel",
     "not json": "is damaged",
     "a list": "is damaged",

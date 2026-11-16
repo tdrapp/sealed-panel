@@ -3,7 +3,7 @@
 [![CI](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Version 0.3.1. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+Version 0.4.0. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final
 grade.
@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 340 mutations, 338
+bound or boundary at a time and requires the suite to fail on each. Of its 342 mutations, 340
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -115,11 +115,11 @@ seat lock rely on POSIX process groups and `fcntl.flock`), and the code holds no
 From GitHub, at a release tag:
 
 ```sh
-pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
+pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.4.0'
 # plus the MCP server:
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0'
 # run the server without installing it:
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.3.1' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0' sealed-panel mcp
 ```
 
 From the package index, once published:
@@ -127,7 +127,7 @@ From the package index, once published:
 ```sh
 pip install sealed-panel
 pip install 'sealed-panel[mcp]'
-uvx --from 'sealed-panel[mcp]==0.3.1' sealed-panel mcp
+uvx --from 'sealed-panel[mcp]==0.4.0' sealed-panel mcp
 ```
 
 Pin a `uvx` line to an exact version or tag, as above: an unpinned one runs whatever is newest
@@ -377,6 +377,7 @@ sealed-panel/
     cli.py               the sealed-panel command, including `rubrics` and `feedback`
     mcp_server.py        the MCP server (the mcp extra)
     learning/            rubric candidates from sealed runs; the core never imports it
+      __init__.py        the subpackage
       learn.py           the two signals after a seal, and the user's own read
       candidates.py      the inbox, its history, promotion and rejection
       location.py        where learning may write: never in a git working tree
@@ -393,20 +394,21 @@ sealed-panel/
     run.py               freeze a run and read it back checked; run.json, the salt
     templates.py         templates, suggest, skeletons, where the library lives
     transcript.py        read a judge's transcript
-    rubric.py            validate and hash a spec
+    rubric.py            the field table; validate and hash a spec
     decide.py            the stop rule
     ledger.py            views derived from the run's files
-    model.py             names shared by the run's records
+    model.py             the run's records as TypedDicts, and Spec
     text.py              normalisation, quote checks, injection flags
     settings.py          load, merge and bound the settings
     store.py             JSON and text files, round directories, locks
-    errors.py            EvalError and ConfigError
+    errors.py            EvalError and the refusals derived from it
     py.typed             typing marker
   tests/                 the behaviour contract (pytest), one file per concern
   tools/
     mutation_check.py    seeded defects the tests must catch
     smoke_mcp.py         the installed MCP server answers initialize (build job)
     complexity_check.py  no function grows past complexity_baseline.json
+    complexity_baseline.json  the complexity budget, entry by entry
     check_commit_msg.py  the commit-msg hook: Conventional Commits, subject under 72
   skill/
     SKILL.md             the procedure an agent follows (the one source of the skill)
@@ -429,7 +431,9 @@ sealed-panel/
     judge_template.py    a judge command to adapt to your model (command line or HTTP)
     judge.toml           its [judge] configuration
     library_usage.py     a one-shot sealed grade from Python
+    README.md            the runner examples explained
   docs/
+    api.md               the stable Python API, with an example a test runs
     configuration.md     every setting and its bounds
     rubrics.md           the rubric library: format, suggest, candidates, promotion
     cli.md               every command and flag
@@ -443,9 +447,10 @@ sealed-panel/
                          extra, mutation check, build, actionlint, pip-audit, gitleaks,
                          import contracts, complexity, docstrings
     workflows/release.yml  a tag v* publishes through trusted publishing
+    workflows/mutation-nightly.yml  every mutation on the whole suite, each night
     branch-protection.json  required checks for main
     dependabot.yml, CODEOWNERS, PULL_REQUEST_TEMPLATE.md, ISSUE_TEMPLATE/
-  pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig
+  pyproject.toml, uv.lock, .pre-commit-config.yaml, .editorconfig, .gitleaks.toml, .gitignore
   README.md, CONTRIBUTING.md, SECURITY.md, CHANGELOG.md, LICENSE, NOTICE
   AGENTS.md              the rules for a coding agent, each with what enforces it
 ```
@@ -467,9 +472,14 @@ skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
-A run is finished with the version that started it. 0.4.0 refuses every run created before it.
-To finish an older run, install its version from its tag: `pip install 'sealed-panel @
-git+https://github.com/tdrapp/sealed-panel@v<version>'`.
+A run is finished with the version that started it, and 0.4.0 refuses every run created before
+it. This version cannot continue a run created before 0.4.0: start a new run with this version,
+or finish the old one with the version that created it.
+
+A configuration file that sets `[text]`, `[injection]` or `[library]` is refused, naming the
+key: those settings are fixed in code since 0.4.0. Code that imports from the package: the
+stable names are in [docs/api.md](docs/api.md), and every name or module that moved or went is
+in the 0.4.0 entries marked **Breaking** in [CHANGELOG.md](CHANGELOG.md).
 
 ## Limits
 
