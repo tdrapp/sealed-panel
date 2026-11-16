@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -218,7 +218,7 @@ def shape_errors(spec: Any) -> list[str]:
     return errors
 
 
-def dimensions_sha(dimensions: list[Dimension]) -> str:
+def dimensions_sha(dimensions: Sequence[Mapping[str, object]]) -> str:
     """A hash of what a template asks judges: each dimension's id, name, question, anchors."""
     core = [{k: d.get(k) for k in ("id", "name", "question", "anchors")} for d in dimensions or []]
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode("utf-8")).hexdigest()

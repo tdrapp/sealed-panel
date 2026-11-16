@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
 from .errors import ConfigError, EvalError
-from .model import Dimension, FrozenSpec, Measured, Persona
+from .model import FrozenSpec
 from .rubric import (
     DIMENSION_FIELDS,
     PERSONA_FIELDS,
@@ -102,12 +102,18 @@ MIN_DIMENSIONS, MAX_DIMENSIONS = 3, 6
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-class Provenance(TypedDict):
-    """One change to a template: when, from what, and what changed."""
+# The types below say what template_errors guarantees, and no more: a template is validated
+# input, and the check fixes its keys but few of its values. A value it does not check is
+# typed `object` (a list whose elements it does not check, `list[Any]`), so a reader that needs
+# more checks it there.
 
-    date: str
-    source: str
-    change: str
+
+class Provenance(TypedDict):
+    """One change to a template: exactly these keys; their values are not checked."""
+
+    date: object
+    source: object
+    change: object
 
 
 class BasedOn(TypedDict):
@@ -116,8 +122,26 @@ class BasedOn(TypedDict):
     version: int
 
 
+class TemplatePersona(TypedDict):
+    """A template's placeholder persona: exactly these keys; their values are not checked."""
+
+    id: object
+    description: object
+
+
+class TemplateDimension(TypedDict):
+    """A template's dimension: exactly these keys, a string id, and anchors holding non-blank
+    strings at 1, 3 and 5 (any other level is not checked); name and question are not checked."""
+
+    id: str
+    name: object
+    question: object
+    anchors: dict[str, object]
+
+
 class Template(TypedDict):
-    """A rubric template, as `template_errors` accepts it."""
+    """A rubric template, as `template_errors` accepts it: its own keys checked, its personas,
+    dimensions and provenance checked for their keys, `measured` only for being a list."""
 
     id: str
     version: int
@@ -125,9 +149,9 @@ class Template(TypedDict):
     kinds: list[str]
     keywords: list[str]
     when_to_use: str
-    personas: list[Persona]
-    dimensions: list[Dimension]
-    measured: list[Measured]
+    personas: list[TemplatePersona]
+    dimensions: list[TemplateDimension]
+    measured: list[Any]
     provenance: list[Provenance]
     aliases: NotRequired[list[str]]
     facts_hint: NotRequired[str]
@@ -422,7 +446,7 @@ def instantiate(t: Template, personas: list[dict[str, Any]] | None = None) -> di
             if bound in row:
                 row[bound] = _todo(f"your {bound} (suggested {row[bound]})")
         measured.append(row)
-    dims: list[Dimension] = [
+    dims: list[dict[str, object]] = [
         {"id": d["id"], "name": d["name"], "question": d["question"], "anchors": dict(d["anchors"])}
         for d in t["dimensions"]
     ]
