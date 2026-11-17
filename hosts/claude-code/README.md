@@ -46,8 +46,8 @@ adapter accepts and its limits, among them the `SubagentHandback` call auto mode
 ## Work on the plugin from a clone
 
 Load this folder for one session with `claude --plugin-dir hosts/claude-code`, or add a local
-marketplace that lists it by a relative path. Point the server at the clone instead of the
-release in your MCP configuration:
+marketplace that lists a copy of it by a relative path. Point the server at the clone instead
+of the release in your MCP configuration:
 
 ```json
 {

@@ -148,27 +148,41 @@ from it to `skill/` points outside what it fetches.
 
 ### Codex CLI: `hosts/codex/`
 
-The Codex CLI reads skills from `.agents/skills/` in every folder from the one it starts in up
-to the repository root, and from `~/.agents/skills/` for the user, and MCP servers from
-`config.toml`. The folder holds the skill (`skills/sealed-panel/`, a copy of `skill/`) and the
-server table (`config.toml`). Copy the skill into `~/.agents/skills/` (Codex also follows a
-link to a skill folder) and the table into `~/.codex/config.toml`, from a clone at the release
-tag; [the folder's README](../hosts/codex/README.md) gives the commands. The table:
+The folder holds the skill (`skills/sealed-panel/`, a copy of `skill/`) and the server table
+(`config.toml`). Copy the skill into `~/.agents/skills/` and the table into
+`~/.codex/config.toml`, from a clone at the release tag; [the folder's
+README](../hosts/codex/README.md) gives the commands. Start Codex from a project directory:
+the table's transcript root, `~/.codex/sessions`, lies under your home, and the server turns
+transcripts off when its root (the folder it starts in, without `--root`) overlaps it.
+
+What follows keeps apart what was measured, on 2026-11-16 with Codex CLI 0.163.0-alpha.11.1
+and no login (`codex debug prompt-input`, which prints what a session would show the model,
+and `codex mcp list` and `codex mcp get`), from what was read in Codex's documentation the
+same day and not run in a logged-in session.
+
+Measured: the skill is listed from `~/.agents/skills/sealed-panel/`, as a copy and as a
+symbolic link to a copy; it was listed from a clone of 0.4.0, whose root held
+`.agents/skills/`, and is not from a clone since 0.4.1, so a copy in your skill folder replaces
+it. Codex reads the table as written: the command, its arguments, `startup_timeout_sec` 120,
+`tool_timeout_sec` 300 and the empty `env_vars`.
+
+Read: Codex reads skills from `.agents/skills/` in every folder from the one it starts in up to
+the repository root and from `~/.agents/skills/`, follows a symbolic link to a skill folder,
+and lists skills with `/skills`; a trusted project's `.codex/config.toml` may hold the table;
+it waits 10 seconds for a server to start and 60 seconds for a tool call by default. So the
+table:
 
 - starts the server with `uvx`, pinned to the release tag, and `--transcript-root
   ~/.codex/sessions`, the folder where Codex writes its sessions (the server expands `~`);
-- raises `startup_timeout_sec` to 120, since the first start fetches the package and Codex
-  waits 10 seconds by default;
+- raises `startup_timeout_sec` to 120, since the first start fetches the package (how long
+  that takes was not measured);
 - raises `tool_timeout_sec` to 300, because a `judge` call runs one judge after another and a
-  judge can take a minute, while Codex stops a tool call after 60 seconds by default. Split a
-  large panel across calls with the tool's `judges` parameter so that each call fits;
+  judge can take a minute. Split a large panel across calls with the tool's `judges`
+  parameter so that each call fits;
 - lists in `env_vars` the variables passed to the server: only what the judge command needs
   (your model's key, if the runner calls a model), none in host mode. The judge command still
   sees only `PATH`, `HOME`, `LANG` and the names in `[judge] env_allow`, so a key reaches a
   judge only when both lists name it.
-
-Since 0.4.1 the repository root no longer holds `.agents/skills/`: Codex started in a clone no
-longer finds the skill there, and a copy in your skill folder replaces it.
 
 **A judge without tools.** No way to start a Codex session without tools is known. Start each
 judge as a fresh session, from an empty directory, with one brief's text as its whole prompt,

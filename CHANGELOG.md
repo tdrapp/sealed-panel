@@ -19,7 +19,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judge that got an input after its first output, beyond what its host adds on its own: an
   input after an answer can ask again, a re-roll. Each refusal has a mutation.
 - `tools/build_hosts.py` writes each host's copy of the skill, and the body of the plugin's
-  judge agent, from `skill/`; `--check` lists what drifted and writes nothing.
+  judge agent, from `skill/`; `--check` lists what drifted and writes nothing. A symbolic link
+  anywhere in a copy, and any folder under a host's `skills/` other than the skill's copy, is
+  drift; it refuses to write through a link, and refuses a skill name not made of `a-z`, `0-9`
+  and `-`.
 
 ### Changed
 
@@ -33,7 +36,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tagged (`/plugin marketplace update sealed-panel`), then update the plugin; the host's
   section of `docs/integrations.md` gives the commands. A host started in a clone no longer
   finds the skill in the repository's `.agents/skills/`: copy
-  `hosts/<host>/skills/sealed-panel/` into your user skill folder.
+  `hosts/<host>/skills/sealed-panel/` into your user skill folder. Three values of that host's
+  server table changed: `startup_timeout_sec = 120` is added, since the first start fetches the
+  package and the host waits 10 seconds by default (its documentation); the transcript root is
+  the host's own sessions folder instead of a placeholder path; `env_vars` is empty (host mode)
+  instead of a sample key. To load the plugin from a clone for one session, point the host's
+  local plugin directory option at the plugin's folder under `hosts/`, not at the clone root.
 - **Breaking:** A transcript whose structure its adapter does not recognise is refused (nothing
   is stored) instead of read past: an entry of a checked type with another shape, an untyped
   content block, a file with no message, two agent ids in one file. Before: entries of another

@@ -1,5 +1,6 @@
 # The sealed-panel MCP server for the Codex CLI: add this table to ~/.codex/config.toml, or to
-# a trusted project's .codex/config.toml. See README.md in this folder.
+# a trusted project's .codex/config.toml. See README.md in this folder. The defaults named
+# below come from Codex's documentation, read on 2026-11-16 (CLI 0.163.0-alpha.11.1).
 [mcp_servers.sealed-panel]
 command = "uvx"
 args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0", "sealed-panel", "mcp", "--transcript-root", "~/.codex/sessions"]
