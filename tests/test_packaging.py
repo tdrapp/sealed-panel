@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 from types import ModuleType
@@ -19,6 +20,16 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "skill"
 HOSTS = ROOT / "hosts"
 REPO = "https://github.com/tdrapp/sealed-panel.git"
+# Every entry the repository tracks at its root: the project's own. Whatever a host reads sits
+# in its folder under hosts/, but for the one file a host requires at the root: the marketplace
+# file, in a dot folder named after that host (`.<host>-plugin`), which holds nothing else.
+ROOT_ENTRIES = {
+    ".editorconfig", ".github", ".gitignore", ".gitleaks.toml", ".pre-commit-config.yaml",
+    "AGENTS.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "NOTICE", "README.md",
+    "SECURITY.md", "docs", "examples", "hosts", "pyproject.toml", "skill", "src", "tests",
+    "tools", "uv.lock",
+}  # fmt: skip
+PLUGIN_FOLDER = re.compile(r"\.[a-z0-9]+(?:-[a-z0-9]+)*-plugin")
 
 if not SOURCE.is_dir():  # the mutation check runs on a copy of src, tests and examples only
     pytest.skip("not a checkout: the skill folders are not here", allow_module_level=True)
@@ -69,13 +80,26 @@ def test_the_host_copies_are_what_the_build_writes() -> None:
     assert build_hosts().drift(ROOT) == [], "run python tools/build_hosts.py"
 
 
-def test_the_root_holds_no_host_file_but_the_marketplace() -> None:
-    # Everything a host reads sits in its folder under hosts/; the root keeps only the file a
-    # host requires there to find the plugin.
-    [folder] = [p.parent for p in ROOT.glob(".*-plugin/marketplace.json")]
-    assert {p.name for p in folder.iterdir()} == {"marketplace.json"}
-    for name in (".mcp.json", "agents", "skills", ".agents"):
-        assert not (ROOT / name).exists(), name
+def test_the_root_tracks_only_the_project_and_the_marketplace() -> None:
+    if not (ROOT / ".git").exists():  # an sdist: the next test still checks the plugin folder
+        pytest.skip("not a git checkout: the tracked files are not known")
+    files = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    top = {f.split("/", 1)[0] for f in files}
+    plugin = {name for name in top if PLUGIN_FOLDER.fullmatch(name)}
+    assert top - plugin <= ROOT_ENTRIES, (
+        f"a host file at the root: {sorted(top - plugin - ROOT_ENTRIES)}"
+    )
+    assert len(plugin) == 1, sorted(plugin)
+    inside = {f for f in files if f.split("/", 1)[0] in plugin}
+    assert inside == {f"{name}/marketplace.json" for name in plugin}, sorted(inside)
+
+
+def test_the_plugin_folder_at_the_root_holds_only_the_marketplace() -> None:
+    folders = [p for p in ROOT.iterdir() if p.is_dir() and PLUGIN_FOLDER.fullmatch(p.name)]
+    assert len(folders) == 1, folders
+    assert [p.name for p in folders[0].iterdir()] == ["marketplace.json"]
 
 
 def test_the_skill_has_its_name_and_description() -> None:
@@ -162,6 +186,19 @@ def test_the_docs_pin_every_install_line_to_this_release() -> None:
     for path in install_docs():
         found = pattern.findall(path.read_text(encoding="utf-8"))
         assert found and set(found) == {__version__}, path.relative_to(ROOT)
+
+
+def test_a_clone_line_in_a_host_readme_checks_out_this_release() -> None:
+    # A clone of `main` would pair the skill of `main` with the server pinned to the release.
+    lines = [
+        line
+        for path in sorted(HOSTS.glob("*/README.md"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "git clone" in line
+    ]
+    assert lines
+    for line in lines:
+        assert f"git clone --branch v{__version__} " in line, line
 
 
 def test_a_host_folder_names_no_other_release() -> None:
