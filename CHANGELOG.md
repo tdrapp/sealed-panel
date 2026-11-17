@@ -19,10 +19,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judge that got an input after its first output, beyond what its host adds on its own: an
   input after an answer can ask again, a re-roll. Each refusal has a mutation.
 - `tools/build_hosts.py` writes each host's copy of the skill, and the body of the plugin's
-  judge agent, from `skill/`; `--check` lists what drifted and writes nothing. A symbolic link
-  anywhere in a copy, and any folder under a host's `skills/` other than the skill's copy, is
-  drift; it refuses to write through a link, and refuses a skill name not made of `a-z`, `0-9`
-  and `-`.
+  judge agent, from `skill/`; `--check` lists what drifted and writes nothing. It never deletes
+  anything: an orphan under a host's `skills/` (another folder or file, or a file the source
+  lacks inside the copy) makes the build refuse and name it, yours to remove by hand. A
+  symbolic link on the way to a copy is drift too; the build refuses to write through one, and
+  refuses a skill name not made of `a-z`, `0-9` and `-`.
 
 ### Changed
 
