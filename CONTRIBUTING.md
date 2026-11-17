@@ -148,10 +148,10 @@ one without the other. The release commit bumps both with the version (see
 [docs/runbook.md](docs/runbook.md)), and `tests/test_packaging.py` fails when they disagree
 with the package version.
 
-`skill/` is the one source of the skill. After editing it, run `python tools/build_hosts.py`,
-which writes each host's copy (and the body of the plugin's judge agent) and never deletes
-anything, so an orphan it names under a host's `skills/` is yours to remove by hand, and commit
-the copies with the source: `tests/test_packaging.py` fails when one drifts.
+`skill/` is the one source of the skill. After editing it, run `python tools/build_hosts.py`
+and commit the copies with the source: `tests/test_packaging.py` fails when one drifts. The
+tool writes each host's copy (and the body of the plugin's judge agent) and never deletes: an
+orphan it names in a host's folder is yours to remove by hand.
 
 ## Branches and pull requests
 
