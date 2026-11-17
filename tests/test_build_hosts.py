@@ -226,3 +226,49 @@ def test_help_states_what_it_writes_that_it_never_deletes_and_the_codes(
     assert len(out.splitlines()) > 10
     for phrase in ("Never deletes", "never deletes anything", "remove by hand", "Exit codes"):
         assert phrase in out, phrase
+
+
+def test_a_folder_named_like_a_file_of_the_copy_is_an_orphan_refused_before_any_write(
+    tool: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool.build(repo)
+    # Hosts are processed in name order: "two" comes last, after "one" would have been written.
+    planted = repo / "hosts" / "two" / "skills" / "demo" / "SKILL.md"
+    planted.unlink()
+    planted.mkdir()
+    edit_source(repo)
+    assert "orphan, remove it by hand: hosts/two/skills/demo/SKILL.md" in tool.drift(repo)
+    before = snapshot(repo / "hosts")
+    monkeypatch.setattr(tool, "ROOT", repo)
+    assert tool.main(["--check"]) == 1
+    assert tool.main([]) == 2
+    assert snapshot(repo / "hosts") == before  # no host written, no temporary file left
+
+
+@pytest.mark.parametrize("entry", [".eval-judge.md.k3x9q", "other.md", "folder"])
+def test_any_other_entry_of_agents_is_an_orphan(
+    tool: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+) -> None:
+    tool.build(repo)
+    stray = repo / "hosts" / "one" / "agents" / entry
+    if entry == "folder":
+        stray.mkdir()
+    else:
+        stray.write_text("left over\n")
+    edit_source(repo)
+    assert tool.drift(repo)[-1] == f"orphan, remove it by hand: hosts/one/agents/{entry}"
+    before = snapshot(repo / "hosts")
+    monkeypatch.setattr(tool, "ROOT", repo)
+    assert tool.main(["--check"]) == 1 and tool.main([]) == 2
+    assert snapshot(repo / "hosts") == before
+
+
+def test_a_judge_agent_that_is_not_a_regular_file_is_an_orphan(
+    tool: ModuleType, repo: Path
+) -> None:
+    agent = repo / "hosts" / "one" / "agents" / "eval-judge.md"
+    agent.unlink()
+    agent.mkdir()
+    assert "orphan, remove it by hand: hosts/one/agents/eval-judge.md" in tool.drift(repo)
+    with pytest.raises(ValueError, match=r"hosts/one/agents/eval-judge\.md"):
+        tool.build(repo)

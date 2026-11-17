@@ -10,13 +10,14 @@ judge instructions of `skill/judge.md` as its body. Each file is written whole a
 once. Host copies are committed: a host installs from the repository as it is, so a copy is
 never built at install. `tests/test_packaging.py` fails when a copy drifts.
 
-The tool never deletes anything. Anything else under a host's `skills/` (another folder, a
-stray file, a file the source lacks inside the copy, tracked or not) is an orphan: `--check`
-reports it, and the build refuses and names it, for you to remove by hand. A copy is real
-files: a host that fetches its folder alone does not fetch what a symbolic link points to, so
-a link on the way to a copy (`hosts/` itself, a host folder, its `skills/` or `agents/`, or
-anything under them) is drift, and the build refuses to write through one. Only content is
-compared: a file's mode (its executable bit) is neither copied nor checked.
+The tool never deletes anything. Anything else under a host's `skills/` or `agents/`
+(another folder, a stray or leftover temporary file, a file the source lacks inside the copy,
+an entry named like a file of the copy that is not a regular file, tracked or not) is an
+orphan: `--check` reports it, and the build refuses and names it, for you to remove by hand.
+A copy is real files: a host that fetches its folder alone does not fetch what a symbolic link
+points to, so a link on the way to a copy (`hosts/` itself, a host folder, its `skills/` or
+`agents/`, or anything under them) is drift, and the build refuses to write through one. Only
+content is compared: a file's mode (its executable bit) is neither copied nor checked.
 
 Exit codes: with `--check`, 0 when every copy agrees and 1 on any drift, links and orphans
 included; without it, 0 when the copies were written (or already agreed) and 2 when the build
@@ -95,7 +96,8 @@ def expected(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
     Returns:
         The content each copied file must have, by path; and the orphans: what a host's
         `skills/` holds that is not a file of the copy (another entry of `skills/`, a file the
-        source lacks inside the copy, or the copy's own name taken by a file).
+        source lacks inside the copy or one that is not a regular file, or the copy's own name
+        taken by a file), and what its `agents/` holds besides the judge agent's file.
     """
     source = root / "skill"
     name = skill_name(source)
@@ -108,6 +110,7 @@ def expected(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
             copy = host / "skills" / name
             want |= {copy / n: content for n, content in files.items()}
             orphan += orphans(host / "skills", name, files)
+        orphan += agent_orphans(host / "agents")
         agent = host / "agents" / JUDGE_AGENT
         if agent.is_file():
             text = judge_agent(agent.read_text(encoding="utf-8"), judge)
@@ -125,15 +128,31 @@ def orphans(skills: Path, name: str, files: dict[str, bytes]) -> list[Path]:
 
     Returns:
         Every other entry of `skills/`, file or folder; the copy itself when a file holds its
-        name; and the entries of the copy that the source does not have.
+        name; and the entries of the copy that the source does not have, or that carry a file's
+        name without being a regular file (a folder named `SKILL.md`).
     """
     found = [p for p in sorted(skills.iterdir()) if p.name != name]
     copy = skills / name
     if copy.is_dir():
-        found += [p for p in sorted(copy.iterdir()) if p.name not in files]
+        found += [p for p in sorted(copy.iterdir()) if p.name not in files or not p.is_file()]
     elif copy.exists() or copy.is_symlink():
         found.append(copy)
     return found
+
+
+def agent_orphans(agents: Path) -> list[Path]:
+    """What a host's `agents/` folder holds that the build does not write.
+
+    Args:
+        agents: A host's `agents/` folder, which may not exist.
+
+    Returns:
+        Every entry but the judge agent's file (a leftover temporary file, any other file or
+        folder), and that one too when it is not a regular file.
+    """
+    if not agents.is_dir():
+        return []
+    return [p for p in sorted(agents.iterdir()) if p.name != JUDGE_AGENT or not p.is_file()]
 
 
 def links(root: Path) -> list[Path]:

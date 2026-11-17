@@ -77,7 +77,9 @@ def test_each_host_has_a_copy_of_the_skill() -> None:
 
 
 def test_the_host_copies_are_what_the_build_writes() -> None:
-    assert build_hosts().drift(ROOT) == [], "run python tools/build_hosts.py"
+    lines = build_hosts().drift(ROOT)
+    hint = "run python tools/build_hosts.py; remove by hand what it names as an orphan or a link"
+    assert not lines, "\n".join([hint, *lines])
 
 
 def test_the_root_tracks_only_the_project_and_the_marketplace() -> None:
