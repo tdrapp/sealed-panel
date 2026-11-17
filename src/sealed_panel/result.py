@@ -19,19 +19,19 @@ from typing import Any
 
 from .decide import TOP_SCORE, decide, flagged_roles, measured_ok
 from .errors import EvalError
-from .ledger import results_by_judge
+from .ledger import other_runs
 from .ledger import view as ledger_view
 from .model import (
     INJECTION_ACK,
     RESULT_FILE,
     RESULT_SCHEMA_VERSION,
     SCHEMA_VERSION,
-    Finding,
     FrozenSpec,
     LedgerView,
     ResultAttempts,
     ResultCell,
     ResultFile,
+    ResultFinding,
     ResultFlags,
     ResultJudge,
     ResultObtained,
@@ -40,7 +40,8 @@ from .model import (
 )
 from .run import load_frozen, run_config
 from .settings import NOT_GRADING, Config, default_data
-from .store import dump_json, load_json, read_text, round_dir
+from .shape import problem
+from .store import dump_json, load_json, read_text
 
 # The distribution whose release writes the result file.
 DISTRIBUTION = "sealed-panel"
@@ -173,25 +174,16 @@ def _grade(final: RoundResult) -> dict[str, dict[str, ResultCell]]:
     }
 
 
-def _judge(cfg: Config) -> ResultJudge:
+def _judge(cfg: Config, final: RoundResult) -> ResultJudge:
+    """Who judged; the transcript format only when a counted judge was read from a
+    transcript."""
     argv = [str(arg) for arg in cfg.judge["command"]]
+    read = not argv and "transcript" in final["sources"]
     return {
         "mode": "runner" if argv else "host",
         "argv": argv,
         "model_id": str(cfg.judge["model_id"]),
-        "transcript_format": None if argv else cfg.transcript_format,
-    }
-
-
-def _prompt_extras(run: Path, final: RoundResult) -> dict[str, int]:
-    """What each seat's counted judge carried in its prompt beyond its brief, as its format's
-    adapter counted it: every valid attempt read from a transcript, a zero included."""
-    rdir = round_dir(run, final["round"], True)
-    return {
-        str(judge): r.get("prompt_extra_chars", 0)
-        for judge, attempts in sorted(results_by_judge(rdir).items())
-        for r in attempts
-        if r["ok"] and r.get("transcript")
+        "transcript_format": cfg.transcript_format if read else None,
     }
 
 
@@ -202,8 +194,26 @@ def _flags(run: Path, spec: FrozenSpec, final: RoundResult, ledger: LedgerView) 
         "pasted_replies": "output" in final["sources"],
         "judge_env_changed": final["runner_env_changed"],
         "panel_env_changed": panel_env_changes(ledger),
-        "prompt_extras": _prompt_extras(run, final),
+        "prompt_extras": final["prompt_extras"],
         "one_quote_judges": final["one_quote_judges"],
+        "other_runs": other_runs(run),
+    }
+
+
+def _findings(final: RoundResult) -> dict[str, list[ResultFinding]]:
+    """The judges' reasons per persona, each text as the string the report prints: a judge's
+    text may be any JSON value, and the file holds it as text only."""
+    return {
+        pid: [
+            {
+                "judge": f["judge"],
+                "dimension": f["dimension"],
+                "severity": f["severity"],
+                "text": f"{f['text']}",
+            }
+            for f in p["findings"]
+        ]
+        for pid, p in final["personas"].items()
     }
 
 
@@ -223,8 +233,8 @@ def _obtained(spec: FrozenSpec, final: RoundResult, ledger: LedgerView) -> Resul
 def _attempts(final: RoundResult) -> ResultAttempts:
     return {
         "valid": sum(len(p["judges"]) for p in final["personas"].values()),
-        "rejected": len(final["rejected_judges"]),
-        "void": len(final["voided"]),
+        "rejected": final["rejected_judges"],
+        "void": final["voided"],
         "sources": final["sources"],
     }
 
@@ -260,8 +270,8 @@ def build(run: Path, spec: FrozenSpec, cfg: Config, ledger: LedgerView) -> Resul
         "verdict": verdict(spec, final),
         "grade": _grade(final),
         "obtained": _obtained(spec, final, ledger),
-        "findings": {pid: p["findings"] for pid, p in final["personas"].items()},
-        "judge": _judge(cfg),
+        "findings": _findings(final),
+        "judge": _judge(cfg, final),
         "flags": _flags(run, spec, final, ledger),
         "attempts": _attempts(final),
         "settings": overrides(cfg, spec),
@@ -344,7 +354,7 @@ class GradeResult:
     verdict: str = ""
     grade: dict[str, dict[str, ResultCell]] = field(default_factory=dict)
     obtained: ResultObtained | None = None
-    findings: dict[str, list[Finding]] = field(default_factory=dict)
+    findings: dict[str, list[ResultFinding]] = field(default_factory=dict)
     judge: ResultJudge | None = None
     flags: ResultFlags | None = None
     attempts: ResultAttempts | None = None
@@ -353,8 +363,8 @@ class GradeResult:
     @classmethod
     def read(cls, path: Path) -> GradeResult:
         """Read a result file. Every result format up to this release's is read; a later one
-        is refused with the advice to upgrade, and a file without the keys of its format is
-        refused as damaged.
+        is refused with the advice to upgrade, and a file whose keys or values do not have the
+        types of its format is refused as damaged.
 
         Args:
             path: The result file, `RUN/grade.json`.
@@ -369,12 +379,9 @@ class GradeResult:
                 f"this release reads formats up to {RESULT_SCHEMA_VERSION}: upgrade sealed-panel "
                 "to read it"
             )
-        expected = set(ResultFile.__required_keys__)
-        if set(data) != expected:
-            raise EvalError(
-                f"{path} is damaged: a result file of format {version} holds the keys "
-                f"{sorted(expected)}, this one {sorted(data)}"
-            )
+        found = problem(data, ResultFile)
+        if found:
+            raise EvalError(f"{path} is damaged: as a result file of format {version}, {found}")
         return cls(run=path.parent, path=path, **data)
 
     @classmethod

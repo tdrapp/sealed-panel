@@ -14,13 +14,21 @@ from .errors import EvalError, user_message
 from .learning import cli as learning_cli
 from .learning.candidates import open_candidates
 from .measure import record_measurement
-from .model import Attempt
+from .model import RESULT_FILE, Attempt
 from .record import record_from
-from .report import feedback_path, grade_line, outcome_line, render_report, status
+from .report import (
+    feedback_path,
+    grade_line,
+    other_runs_note,
+    outcome_line,
+    render_report,
+    status,
+)
 from .rubric import TODO_MARKER
 from .runner import judge_round
 from .settings import load_config
 from .steps import aggregate_round, grade, init_run, resolve_round
+from .store import round_dir
 from .templates import LIBRARY_ENV, library_dir
 
 # The usual exit status of a command stopped by Ctrl-C.
@@ -254,9 +262,26 @@ def _print_seat(seat: int, r: Attempt | None, skipped: str) -> None:
     print(f"{outcome_line(r)} ({proof['duration_s']:g} s, stderr in {proof['stderr_log']})")
 
 
+def _aggregate(a: argparse.Namespace) -> str:
+    rnd = _round(a)
+    repair = a.sealed and (round_dir(a.run, rnd, True) / "result.json").is_file()
+    e = aggregate_round(a.run, rnd, a.sealed)
+    if repair:  # refused unless the result file was missing: it is written, nothing else
+        return f"sealed round {rnd} was already aggregated; wrote its missing {a.run / RESULT_FILE}"
+    line = (
+        f"aggregated round {e['round']}{' (sealed)' if e['sealed'] else ''}: "
+        f"{len(e['rejected_judges']) + len(e['voided'])} rejected or void attempt(s)"
+    )
+    if not e["sealed"]:
+        line += f"; findings in {feedback_path(a.run, e['round'])}"
+    return line + "; run `status`"
+
+
 def _grade(a: argparse.Namespace) -> int:
     r = grade(a.artefact, a.spec, control=a.control, config=a.config, run=a.run, known_good=a.good)
     print(grade_line(r))
+    if r.flags is not None and r.flags["other_runs"]:
+        print("note: " + other_runs_note(r.flags["other_runs"]))
     if r.path is not None:
         print(f"result file: {r.path}")
     else:
@@ -279,14 +304,7 @@ def _run(a: argparse.Namespace) -> None:
         ok = record_measurement(a.run, _round(a), a.id, a.value, a.passed, a.sealed)
         print(f"measured {a.id} = {a.value} ({'pass' if ok else 'fail'})")
     elif a.cmd == "aggregate":
-        e = aggregate_round(a.run, _round(a), a.sealed)
-        line = (
-            f"aggregated round {e['round']}{' (sealed)' if e['sealed'] else ''}: "
-            f"{len(e['rejected_judges']) + len(e['voided'])} rejected or void attempt(s)"
-        )
-        if not e["sealed"]:
-            line += f"; findings in {feedback_path(a.run, e['round'])}"
-        print(line + "; run `status`")
+        print(_aggregate(a))
     elif a.cmd == "status":
         print(json.dumps(status(a.run), ensure_ascii=False, indent=2))
     elif a.cmd == "report":

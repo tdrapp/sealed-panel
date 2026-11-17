@@ -1051,15 +1051,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):",
         "if False:",
     ),
-    "runner replies not reported": (
-        f"{PKG}/report.py",
-        'if RUNNER in r.get("sources", []):',
-        "if False:",
-    ),
+    "runner replies not reported": (REPORT, "    if n.runner:\n", "    if False:\n"),
     "runner void label hidden": (
-        f"{PKG}/report.py",
-        '            if v.get("source") == RUNNER:',
-        "            if False:",
+        REPORT,
+        '    if v.get("source") == RUNNER:\n',
+        "    if False:\n",
     ),
     # The MCP server.
     "a record call with two sources accepted": (MCP, "if len(given) != 1:", "if False:"),
@@ -1810,8 +1806,8 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "a damaged result file read": (
         RESULT,
-        "        if set(data) != expected:\n",
-        "        if False:\n",
+        '        if found:\n            raise EvalError(f"{path} is damaged',
+        '        if False:\n            raise EvalError(f"{path} is damaged',
     ),
     "a result file without a format read": (
         RESULT,
@@ -1827,7 +1823,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "grade of a spec with measured criteria accepted": (
         STEPS,
-        '    if load_frozen(run).get("measured"):\n',
+        "    if _has_measured(spec):\n",
         "    if False:\n",
     ),
     "grade without a run writes in the current directory": (
@@ -1844,6 +1840,101 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         REPORT,
         "    if not result.stands:\n",
         "    if False:\n",
+    ),
+    # Review round 1: the report's sealed notes from the result view, the folder grade()
+    # makes, the typed reader, a judge's text, the incomplete panel, a missing result file.
+    "the result file without the sealed panel's voids": (
+        RESULT,
+        '        "void": final["voided"],\n',
+        '        "void": [],\n',
+    ),
+    "the result file without the panel's judge environment change": (
+        RESULT,
+        '        "judge_env_changed": final["runner_env_changed"],\n',
+        '        "judge_env_changed": [],\n',
+    ),
+    "the result file without the loop's environment change": (
+        RESULT,
+        '        "panel_env_changed": panel_env_changes(ledger),\n',
+        '        "panel_env_changed": [],\n',
+    ),
+    "the result file without the one-quote judges": (
+        RESULT,
+        '        "one_quote_judges": final["one_quote_judges"],\n',
+        '        "one_quote_judges": [],\n',
+    ),
+    "the result file without the other runs": (
+        RESULT,
+        '        "other_runs": other_runs(run),\n',
+        '        "other_runs": [],\n',
+    ),
+    "a judge's text stored as it came": (
+        RESULT,
+        """                "text": f"{f['text']}",\n""",
+        """                "text": f["text"],\n""",
+    ),
+    "a transcript format recorded without a transcript": (
+        RESULT,
+        '    read = not argv and "transcript" in final["sources"]\n',
+        "    read = not argv\n",
+    ),
+    "a result value of the wrong type read": (
+        f"{PKG}/shape.py",
+        "    if not isinstance(value, _SCALARS[tp]):\n",
+        "    if False:\n",
+    ),
+    "a boolean read as a number": (
+        f"{PKG}/shape.py",
+        "    if isinstance(value, bool) and tp is not bool:\n",
+        "    if False:\n",
+    ),
+    "grade removes a caller's run": (
+        STEPS,
+        "        if made is not None:  # only the folder grade() made, never a caller's run\n"
+        "            shutil.rmtree(made)\n",
+        "        if True:\n            shutil.rmtree(run)\n",
+    ),
+    "grade leaves its folder behind on an early refusal": (
+        STEPS,
+        "            shutil.rmtree(made)\n",
+        "            pass\n",
+    ),
+    "grade's kept run not named in a later refusal": (
+        STEPS,
+        '        raise type(exc)(f"{exc}; the run is kept at {run}") from exc\n',
+        "        raise\n",
+    ),
+    "a default grade run beside other runs": (
+        STEPS,
+        "        target = made / _slug(text)\n",
+        "        target = made\n",
+    ),
+    "a seat with no real attempt a plain refusal": (
+        AGG,
+        "    if silent:\n        raise PanelIncomplete(\n",
+        "    if silent:\n        raise EvalError(\n",
+    ),
+    "too few valid judges a plain refusal": (
+        AGG,
+        '            why = [(r["judge"], r["errors"][:1]) for r in rejected if r["persona"] == pid]\n'
+        "            raise PanelIncomplete(\n",
+        '            why = [(r["judge"], r["errors"][:1]) for r in rejected if r["persona"] == pid]\n'
+        "            raise EvalError(\n",
+    ),
+    "too few verified scores a plain refusal": (
+        AGG,
+        "    if len(cand) < cfg.min_valid_judges:\n        raise PanelIncomplete(\n",
+        "    if len(cand) < cfg.min_valid_judges:\n        raise EvalError(\n",
+    ),
+    "any refusal returned as an incomplete panel": (
+        STEPS,
+        "    except PanelIncomplete as exc:\n",
+        "    except EvalError as exc:\n",
+    ),
+    "grade.json rewritten by a second aggregate": (
+        STEPS,
+        " and not (run / RESULT_FILE).exists():\n",
+        ":\n",
     ),
     "grade exits 0 without a grade that stands": (
         f"{PKG}/cli.py",

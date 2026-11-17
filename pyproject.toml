@@ -159,7 +159,7 @@ layers = [
     "rubric | decide | ledger",
     "model | text",
     "settings | store",
-    "errors",
+    "errors | shape",
 ]
 
 # Docstring coverage of the public API (private, semi-private, magic and nested functions are

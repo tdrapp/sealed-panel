@@ -20,18 +20,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   input after an answer can ask again, a re-roll. Each refusal has a mutation.
 - `grade()` and `sealed-panel grade SPEC ARTEFACT --control FILE --config CONFIG.toml`: the
   one-shot sealed grade in one call, with the judge runner (the judge comes from the
-  configuration only; a configuration without a judge command is refused). Without a run
-  directory it uses a fresh temporary one, never the current directory. A grade that does not
-  stand is returned as such, never as a grade: `BLOCKED BY FLAG`, or `INCOMPLETE` when the
-  judges left the panel without one. The command exits 0 for a grade that stands, 1 for none, 2
-  for a refusal; the other commands keep 0 and 2. `grade`, `GradeResult` and `FormatError` join
-  `__all__`.
+  configuration only; a configuration without a judge command is refused, and so is a spec with
+  measured criteria). Without a run directory it freezes the run in a new folder under the
+  system's temporary folder, never the current directory, and removes that folder on a refusal
+  before any judge ran. A grade that does not stand is never returned as a grade: `INCOMPLETE`
+  when the judges left the panel without one (a void, too few valid replies). A text that
+  addresses a judge is refused by the sealed brief, so the command exits 2 for it; it exits 0
+  for a grade that stands and 1 for none. The other commands keep 0 and 2. `grade`,
+  `GradeResult` and `PanelIncomplete` join `__all__`, and so does `FormatError`, which a public
+  step (`record_from`, in host mode) raises.
 - `RUN/grade.json`, written by the sealed aggregate step: the grade per persona and dimension,
-  how it was obtained, who judged, the flags and counts the report prints (each seat's prompt
-  extras included, with the transcript format that counted them), and the settings that differ
-  from the defaults. It has its own `schema_version`, separate from the run format; a reader
-  accepts every result format up to its own and refuses a later one. The report prints its
-  sealed grade from the same derivation.
+  how it was obtained, who judged, the flags and notes the report prints on the sealed panel
+  (rejected and void attempts, pasted replies, environment changes, prompt extras with the
+  transcript format that counted them, one-quote judges, and a snapshot of the runs beside
+  it), and the settings that differ from the defaults. It has its own `schema_version`,
+  separate from the run format; a reader accepts every result format up to its own, refuses a
+  later one, and refuses as damaged a file of the wrong keys or types. The report prints its
+  sealed grade, its header and its sealed-panel notes from the same derivation. A second
+  `aggregate` of a sealed round whose `grade.json` is missing writes it, and says so.
 
 ### Changed
 
@@ -67,6 +73,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A run frozen by 0.4.0 holds the transcript field names and no `format`: after its
   `config.lock` is checked as written, it reads as `agent-jsonl` when they hold the 0.4.0
   defaults (docs/protocol.md section 11).
+- The aggregate step's refusals for missing judges (a seat with no real attempt, too few valid
+  judges for a persona, too few verified scores for a dimension) raise `PanelIncomplete`, an
+  `EvalError`, so a library caller can tell them apart. The CLI and MCP messages and exit codes
+  are unchanged.
 
 ### Removed
 

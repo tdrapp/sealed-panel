@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import NamedTuple
 
 from .decide import BLOCKED, SUSPECT_JUMP, decide, flagged_roles, sealed_done
 from .ledger import other_runs, used_agent_ids
@@ -16,11 +17,13 @@ from .model import (
     DimensionResult,
     FrozenSpec,
     LedgerView,
+    RejectedJudge,
     ResultCell,
     ResultFile,
     RoundResult,
+    Voided,
 )
-from .result import GradeResult, build, overrides, panel_env_changes
+from .result import GradeResult, build, overrides
 from .rubric import dims_for
 from .run import load_frozen, run_config
 from .store import write_file
@@ -198,65 +201,139 @@ def _open_findings(view: ResultFile | None) -> list[str]:
     ]
 
 
-def _notes(run: Path, ledger: LedgerView, d: Decision, view: ResultFile | None) -> list[str]:
-    out = _open_findings(view)
-    if sealed_done(d):
-        f = d["final"]
-        loop = [r for r in ledger["rounds"] if not r.get("sealed")]
-        same = [r for r in loop if r.get("candidate_hash") == f.get("candidate_hash")]
-        if same:  # the same text judged by two fresh panels: measured repeat-test noise
-            prev = same[-1]
-            moves = [
-                f"{did} {prev['personas'][pid]['dimensions'][did]['median']:g} -> {e['median']:g}"
-                for pid, p in f["personas"].items()
-                for did, e in p["dimensions"].items()
-            ]
-            out.append(
-                f"- repeat-test on the same text (round {prev['round']} to sealed): "
-                + ", ".join(moves)
-            )
-    others = other_runs(run)
-    if others:
+class RoundNotes(NamedTuple):
+    """What the report notes for one round: from its result for a loop round, from the result
+    view for the sealed panel, so the report and the result file print the same values."""
+
+    name: str
+    suspect_jumps: list[str]
+    injection: dict[str, list[str]]
+    rejected: list[RejectedJudge]
+    voided: list[Voided]
+    prompt_extras: dict[str, int]
+    one_quote: list[int]
+    pasted: bool
+    runner: bool
+    env_changed: list[str]
+
+
+def _from_round(r: RoundResult) -> RoundNotes:
+    return RoundNotes(
+        ("sealed round " if r.get("sealed") else "round ") + str(r["round"]),
+        r["suspect_jumps"],
+        flagged_roles(r),
+        r.get("rejected_judges") or [],
+        r.get("voided") or [],
+        r.get("prompt_extras") or {},
+        r.get("one_quote_judges") or [],
+        "output" in r.get("sources", []),
+        RUNNER in r.get("sources", []),
+        r.get("runner_env_changed") or [],
+    )
+
+
+def _from_view(view: ResultFile, rnd: int) -> RoundNotes:
+    """The sealed panel's notes, from the result view. A sealed brief has no previous version,
+    so it has no paired gain and no suspect jump."""
+    flags, attempts = view["flags"], view["attempts"]
+    return RoundNotes(
+        f"sealed round {rnd}",
+        [],
+        flags["injection"],
+        attempts["rejected"],
+        attempts["void"],
+        flags["prompt_extras"],
+        flags["one_quote_judges"],
+        flags["pasted_replies"],
+        RUNNER in attempts["sources"],
+        flags["judge_env_changed"],
+    )
+
+
+def _void_line(name: str, v: Voided) -> str:
+    if v.get("source") == RUNNER:
+        why = f"by the judge runner: {v.get('reason')}"
+        why += "; it wrote output, kept unread" if v.get("replied") else ""
+    elif v.get("replied"):
+        why = "after replying (brief not verbatim)"
+    else:
+        why = "(no reply)"
+    return f"- {name}: judge {v['judge']} attempt {v['agent_id']} voided {why}"
+
+
+def _round_lines(n: RoundNotes) -> list[str]:
+    out = []
+    if n.suspect_jumps:
         out.append(
-            f"- {len(others)} other run(s) beside this one ({', '.join(others)}): "
-            "a new run is a fresh panel; say why each was started"
+            f"- {n.name}: paired jump of {SUSPECT_JUMP} or more on "
+            f"{', '.join(n.suspect_jumps)}; verify by hand before believing it"
         )
+    for role, found in sorted(n.injection.items()):
+        out.append(f"- {n.name}: the {role} item addresses a judge {found}")
+    for rj in n.rejected:
+        out.append(f"- {n.name}: judge {rj['judge']} rejected: {'; '.join(rj['errors'][:3])}")
+    out += [_void_line(n.name, v) for v in n.voided]
+    for j, chars in sorted(n.prompt_extras.items()):
+        out.append(
+            f"- {n.name}: judge {j}'s prompt carried {chars} characters beyond its brief; "
+            "read what was added"
+        )
+    for oq in n.one_quote:
+        out.append(
+            f"- {n.name}: judge {oq} quoted the same words for every dimension of the "
+            "candidate; its scores may not rest on distinct evidence"
+        )
+    return out + _source_lines(n)
+
+
+def other_runs_note(names: list[str]) -> str:
+    """The note on the runs beside this one: each is a fresh panel, so each needs a reason.
+
+    Args:
+        names: The other runs' names.
+    """
+    return (
+        f"{len(names)} other run(s) beside this one ({', '.join(names)}): "
+        "a new run is a fresh panel; say why each was started"
+    )
+
+
+def _notes(run: Path, ledger: LedgerView, d: Decision, view: ResultFile | None) -> list[str]:
+    out = _open_findings(view) + _repeat_test(ledger, d)
+    others = view["flags"]["other_runs"] if view is not None else other_runs(run)
+    if others:
+        out.append("- " + other_runs_note(others))
     for r in ledger["rounds"]:
-        name = ("sealed round " if r.get("sealed") else "round ") + str(r["round"])
-        if r["suspect_jumps"]:
-            out.append(
-                f"- {name}: paired jump of {SUSPECT_JUMP} or more on "
-                f"{', '.join(r['suspect_jumps'])}; verify by hand before believing it"
-            )
-        for role, found in sorted(flagged_roles(r).items()):
-            out.append(f"- {name}: the {role} item addresses a judge {found}")
-        for rj in r.get("rejected_judges") or []:
-            out.append(f"- {name}: judge {rj['judge']} rejected: {'; '.join(rj['errors'][:3])}")
-        for v in r.get("voided") or []:
-            if v.get("source") == RUNNER:
-                why = f"by the judge runner: {v.get('reason')}"
-                why += "; it wrote output, kept unread" if v.get("replied") else ""
-            elif v.get("replied"):
-                why = "after replying (brief not verbatim)"
-            else:
-                why = "(no reply)"
-            out.append(f"- {name}: judge {v['judge']} attempt {v['agent_id']} voided {why}")
-        for j, n in sorted((r.get("prompt_extras") or {}).items()):
-            out.append(
-                f"- {name}: judge {j}'s prompt carried {n} characters beyond its brief; "
-                "read what was added"
-            )
-        for oq in r.get("one_quote_judges") or []:
-            out.append(
-                f"- {name}: judge {oq} quoted the same words for every dimension of the "
-                "candidate; its scores may not rest on distinct evidence"
-            )
-        out += _source_notes(name, r)
-    return out + _panel_env_note(ledger)
+        notes = _from_view(view, r["round"]) if view and r.get("sealed") else _from_round(r)
+        out += _round_lines(notes)
+    return out + _panel_env_note(view)
 
 
-def _panel_env_note(ledger: LedgerView) -> list[str]:
-    changed = panel_env_changes(ledger)
+def _repeat_test(ledger: LedgerView, d: Decision) -> list[str]:
+    """The same text judged by a loop round and the sealed panel: measured repeat-test noise."""
+    if not sealed_done(d):
+        return []
+    f = d["final"]
+    same = [
+        r
+        for r in ledger["rounds"]
+        if not r.get("sealed") and r.get("candidate_hash") == f.get("candidate_hash")
+    ]
+    if not same:
+        return []
+    prev = same[-1]
+    moves = [
+        f"{did} {prev['personas'][pid]['dimensions'][did]['median']:g} -> {e['median']:g}"
+        for pid, p in f["personas"].items()
+        for did, e in p["dimensions"].items()
+    ]
+    return [
+        f"- repeat-test on the same text (round {prev['round']} to sealed): " + ", ".join(moves)
+    ]
+
+
+def _panel_env_note(view: ResultFile | None) -> list[str]:
+    changed = view["flags"]["panel_env_changed"] if view is not None else []
     if not changed:
         return []
     return [
@@ -266,22 +343,22 @@ def _panel_env_note(ledger: LedgerView) -> list[str]:
     ]
 
 
-def _source_notes(name: str, r: RoundResult) -> list[str]:
+def _source_lines(n: RoundNotes) -> list[str]:
     """What the report says about where a round's replies came from."""
     out = []
-    if "output" in r.get("sources", []):
-        out.append(f"- {name}: some replies were pasted, not read from a transcript")
-    if RUNNER in r.get("sources", []):
+    if n.pasted:
+        out.append(f"- {n.name}: some replies were pasted, not read from a transcript")
+    if n.runner:
         out.append(
-            f"- {name}: some replies were read by sealed-panel from the judge command "
+            f"- {n.name}: some replies were read by sealed-panel from the judge command "
             "(judge.command in the settings above)"
         )
-    changed = r.get("runner_env_changed") or []
-    if changed:
+    if n.env_changed:
         out.append(
-            f"- {name}: the judge command ran under different values of {', '.join(changed)} "
-            "across attempts (another model or key between judges): the declared judge model "
-            "does not cover every attempt; put the model in judge.command to freeze it"
+            f"- {n.name}: the judge command ran under different values of "
+            f"{', '.join(n.env_changed)} across attempts (another model or key between judges): "
+            "the declared judge model does not cover every attempt; put the model in "
+            "judge.command to freeze it"
         )
     return out
 
@@ -296,8 +373,10 @@ def render_report(run: Path) -> str:
     cfg = run_config(run)
     ledger = ledger_view(run)
     d = decide(spec, ledger)
+    view = build(run, spec, cfg, ledger)  # the result file's content, the same function
+    decision = view["decision"] if view is not None else d["decision"]
     n_ctx = len(used_agent_ids(run))
-    changed = overrides(cfg, spec)
+    changed = view["settings"] if view is not None else overrides(cfg, spec)
     ref: Mapping[str, object] = spec.get("template") or {}
     template = (
         f"template {ref.get('id')} v{ref.get('version')}"
@@ -312,7 +391,7 @@ def render_report(run: Path) -> str:
         else "settings that differ from the defaults: " + "; ".join(changed)
     )
     title = f"# Evaluation: {spec['title']}"
-    if d["decision"] == BLOCKED:
+    if decision == BLOCKED:
         title += f" ({BLOCKED})"
     ack = (
         f" Injection flags acknowledged in the spec: {spec[INJECTION_ACK]!r}."
@@ -323,10 +402,9 @@ def render_report(run: Path) -> str:
         title,
         "",
         f"Rubric sha256 `{ledger['rubric_sha256'][:HASH_CHARS]}`, "
-        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.{ack}",
+        f"decision **{decision}**, {n_ctx} judge contexts, {template}{settings}.{ack}",
         "",
     ]
-    view = build(run, spec, cfg, ledger)  # the result file's content, the same function
     if view is not None:
         out += _sealed_headline(view, model_line(view) + acknowledgement_line(view))
     out += _round_table(spec, ledger)

@@ -12,7 +12,14 @@ such as `rubric.validate_spec`, `reply.check_output`, `text.normalise` or the re
 """
 
 from .brief import write_briefs
-from .errors import ConfigError, EvalError, FormatError, MalformedReply, SeatTaken
+from .errors import (
+    ConfigError,
+    EvalError,
+    FormatError,
+    MalformedReply,
+    PanelIncomplete,
+    SeatTaken,
+)
 from .measure import record_measurement
 from .model import SCHEMA_VERSION, Spec
 from .record import record_from, record_reply
@@ -32,6 +39,7 @@ __all__ = [
     "FormatError",
     "GradeResult",
     "MalformedReply",
+    "PanelIncomplete",
     "SeatTaken",
     "Spec",
     "__version__",

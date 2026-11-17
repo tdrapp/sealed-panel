@@ -393,7 +393,9 @@ class ResultJudge(TypedDict):
 
 
 class ResultFlags(TypedDict):
-    """What the report flags next to the sealed grade."""
+    """What the report flags next to the sealed grade. `prompt_extras` is the round result's
+    own (a seat whose counted judge's prompt carried text beyond its brief, by characters);
+    `other_runs` is a snapshot, at sealing, of the runs beside this one."""
 
     injection: dict[str, list[str]]
     injection_acknowledged: str | None
@@ -402,15 +404,25 @@ class ResultFlags(TypedDict):
     panel_env_changed: list[str]
     prompt_extras: dict[str, int]
     one_quote_judges: list[int]
+    other_runs: list[str]
+
+
+class ResultFinding(TypedDict):
+    """A blocking or material reason a judge gave, its text as the report prints it."""
+
+    judge: int
+    dimension: str
+    severity: str
+    text: str
 
 
 class ResultAttempts(TypedDict):
-    """The sealed panel's attempts: the valid ones that count, the rejected, the void, and
-    where the replies came from."""
+    """The sealed panel's attempts: how many valid ones count, each rejected and each void one
+    with its reasons, and where the valid replies came from."""
 
     valid: int
-    rejected: int
-    void: int
+    rejected: list[RejectedJudge]
+    void: list[Voided]
     sources: list[str]
 
 
@@ -432,7 +444,7 @@ class ResultFile(TypedDict):
     verdict: str
     grade: dict[str, dict[str, ResultCell]]
     obtained: ResultObtained
-    findings: dict[str, list[Finding]]
+    findings: dict[str, list[ResultFinding]]
     judge: ResultJudge
     flags: ResultFlags
     attempts: ResultAttempts

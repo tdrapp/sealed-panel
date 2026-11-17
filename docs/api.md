@@ -23,21 +23,26 @@ print(result.decision, result.grade["em"]["ask"]["median"], result.path)
 ```
 
 `grade()` takes the judge from the configuration only, and refuses a configuration without a
-judge command: in host mode your agent host runs the judges, and the steps below record them.
-Without `run`, the run is a fresh directory under the system's temporary folder, named in
-`result.run`; nothing is written to the current directory. It is the one-shot sealed grade, with
-no revision loop and no instrument reading (a spec with measured criteria is refused once
-frozen: continue that run with the steps). Every refusal of a step is raised as the step raised
-it, so a candidate that addresses a judge is refused by the sealed brief before a judge runs.
+judge command: in host mode your agent host runs the judges, and the steps below record them. It
+is the one-shot sealed grade, with no revision loop and no instrument reading: a spec with
+measured criteria is refused before anything is written. Every refusal of a step is raised as
+the step raised it. A text that addresses a judge is refused by the sealed brief before any
+judge runs (`EvalError`, and the `grade` command exits 2 with the brief's message).
 
-`result.stands` is True only for a sealed grade that stands. Two outcomes are returned without
-one:
+Without `run`, `grade()` makes a folder under the system's temporary folder and freezes the run
+in a new directory inside it, so no other run sits beside it; nothing is written to the current
+directory. A refusal before any judge ran removes that folder. Once a judge ran, the run is
+kept: an INCOMPLETE outcome names it in `result.run`, and a later refusal's message names it. A
+`run` you give is never removed: a refusal leaves it as the steps left it, and the error is
+raised unchanged.
+
+`result.stands` is True only for a sealed grade that stands:
 
 | `decision` | When | `path` |
 |---|---|---|
 | `SEALED` | The sealed panel's grade stands. | `RUN/grade.json` |
-| `BLOCKED BY FLAG` | The sealed round carried text addressed to a judge that the spec does not acknowledge; the figures are there and do not stand. | `RUN/grade.json` |
 | `INCOMPLETE` | The judges left the panel without a grade: a judge that failed (a void) or too few valid replies. `why` says which; the run stays open, and `sealed-panel judge RUN --sealed` then `aggregate --sealed` finish it. | None |
+| `BLOCKED BY FLAG` | Reachable only on a run changed outside the commands: the sealed brief refuses a text that addresses a judge. The figures are there and do not stand. | `RUN/grade.json` |
 
 ## A sealed grade step by step
 
@@ -92,33 +97,86 @@ A loop run is the same calls with `sealed=False` and a round number, revising fr
 ## The result file
 
 The sealed aggregate step writes `RUN/grade.json`, owner-only, whatever called it (`grade()`,
-`aggregate_round`, the `aggregate` command or the MCP tool). It is derived from the run's files
-by the function the report prints its sealed grade from, so the two agree field by field.
-`GradeResult` has the same fields, plus `run` and `path`. Its format is `schema_version` 1,
-separate from the run format: a reader accepts every result format up to its own and refuses a
-later one with the advice to upgrade ([protocol.md](protocol.md), section 11).
+`aggregate_round`, the `aggregate` command or the MCP tool). One function derives it from the
+run's files, and the report prints from the same function its sealed grade, its header and its
+notes on the sealed panel, so the two agree field by field (`tests/test_result.py` checks every
+printed field). `GradeResult` has the same fields, plus `run` and `path`; `GradeResult.read`
+reads a file back. Its format is `schema_version` 1, separate from the run format: a reader
+accepts every result format up to its own and refuses a later one with the advice to upgrade,
+and refuses as damaged a file whose keys or values do not have its format's types
+([protocol.md](protocol.md), section 11). When the write of `grade.json` failed after the
+sealed round was stored, the `aggregate` step called again on that round writes it, and never
+rewrites an existing one.
 
 | Key | Type | What it holds |
 |---|---|---|
 | `schema_version` | int | The result file's format. |
-| `sealed_panel` | str | The release that wrote the file, from the installed distribution. |
+| `sealed_panel` | str | The release that wrote the file, from the installed distribution (`unknown` when it runs uninstalled). |
 | `run_schema_version` | int | The run's format (`run.json`). |
 | `title` | str | The spec's title. |
-| `rubric_sha256`, `config_sha256` | str | The rubric hash and the configuration's fingerprint frozen at `init`. |
-| `template` | object or null | The template the spec came from: `id`, `version`, `sha256`, `modified`. |
+| `rubric_sha256` | str | The rubric hash frozen at `init`. |
+| `config_sha256` | str | The configuration's fingerprint frozen at `init`. |
+| `template` | object or null | The template the spec came from. |
+| `template.id` | str | Its id. |
+| `template.version` | int | Its version. |
+| `template.sha256` | str | Its hash when the run was frozen. |
+| `template.modified` | bool | Whether the spec changed it. |
 | `candidate_hash` | str or null | The sha256 of the graded text, normalised. |
-| `decision`, `stands`, `why` | str, bool, str | `SEALED` or `BLOCKED BY FLAG`; whether the grade stands; why not, or empty. |
+| `decision` | str | `SEALED` or `BLOCKED BY FLAG`. |
+| `stands` | bool | Whether the grade stands. |
+| `why` | str | Why it does not stand, or empty. |
 | `verdict` | str | What the grade says, in the report's words. |
-| `grade` | object | Per persona, per dimension: `median`, `scores`, `severities`, `sd`, and `baseline_median` (the round-1 text, or null). |
-| `obtained` | object | `loop_rounds` and `loop_decision` (the stop decision before the seal, null for a one-shot grade), `seats`, the panel's `composite` (for information) and `noise`, and its `measured` readings. |
-| `findings` | object | Per persona, the blocking and material reasons the judges gave (`judge`, `dimension`, `severity`, `text`). |
-| `judge` | object | `mode` (`runner` or `host`), `argv` (the frozen judge command, empty in host mode), `model_id` (the declared one, or empty), `transcript_format` (host mode, else null). |
-| `flags` | object | `injection` (flagged patterns by item), `injection_acknowledged`, `pasted_replies`, `judge_env_changed` (between the panel's attempts), `panel_env_changed` (between the panel and the loop), `prompt_extras`, `one_quote_judges`. |
-| `attempts` | object | The sealed panel's `valid`, `rejected` and `void` attempts, and their `sources`. |
+| `grade` | object | Per persona, per dimension, the sealed grade. |
+| `grade.<persona>.<dimension>.median` | number | The median of the verified scores. |
+| `grade.<persona>.<dimension>.scores` | list of int | Every verified score. |
+| `grade.<persona>.<dimension>.severities` | list of str | Every severity the judges gave. |
+| `grade.<persona>.<dimension>.sd` | number | The scores' standard deviation. |
+| `grade.<persona>.<dimension>.baseline_median` | number or null | The median on the round-1 text, or null without one. |
+| `obtained` | object | How the grade was obtained. |
+| `obtained.loop_rounds` | int | The loop rounds before the sealed panel; 0 for a one-shot grade. |
+| `obtained.loop_decision` | str or null | The stop decision of the loop, or null without one. |
+| `obtained.seats` | int | The sealed panel's seats. |
+| `obtained.composite` | number | The weighted mean of the medians, for information only. |
+| `obtained.noise` | number | The panel's noise. |
+| `obtained.measured` | list | The sealed panel's instrument readings. |
+| `obtained.measured[].id` | str | The criterion. |
+| `obtained.measured[].value` | str | What the instrument read. |
+| `obtained.measured[].pass` | bool | Whether it passed. |
+| `findings` | object | Per persona, the blocking and material reasons the judges gave. |
+| `findings.<persona>[].judge` | int | The judge's seat. |
+| `findings.<persona>[].dimension` | str | The dimension. |
+| `findings.<persona>[].severity` | str | The severity. |
+| `findings.<persona>[].text` | str | The reason, as the text the report prints, whatever the judge wrote. |
+| `judge` | object | Who judged. |
+| `judge.mode` | str | `runner` or `host`. |
+| `judge.argv` | list of str | The frozen judge command; empty in host mode. |
+| `judge.model_id` | str | The declared model id, or empty. |
+| `judge.transcript_format` | str or null | In host mode, the transcript format, when a counted judge was read from a transcript; else null. |
+| `flags` | object | What the report flags next to the grade. |
+| `flags.injection` | object | The injection patterns each item matched, by item. |
+| `flags.injection_acknowledged` | str or null | The spec's acknowledgement, or null. |
+| `flags.pasted_replies` | bool | Whether some replies were pasted, not read from a transcript. |
+| `flags.judge_env_changed` | list of str | The `[judge] env_allow` names whose value changed between the panel's attempts. |
+| `flags.panel_env_changed` | list of str | Those whose value differed between the sealed panel and the loop. |
+| `flags.prompt_extras` | object | By seat, the characters a counted judge's prompt carried beyond its brief; a seat with none is absent. |
+| `flags.one_quote_judges` | list of int | The seats whose judge quoted the same words for every dimension. |
+| `flags.other_runs` | list of str | The runs beside this one when it was sealed: a snapshot; the report counts them live. |
+| `attempts` | object | The sealed panel's attempts. |
+| `attempts.valid` | int | The valid attempts that count. |
+| `attempts.rejected` | list | Each rejected attempt. |
+| `attempts.rejected[].judge` | int | Its seat. |
+| `attempts.rejected[].errors` | list of str | Why it was rejected. |
+| `attempts.void` | list | Each void attempt. |
+| `attempts.void[].judge` | int | Its seat. |
+| `attempts.void[].agent_id` | str | Its agent id. |
+| `attempts.void[].replied` | bool | Whether it had written a reply. |
+| `attempts.void[].source` | str | `runner`, or `void` for a host void. |
+| `attempts.void[].reason` | str | Why it was voided. |
+| `attempts.sources` | list of str | Where the valid replies came from: `output` (pasted), `transcript`, `runner`. |
 | `settings` | list of str | Every setting that differs from the defaults, as the report lists them. |
 
-`flags.prompt_extras` holds, for each seat whose counted judge was read from a transcript, the
-characters its prompt carried beyond its brief, zero included, as its format's adapter counted
+`flags.prompt_extras` is the round result's own count, the one the report prints: the
+characters a counted judge's prompt carried beyond its brief, as its format's adapter counted
 them. The two formats do not count the host's own context the same way
 ([integrations.md](integrations.md)): read it with `judge.transcript_format`.
 
@@ -135,6 +193,7 @@ checker reads them.
 | `ConfigError` | A configuration file that does not fit the defaults' shape or bounds. |
 | `SeatTaken` | A seat another call holds right now, or one that already holds a valid reply. `judge_round` skips such a seat; a caller of `record_reply` may try again later. |
 | `FormatError` | A transcript whose structure its format's adapter does not recognise: refused, never guessed. |
+| `PanelIncomplete` | A round its judges left without a grade: a seat with no real attempt, or too few valid judges or verified scores. `aggregate_round` raises it; `grade()` returns it as INCOMPLETE. Its open seats can still take a replacement. |
 | `MalformedReply` | A reply a transcript holds in a shape that cannot be read. `record_from` records it as rejected; a caller of `transcript.last_reply` gets it. |
 
 A file that is missing or unreadable raises `OSError`.

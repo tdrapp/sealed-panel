@@ -61,7 +61,7 @@ def test_the_documented_one_call_example_runs(
     run_example(0, tmp_path, monkeypatch)
     decision, median, path = capsys.readouterr().out.split()
     assert (decision, median) == ("SEALED", "4")
-    assert Path(path).parent.parent == temp and Path(path).name == "grade.json"
+    assert Path(path).parent.parent.parent == temp and Path(path).name == "grade.json"
 
 
 @pytest.mark.slow
@@ -118,6 +118,15 @@ def test_a_spec_built_in_python_is_refused_like_a_file(tmp_path: Path) -> None:
 
 def test_the_stable_names_import_from_the_package() -> None:
     assert sealed_panel.Spec is Spec
+    assert sorted(sealed_panel.__all__) == sorted(
+        [
+            "SCHEMA_VERSION", "Config", "ConfigError", "EvalError", "FormatError",
+            "GradeResult", "MalformedReply", "PanelIncomplete", "SeatTaken", "Spec",
+            "__version__", "aggregate_round", "grade", "init_run", "judge_round",
+            "load_config", "record_from", "record_measurement", "record_reply",
+            "render_report", "status", "write_briefs",
+        ]
+    )  # fmt: skip
     for name in sealed_panel.__all__:
         assert hasattr(sealed_panel, name), name
     assert (Path(sealed_panel.__file__).parent / "py.typed").is_file()
