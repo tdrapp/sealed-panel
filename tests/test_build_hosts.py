@@ -85,3 +85,60 @@ def test_check_mode_fails_on_drift_and_writes_nothing(
     assert not (repo / "hosts" / "one" / "skills" / "demo").exists()
     assert tool.main([]) == 0
     assert tool.main(["--check"]) == 0
+
+
+def test_a_copy_replaced_by_a_link_is_drift_and_never_written_through(
+    tool: ModuleType, repo: Path
+) -> None:
+    tool.build(repo)
+    copy = repo / "hosts" / "two" / "skills" / "demo"
+    for p in copy.iterdir():
+        p.unlink()
+    copy.rmdir()
+    copy.symlink_to(repo / "skill", target_is_directory=True)  # same bytes, through a link
+    assert tool.drift(repo) == ["symbolic link: hosts/two/skills/demo"]
+    before = (repo / "skill" / "SKILL.md").read_bytes()
+    (repo / "skill" / "SKILL.md").write_text("---\nname: demo\ndescription: e\n---\nnew\n")
+    with pytest.raises(ValueError, match="symbolic link: hosts/two/skills/demo"):
+        tool.build(repo)
+    # Nothing was written, through the link or elsewhere.
+    one = repo / "hosts" / "one" / "skills" / "demo" / "SKILL.md"
+    assert one.read_bytes() == before
+
+
+def test_a_linked_file_in_a_copy_or_a_linked_agent_is_drift(tool: ModuleType, repo: Path) -> None:
+    tool.build(repo)
+    linked = repo / "hosts" / "one" / "skills" / "demo" / "judge.md"
+    linked.unlink()
+    linked.symlink_to(repo / "skill" / "judge.md")
+    agent = repo / "hosts" / "one" / "agents" / "eval-judge.md"
+    target = repo / "agent.md"
+    target.write_bytes(agent.read_bytes())
+    agent.unlink()
+    agent.symlink_to(target)
+    assert tool.drift(repo) == [
+        "symbolic link: hosts/one/agents/eval-judge.md",
+        "symbolic link: hosts/one/skills/demo/judge.md",
+    ]
+
+
+def test_another_folder_under_skills_is_drift_and_removed(tool: ModuleType, repo: Path) -> None:
+    tool.build(repo)
+    orphan = repo / "hosts" / "one" / "skills" / "old-name"
+    orphan.mkdir()
+    (orphan / "SKILL.md").write_text("---\nname: old-name\n---\n")
+    assert tool.drift(repo) == ["not in skill/: hosts/one/skills/old-name"]
+    tool.build(repo)
+    assert not orphan.exists() and tool.drift(repo) == []
+
+
+@pytest.mark.parametrize("name", ["../escape", "a/b", "Demo", "x.y"])
+def test_a_skill_name_that_is_not_a_plain_folder_name_is_refused(
+    tool: ModuleType, repo: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    (repo / "skill" / "SKILL.md").write_text(f"---\nname: {name}\ndescription: d\n---\n")
+    with pytest.raises(ValueError, match="not made of a-z"):
+        tool.build(repo)
+    monkeypatch.setattr(tool, "ROOT", repo)
+    assert tool.main([]) == 2
+    assert list((repo / "hosts" / "one" / "skills").iterdir()) == []
