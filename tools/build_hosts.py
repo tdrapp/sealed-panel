@@ -1,19 +1,27 @@
-"""Write each host's copy of the agent skill from its one source, `skill/`.
+"""Write each host's copy of the agent skill from its one source, `skill/`. Never deletes.
 
-    python tools/build_hosts.py            # rewrite the copies under hosts/
-    python tools/build_hosts.py --check    # list the copies that drifted; write nothing
+    python tools/build_hosts.py            # write the copies under hosts/
+    python tools/build_hosts.py --check    # list what drifted; write nothing
 
-A host folder (`hosts/<host>/`) that holds `skills/<name>/` gets the files of `skill/` there,
-byte for byte, `<name>` being the skill's `name`; a file the source does not have is removed.
-A host folder that holds `agents/<judge>.md` keeps that file's front matter, which is the
-host's own, and gets the judge instructions of `skill/judge.md` as its body. Host copies are
-committed: a host installs from the repository as it is, so a copy is never built at install.
-`tests/test_packaging.py` fails when a copy drifts.
+A host folder (`hosts/<host>/`) that holds `skills/` gets the files of `skill/` in
+`skills/<name>/`, byte for byte, `<name>` being the skill's `name`. A host folder that holds
+`agents/eval-judge.md` keeps that file's front matter, which is the host's own, and gets the
+judge instructions of `skill/judge.md` as its body. Each file is written whole and replaced at
+once. Host copies are committed: a host installs from the repository as it is, so a copy is
+never built at install. `tests/test_packaging.py` fails when a copy drifts.
 
-A copy is real files: a host that fetches its folder alone does not fetch what a symbolic link
-points to, so a link anywhere in a copy is drift, and the build refuses to write through one.
-A folder under a host's `skills/` other than the skill's own copy is drift too, and is removed.
-Only content is compared: a file's mode (its executable bit) is neither copied nor checked.
+The tool never deletes anything. Anything else under a host's `skills/` (another folder, a
+stray file, a file the source lacks inside the copy, tracked or not) is an orphan: `--check`
+reports it, and the build refuses and names it, for you to remove by hand. A copy is real
+files: a host that fetches its folder alone does not fetch what a symbolic link points to, so
+a link on the way to a copy (`hosts/` itself, a host folder, its `skills/` or `agents/`, or
+anything under them) is drift, and the build refuses to write through one. Only content is
+compared: a file's mode (its executable bit) is neither copied nor checked.
+
+Exit codes: with `--check`, 0 when every copy agrees and 1 on any drift, links and orphans
+included; without it, 0 when the copies were written (or already agreed) and 2 when the build
+is refused, nothing written. Either way, 2 when `skill/` itself is refused: no `name`, a name
+not made of a-z, 0-9 and -, or a `judge.md` without its `---` line.
 """
 
 from __future__ import annotations
@@ -21,8 +29,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,35 +87,36 @@ def judge_agent(current: str, judge: str) -> str:
 
 
 def expected(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
-    """Every host copy as it must read, and the files in a skill copy the source lacks.
+    """Every host copy as it must read, and what stands in the way of writing it.
 
     Args:
         root: The repository root, holding `skill/` and `hosts/`.
 
     Returns:
-        The content each copied file must have, by path; and the stray entries to remove: files
-        in a skill copy that the source lacks, and folders under `skills/` that are no copy.
+        The content each copied file must have, by path; and the orphans: what a host's
+        `skills/` holds that is not a file of the copy (another entry of `skills/`, a file the
+        source lacks inside the copy, or the copy's own name taken by a file).
     """
     source = root / "skill"
     name = skill_name(source)
     files = {p.name: p.read_bytes() for p in sorted(source.iterdir()) if p.is_file()}
     judge = (source / "judge.md").read_text(encoding="utf-8")
     want: dict[Path, bytes] = {}
-    stray: list[Path] = []
+    orphan: list[Path] = []
     for host in sorted(p for p in (root / "hosts").iterdir() if p.is_dir()):
         if (host / "skills").is_dir():
             copy = host / "skills" / name
             want |= {copy / n: content for n, content in files.items()}
-            stray += strays(host / "skills", name, files)
+            orphan += orphans(host / "skills", name, files)
         agent = host / "agents" / JUDGE_AGENT
         if agent.is_file():
             text = judge_agent(agent.read_text(encoding="utf-8"), judge)
             want[agent] = text.encode("utf-8")
-    return want, stray
+    return want, orphan
 
 
-def strays(skills: Path, name: str, files: dict[str, bytes]) -> list[Path]:
-    """What a host's `skills/` folder holds that is not a copy of the source.
+def orphans(skills: Path, name: str, files: dict[str, bytes]) -> list[Path]:
+    """What a host's `skills/` folder holds that is not a file of the skill's copy.
 
     Args:
         skills: A host's `skills/` folder.
@@ -115,13 +124,15 @@ def strays(skills: Path, name: str, files: dict[str, bytes]) -> list[Path]:
         files: The source's files, by name.
 
     Returns:
-        The paths to remove: every other entry of `skills/`, and the entries of the copy that
-        the source does not have.
+        Every other entry of `skills/`, file or folder; the copy itself when a file holds its
+        name; and the entries of the copy that the source does not have.
     """
     found = [p for p in sorted(skills.iterdir()) if p.name != name]
     copy = skills / name
     if copy.is_dir():
         found += [p for p in sorted(copy.iterdir()) if p.name not in files]
+    elif copy.exists() or copy.is_symlink():
+        found.append(copy)
     return found
 
 
@@ -132,9 +143,11 @@ def links(root: Path) -> list[Path]:
         root: The repository root.
 
     Returns:
-        The links, sorted: a host folder, its `skills/` or `agents/` folder, or anything under
-        them, file or folder.
+        The links, sorted: `hosts/` itself, a host folder, its `skills/` or `agents/` folder,
+        or anything under them, file or folder.
     """
+    if (root / "hosts").is_symlink():
+        return [root / "hosts"]
     found: list[Path] = []
     for host in sorted((root / "hosts").iterdir()):
         if host.is_symlink():
@@ -163,66 +176,86 @@ def links_under(top: Path) -> list[Path]:
 
 
 def drift(root: Path) -> list[str]:
-    """The host copies that differ from what `skill/` makes of them.
+    """Everything that keeps the host copies from agreeing with `skill/`.
 
     Args:
         root: The repository root.
 
     Returns:
-        One line per file to write or remove, relative to the root; empty when all agree.
+        One line per link, file to write or orphan, relative to the root; empty when all agree.
     """
-    want, stray = expected(root)
-    lines = [f"symbolic link: {p.relative_to(root)}" for p in links(root)]
+    found = links(root)
+    lines = [f"symbolic link: {p.relative_to(root)}" for p in found]
+    if found:  # reading on would follow the links
+        return lines
+    want, orphan = expected(root)
     lines += [
         f"differs: {p.relative_to(root)}"
         for p, content in want.items()
         if not p.is_file() or p.read_bytes() != content
     ]
-    return lines + [f"not in skill/: {p.relative_to(root)}" for p in stray]
+    return lines + [f"orphan, remove it by hand: {p.relative_to(root)}" for p in orphan]
 
 
 def build(root: Path) -> list[str]:
-    """Write every host copy from `skill/`, and remove the files the source lacks.
+    """Write every host copy from `skill/`, file by file; never delete anything.
 
     Args:
         root: The repository root.
 
     Returns:
-        What was written or removed, as `drift` lists it before the write.
+        The files written, relative to the root.
 
     Raises:
-        ValueError: A copy goes through a symbolic link: writing would change what it points
-            to, and the host would not fetch it anyway. Nothing is written.
+        ValueError: A copy goes through a symbolic link (writing would change what it points
+            to, and the host would not fetch it anyway), or an orphan sits under a host's
+            `skills/`, to be removed by hand. Nothing is written.
     """
     found = links(root)
     if found:
         named = ", ".join(str(p.relative_to(root)) for p in found)
         raise ValueError(f"refusing to write through a symbolic link: {named}")
-    changed = drift(root)
-    want, stray = expected(root)
+    want, orphan = expected(root)
+    if orphan:
+        named = ", ".join(str(p.relative_to(root)) for p in orphan)
+        raise ValueError(f"refusing to build beside an orphan; remove it by hand: {named}")
+    written = []
     for path, content in want.items():
-        path.parent.mkdir(parents=True, exist_ok=True)
         if not path.is_file() or path.read_bytes() != content:
-            path.write_bytes(content)
-    for path in stray:
-        if path.is_dir():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-    return changed
+            replace(path, content)
+            written.append(f"wrote: {path.relative_to(root)}")
+    return written
+
+
+def replace(path: Path, content: bytes) -> None:
+    """Write a file whole, then put it in place at once (a reader sees the old or the new).
+
+    Args:
+        path: The file to write; its folder is created when missing.
+        content: Its bytes.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as f:
+        f.write(content)
+    os.chmod(f.name, 0o644)  # a temporary file is created 0600; a copy is read by the host
+    os.replace(f.name, path)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Rewrite the host copies, or with `--check` report the drift and fail on any.
+    """Write the host copies, or with `--check` report the drift. Never deletes anything.
 
     Args:
         argv: The command-line arguments, without the program name.
 
     Returns:
-        0 when the copies agree with `skill/` (or were rewritten), 1 when `--check` found drift,
-        2 when the source or a copy is refused (a bad skill name, a symbolic link).
+        With `--check`: 0 when every copy agrees, 1 on any drift (links and orphans included).
+        Without it: 0 when the copies were written or already agreed, 2 when the build is
+        refused (a link, an orphan to remove by hand), nothing written. Either way, 2 when
+        `skill/` itself is refused (no name, a bad name, a `judge.md` without its separator).
     """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--check", action="store_true", help="report drift, write nothing")
     args = parser.parse_args(argv)
     try:
