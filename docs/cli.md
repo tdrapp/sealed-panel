@@ -44,14 +44,18 @@ sealed-panel grade SPEC ARTEFACT --control FILE --config CONFIG.toml [--good FIL
 The one-shot sealed grade in one command, with the judge runner: it freezes a new run from the
 spec (`init`), briefs the sealed panel (`brief --sealed`), runs the configured judge command
 once for every seat (`judge --sealed`) and aggregates (`aggregate --sealed`), which writes
-`RUN/grade.json`. It prints the outcome line, a note when other runs sat beside the run as it
-was sealed, then the result file's path. There is no revision loop and no instrument reading: a
-spec with measured criteria is refused before anything is written.
+`RUN/grade.json`. It prints the outcome line, a note when other runs sat beside the run when its
+result file was written, then the result file's path. There is no revision loop and no
+instrument reading: a spec with measured criteria is refused before anything is written.
 
 Without `--run`, the run is a new directory inside a folder made under the system's temporary
-folder, so no other run sits beside it; it is named on the last line. A refusal before any
-judge ran removes that folder; once a judge ran, the run is kept and the outcome or the error
-names it. A `--run` you give is never removed.
+folder, so no other run sits beside it; it is named on the last line. A refusal before judging
+started (a refused spec or text) removes that folder, and a removal that fails is added to the
+refusal's message; once judging started (a judge command that cannot start included), the run
+is kept and the outcome or the error names it. A `--run` you give is never removed. The note on
+other runs sees only runs that share a folder, and a default `grade` run shares none: repeating
+it on the same text is a re-roll nothing flags, so pass every `--run` under one folder to keep
+them side by side.
 
 | Exit | Outcome | Printed |
 |---|---|---|
@@ -248,9 +252,13 @@ prompt extras and the judges who reused one quote. Writes the round's `result.js
 record of the round: `status`, `report` and the next round read the rounds from these files
 (`ledger.json`, a copy of them, is no longer written). After the sealed panel, also writes
 `RUN/grade.json`, the result file ([api.md](api.md) lists its fields). Called again on a sealed
-round whose `grade.json` is missing (its write failed), it writes that file from the round
-files, prints `sealed round N was already aggregated; wrote its missing RUN/grade.json`, and
-exits 0; it never rewrites an existing one, and refuses every other second call. After a loop
+round whose `grade.json` is missing, it writes that file from the round files, prints `sealed
+round N was already aggregated; wrote its missing RUN/grade.json`, and exits 0: after a write
+that failed once the round was stored, and for a run sealed by an earlier release, which wrote
+none (that call used to be refused with status 2). The file is computed then: it names the
+release that wrote it and the runs beside the run at that time, and holds the same content as
+a lost one when nothing beside the run changed. It never rewrites an existing file, and refuses
+every other second call. After a loop
 round, also writes `RUN/feedback/after_rN.md`, the findings the author revises from. Nothing is
 written outside the run: before 0.4.0 a sealed panel also wrote learned candidates to the user
 library's inbox; that is now `learning learn`.

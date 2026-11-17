@@ -125,6 +125,34 @@ class TestTheFolderGradeMakes:
             grade(h.files["cand"], bad_spec, control=h.files["ctrl"], config=judge_config(h.tmp))
         assert list(temp_root.iterdir()) == []
 
+    def test_a_removal_that_fails_never_replaces_the_refusal(
+        self, h: Harness, temp_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail(path: object) -> None:
+            raise PermissionError(f"cannot remove {path}")
+
+        monkeypatch.setattr(steps.shutil, "rmtree", fail)
+        flagged = h.tmp / "flagged.md"
+        flagged.write_text(FLAGGED)
+        with pytest.raises(EvalError, match="text addressed to a judge") as caught:
+            grade(flagged, spec_file(h.tmp), control=h.files["ctrl"], config=judge_config(h.tmp))
+        (folder,) = temp_root.iterdir()
+        assert type(caught.value) is EvalError
+        assert str(caught.value).endswith(f"; could not remove {folder}")
+
+    @pytest.mark.slow
+    def test_a_judge_command_that_cannot_start_keeps_the_run(
+        self, h: Harness, temp_root: Path
+    ) -> None:
+        """Judging started: the run is kept and the error names it."""
+        cfg = h.tmp / "missing.toml"
+        cfg.write_text(f"[judge]\ncommand = {json.dumps([str(h.tmp / 'no-such-judge')])}\n")
+        with pytest.raises(EvalError, match="cannot start the judge command") as caught:
+            grade(h.files["cand"], spec_file(h.tmp), control=h.files["ctrl"], config=cfg)
+        (folder,) = temp_root.iterdir()
+        (run,) = folder.iterdir()
+        assert str(caught.value).endswith(f"; the run is kept at {run}")
+
     def test_a_caller_s_run_is_never_removed(self, h: Harness) -> None:
         flagged = h.tmp / "flagged.md"
         flagged.write_text(FLAGGED)

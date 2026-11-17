@@ -146,17 +146,27 @@ def _brief_new_run(
     cfg: Config,
     texts: tuple[Path, Path, Path | None],
 ) -> None:
-    """Freeze the run and brief its sealed panel. A refusal here comes before any judge ran:
+    """Freeze the run and brief its sealed panel. A refusal here comes before judging started:
     the folder grade() made (`made`) is removed with what it holds; a caller's run is never
-    removed."""
+    removed. The refusal is what the caller gets: a removal that fails is added to its
+    message, never raised in its place."""
     text, control, known_good = texts
     try:
         init_run(run, spec, cfg)
         write_briefs(run, 1, text, control, known_good, sealed=True)
-    except BaseException:
-        if made is not None:  # only the folder grade() made, never a caller's run
-            shutil.rmtree(made)
+    except BaseException as exc:
+        if made is not None and not _removed(made):  # only grade()'s folder, never a caller's
+            raise type(exc)(f"{exc}; could not remove {made}") from exc
         raise
+
+
+def _removed(folder: Path) -> bool:
+    """Remove a folder grade() made, with what it holds; False when that fails."""
+    try:
+        shutil.rmtree(folder)
+    except OSError:
+        return False
+    return True
 
 
 def _judge_and_aggregate(run: Path, made: Path | None) -> GradeResult:
@@ -193,7 +203,7 @@ def grade(
     --sealed`).
 
     Without `run`, the run is a new directory inside a folder grade() makes under the system's
-    temporary folder. A refusal before any judge ran removes that folder; once a judge ran, the
+    temporary folder. A refusal before judging started removes that folder; once it started, the
     run is kept and the outcome or the error names it. A caller's `run` is never removed.
 
     Args:

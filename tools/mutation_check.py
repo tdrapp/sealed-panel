@@ -1890,14 +1890,23 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
     ),
     "grade removes a caller's run": (
         STEPS,
-        "        if made is not None:  # only the folder grade() made, never a caller's run\n"
-        "            shutil.rmtree(made)\n",
-        "        if True:\n            shutil.rmtree(run)\n",
+        "        if made is not None and not _removed(made):",
+        "        if not _removed(made or run):",
     ),
     "grade leaves its folder behind on an early refusal": (
         STEPS,
-        "            shutil.rmtree(made)\n",
-        "            pass\n",
+        "        shutil.rmtree(folder)\n",
+        "        pass\n",
+    ),
+    "a failed removal replaces the refusal": (
+        STEPS,
+        "    except OSError:\n        return False\n",
+        "    except OSError:\n        raise\n",
+    ),
+    "a deep JSON file breaks the reader": (
+        f"{PKG}/store.py",
+        "    except RecursionError as exc:\n        raise EvalError(",
+        "    except ZeroDivisionError as exc:\n        raise EvalError(",
     ),
     "grade's kept run not named in a later refusal": (
         STEPS,

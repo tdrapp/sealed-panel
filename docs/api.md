@@ -31,10 +31,13 @@ judge runs (`EvalError`, and the `grade` command exits 2 with the brief's messag
 
 Without `run`, `grade()` makes a folder under the system's temporary folder and freezes the run
 in a new directory inside it, so no other run sits beside it; nothing is written to the current
-directory. A refusal before any judge ran removes that folder. Once a judge ran, the run is
-kept: an INCOMPLETE outcome names it in `result.run`, and a later refusal's message names it. A
-`run` you give is never removed: a refusal leaves it as the steps left it, and the error is
-raised unchanged.
+directory. A refusal before judging started (a refused spec or text) removes that folder, and
+a removal that fails is added to the refusal's message. Once judging started (a judge command
+that cannot start included), the run is kept: an INCOMPLETE outcome names it in `result.run`,
+and a later refusal's message names it. A `run` you give is never removed: a refusal leaves it
+as the steps left it, and the error is raised unchanged. The note on other runs sees only runs
+that share a folder, and a default `grade()` run shares none: repeating it on the same text is
+a re-roll nothing flags, so give every `run` under one folder to keep them side by side.
 
 `result.stands` is True only for a sealed grade that stands:
 
@@ -104,14 +107,17 @@ printed field). `GradeResult` has the same fields, plus `run` and `path`; `Grade
 reads a file back. Its format is `schema_version` 1, separate from the run format: a reader
 accepts every result format up to its own and refuses a later one with the advice to upgrade,
 and refuses as damaged a file whose keys or values do not have its format's types
-([protocol.md](protocol.md), section 11). When the write of `grade.json` failed after the
-sealed round was stored, the `aggregate` step called again on that round writes it, and never
-rewrites an existing one.
+([protocol.md](protocol.md), section 11). The `aggregate` step called again on a sealed round
+whose `grade.json` is missing writes it, and never rewrites an existing one: after a write that
+failed once the round was stored, and for a run sealed by an earlier release, which wrote none.
+Such a file is computed when it is written: `sealed_panel` names the release that wrote it and
+`flags.other_runs` the runs beside the run then; it holds the same content as the lost file
+when nothing beside the run changed.
 
 | Key | Type | What it holds |
 |---|---|---|
 | `schema_version` | int | The result file's format. |
-| `sealed_panel` | str | The release that wrote the file, from the installed distribution (`unknown` when it runs uninstalled). |
+| `sealed_panel` | str | The release that wrote the file (not always the one that sealed the run), from the installed distribution (`unknown` when it runs uninstalled). |
 | `run_schema_version` | int | The run's format (`run.json`). |
 | `title` | str | The spec's title. |
 | `rubric_sha256` | str | The rubric hash frozen at `init`. |
@@ -160,7 +166,7 @@ rewrites an existing one.
 | `flags.panel_env_changed` | list of str | Those whose value differed between the sealed panel and the loop. |
 | `flags.prompt_extras` | object | By seat, the characters a counted judge's prompt carried beyond its brief; a seat with none is absent. |
 | `flags.one_quote_judges` | list of int | The seats whose judge quoted the same words for every dimension. |
-| `flags.other_runs` | list of str | The runs beside this one when it was sealed: a snapshot; the report counts them live. |
+| `flags.other_runs` | list of str | The runs beside this one when `grade.json` was written: a snapshot; the report counts them live. |
 | `attempts` | object | The sealed panel's attempts. |
 | `attempts.valid` | int | The valid attempts that count. |
 | `attempts.rejected` | list | Each rejected attempt. |

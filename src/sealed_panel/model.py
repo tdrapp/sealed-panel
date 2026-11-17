@@ -395,7 +395,7 @@ class ResultJudge(TypedDict):
 class ResultFlags(TypedDict):
     """What the report flags next to the sealed grade. `prompt_extras` is the round result's
     own (a seat whose counted judge's prompt carried text beyond its brief, by characters);
-    `other_runs` is a snapshot, at sealing, of the runs beside this one."""
+    `other_runs` is a snapshot of the runs beside this one when grade.json was written."""
 
     injection: dict[str, list[str]]
     injection_acknowledged: str | None

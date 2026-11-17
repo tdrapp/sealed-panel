@@ -253,6 +253,10 @@ three kinds of proof, and the report says which one each round used.
   and they may not hold on a network filesystem (NFS). A filesystem that refuses `flock` is
   refused. The run's files are not protected from someone who edits them by hand: deleting a
   started record or a reply, or planting a link, is out of scope (`SECURITY.md`).
+- The note on other runs counts the runs that share the run's folder. A run started in
+  another folder is a fresh panel it does not see, and every default `grade` run has a folder
+  of its own: repeating `grade` on the same text is a re-roll nothing flags. Keep runs side by
+  side by giving each `--run` under one folder.
 - The runner proves what sealed-panel wrote and read, not what the judge command did in
   between: a command that calls a model several times and prints the best answer is a re-roll
   the runner cannot see. The command is frozen into the run and listed next to the grade, so
@@ -296,4 +300,7 @@ result is stored, derived from the run's files by the same function the report p
 sealed grade from ([api.md](api.md) lists its fields). A reader accepts every result format up
 to its own and refuses a later one with the advice to upgrade. A release that adds, removes or
 changes the meaning of a key raises the result format, and its reader reads the earlier formats
-too, so a comparison across runs reads every file written since 0.4.1.
+too, so a comparison across runs reads every file written since 0.4.1. A run sealed before
+0.4.1 has no result file: `aggregate --sealed` on it writes one from its round files, with the
+run's own `run_schema_version` and, in `sealed_panel`, the release that wrote the file, not the
+one that sealed the run.

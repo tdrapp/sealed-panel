@@ -23,12 +23,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configuration only; a configuration without a judge command is refused, and so is a spec with
   measured criteria). Without a run directory it freezes the run in a new folder under the
   system's temporary folder, never the current directory, and removes that folder on a refusal
-  before any judge ran. A grade that does not stand is never returned as a grade: `INCOMPLETE`
+  before judging started. A grade that does not stand is never returned as a grade: `INCOMPLETE`
   when the judges left the panel without one (a void, too few valid replies). A text that
   addresses a judge is refused by the sealed brief, so the command exits 2 for it; it exits 0
-  for a grade that stands and 1 for none. The other commands keep 0 and 2. `grade`,
-  `GradeResult` and `PanelIncomplete` join `__all__`, and so does `FormatError`, which a public
-  step (`record_from`, in host mode) raises.
+  for a grade that stands and 1 for none. The other commands keep 0 and 2, but for one
+  `aggregate` case (below). `grade`, `GradeResult` and `PanelIncomplete` join `__all__`, and so
+  does `FormatError`, which a public step (`record_from`, in host mode) raises.
 - `RUN/grade.json`, written by the sealed aggregate step: the grade per persona and dimension,
   how it was obtained, who judged, the flags and notes the report prints on the sealed panel
   (rejected and void attempts, pasted replies, environment changes, prompt extras with the
@@ -77,6 +77,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judges for a persona, too few verified scores for a dimension) raise `PanelIncomplete`, an
   `EvalError`, so a library caller can tell them apart. The CLI and MCP messages and exit codes
   are unchanged.
+- `aggregate --sealed` on a sealed round whose `grade.json` is missing, which includes every run
+  sealed by an earlier release, now writes the file and exits 0; it used to be refused with
+  status 2. It is the way to get a result file for a run sealed before 0.4.1. Every other exit
+  code is unchanged.
+- A JSON file nested too deeply to read is refused as not valid JSON (status 2), instead of
+  ending in a traceback.
 
 ### Removed
 

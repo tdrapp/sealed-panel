@@ -18,7 +18,7 @@ import pytest
 from conftest import BAD, FLAT, Harness, judge_json, make_spec, strip_fence
 from sealed_panel import cli
 from sealed_panel.errors import EvalError
-from sealed_panel.model import RESULT_FILE, RESULT_SCHEMA_VERSION, ResultFile
+from sealed_panel.model import RESULT_FILE, RESULT_SCHEMA_VERSION, SCHEMA_VERSION, ResultFile
 from sealed_panel.record import record_reply
 from sealed_panel.report import HASH_CHARS, render_report
 from sealed_panel.result import GradeResult, release, result_view, write_result
@@ -26,7 +26,8 @@ from sealed_panel.runner import judge_round
 from sealed_panel.settings import load_config
 from sealed_panel.shape import problem
 from sealed_panel.steps import aggregate_round, init_run
-from sealed_panel.store import round_dir
+from sealed_panel.store import load_json, round_dir
+from test_transcript_format import frozen_before_the_adapters
 
 ROOT = Path(__file__).resolve().parent.parent
 STUB = Path(__file__).resolve().parent / "stub_judge.py"
@@ -443,6 +444,24 @@ class TestAMissingFile:
         )
         assert path.read_bytes() == before
 
+    def test_a_run_sealed_by_0_4_0_gets_its_file(
+        self, h: Harness, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """0.4.0 froze the transcript field names and wrote no result file: `aggregate
+        --sealed` on such a sealed run writes one and exits 0 (it used to exit 2)."""
+        frozen_before_the_adapters(h)
+        h.full(1, "cand", FIVE, sealed=True)
+        path = h.run / RESULT_FILE
+        os.remove(path)  # what 0.4.0 left: a sealed round, no result file
+        assert cli.main(["aggregate", str(h.run), "--sealed"]) == 0
+        assert capsys.readouterr().out == (
+            f"sealed round 1 was already aggregated; wrote its missing {path}\n"
+        )
+        data = assert_same_view(h.run)
+        assert data["run_schema_version"] == SCHEMA_VERSION == 1  # the run's own format
+        assert data["sealed_panel"] == release()  # the release that wrote the file
+        assert data["decision"] == "SEALED" and data["judge"]["mode"] == "host"
+
     def test_an_existing_file_is_never_rewritten(
         self, h: Harness, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -528,3 +547,14 @@ def test_the_documented_fields_are_the_snapshot() -> None:
     rows = [r for r in section.splitlines() if r.startswith("| `")]
     keys = [k for r in rows for k in re.findall(r"`([^`]+)`", r.split(" | ")[0])]
     assert keys == documented_keys()
+
+
+def test_a_json_file_nested_too_deeply_is_refused_as_not_valid_json(
+    h: Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    deep = h.tmp / "deep.json"
+    deep.write_text("[" * 200_000 + "]" * 200_000)
+    with pytest.raises(EvalError, match="is not valid JSON: nested too deeply"):
+        load_json(deep)
+    assert cli.main(["init", str(h.run), "--spec", str(deep)]) == 2
+    assert "not valid JSON: nested too deeply" in capsys.readouterr().err
