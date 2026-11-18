@@ -221,7 +221,7 @@ as named constants:
 - every file sealed-panel creates in a run (records, briefs, lock files, the judge's stderr log)
   written owner-only (0600), and every directory created 0700, whatever the umask or the mode of
   the file it replaces (`store.py`, `runner.py`);
-- the length above which the report shows a value by hash (80 characters) (`report.py`);
+- the length above which the report shows a value by hash (80 characters) (`result.py`);
 - the score scale, integers 1 to 5, with 5 as the convergence target, and the required anchors
   1, 3 and 5 (`decide.py`, `rubric.py`);
 - the stop rule's window of two rounds and the suspect-jump threshold of 2 (`decide.py`);

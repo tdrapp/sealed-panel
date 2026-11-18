@@ -50,7 +50,7 @@ RUBRIC, FROZEN, STEPS = (f"{PKG}/{m}.py" for m in ("rubric", "run", "steps"))
 SETTINGS, TEMPLATES = f"{PKG}/settings.py", f"{PKG}/templates.py"
 CANDIDATES, LOCATION = f"{PKG}/learning/candidates.py", f"{PKG}/learning/location.py"
 LEARNING_CLI = f"{PKG}/learning/cli.py"
-REPORT = f"{PKG}/report.py"
+REPORT, RESULT = f"{PKG}/report.py", f"{PKG}/result.py"
 
 # name: (file under the repo root, exact text, replacement)
 MUTATIONS: dict[str, tuple[str, str, str]] = {
@@ -973,11 +973,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "long values cut in the report": (
-        REPORT,
+        RESULT,
         "    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:\n        return text",
         "    if True:\n        return text[:57]",
     ),
-    "overrides hidden": (REPORT, "if current.get(key) != defaults.get(key):", "if False:"),
+    "overrides hidden": (RESULT, "if current.get(key) != defaults.get(key):", "if False:"),
     # The judge runner.
     "runner without a command": (RUN, "if not command:", "if False:"),
     "runner after aggregation": (RUN, 'if (rdir / "result.json").is_file():', "if False:"),
@@ -1029,7 +1029,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "    if False:",
     ),
     "judge command shown as a hash": (
-        REPORT,
+        RESULT,
         "if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:",
         "if len(text) <= SHOW_LIMIT:",
     ),
@@ -1051,15 +1051,11 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if not all(isinstance(n, str) and ENV_NAME.fullmatch(n) for n in names):",
         "if False:",
     ),
-    "runner replies not reported": (
-        f"{PKG}/report.py",
-        'if RUNNER in r.get("sources", []):',
-        "if False:",
-    ),
+    "runner replies not reported": (REPORT, "    if n.runner:\n", "    if False:\n"),
     "runner void label hidden": (
-        f"{PKG}/report.py",
-        '            if v.get("source") == RUNNER:',
-        "            if False:",
+        REPORT,
+        '    if v.get("source") == RUNNER:\n',
+        "    if False:\n",
     ),
     # The MCP server.
     "a record call with two sources accepted": (MCP, "if len(given) != 1:", "if False:"),
@@ -1636,9 +1632,9 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "if False:",
     ),
     "the acknowledgement left off the grade line": (
-        f"{PKG}/report.py",
-        "out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))",
-        "out += _sealed_headline(spec, d, model_line(cfg))",
+        REPORT,
+        "out += _sealed_headline(view, model_line(view) + acknowledgement_line(view))",
+        "out += _sealed_headline(view, model_line(view))",
     ),
     # The judge environment: salted per run, and compared between the loop and the seal.
     "the environment hash unsalted": (
@@ -1647,7 +1643,7 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         'hashlib.sha256(env[n].encode("utf-8")).hexdigest()',
     ),
     "the sealed panel's environment not compared with the loop's": (
-        f"{PKG}/report.py",
+        RESULT,
         "return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))",
         "return []",
     ),
@@ -1783,6 +1779,176 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         f"{PKG}/store.py",
         "    return name.casefold() in RESERVED_NAMES or name.casefold() == GIT_MARKER\n",
         "    return name.casefold() in RESERVED_NAMES\n",
+    ),
+    # The result file: derived from the round files after the sealed round is stored, written
+    # from the view the report prints, and read back only in a format this release knows.
+    "result file written before the seal": (
+        STEPS,
+        '    dump_json(rdir / "result.json", entry)\n'
+        "    if sealed:  # derived from the round files, so written after the round's own result\n"
+        "        write_result(run)\n",
+        '    if sealed:\n        write_result(run)\n    dump_json(rdir / "result.json", entry)\n',
+    ),
+    "the result file says a blocked grade stands": (
+        RESULT,
+        "    dump_json(path, view)\n",
+        '    dump_json(path, {**view, "stands": True})\n',
+    ),
+    "a result file of a later format read": (
+        RESULT,
+        "        if version > RESULT_SCHEMA_VERSION:\n",
+        "        if False:\n",
+    ),
+    "a result file written without a sealed panel": (
+        RESULT,
+        "    if view is None:\n",
+        "    if False:\n",
+    ),
+    "a damaged result file read": (
+        RESULT,
+        '        if found:\n            raise EvalError(f"{path} is damaged',
+        '        if False:\n            raise EvalError(f"{path} is damaged',
+    ),
+    "a result file without a format read": (
+        RESULT,
+        "        if type(version) is not int or version < 1:\n",
+        "        if False:\n",
+    ),
+    # grade(): the one-shot sealed path, with the judge runner only, never a grade that does
+    # not stand, and never a run in the current directory.
+    "grade without a judge command accepted": (
+        STEPS,
+        '    if not cfg.judge["command"]:\n        raise EvalError(NO_RUNNER)\n',
+        "    if False:\n        raise EvalError(NO_RUNNER)\n",
+    ),
+    "grade of a spec with measured criteria accepted": (
+        STEPS,
+        "    if _has_measured(spec):\n",
+        "    if False:\n",
+    ),
+    "grade without a run writes in the current directory": (
+        STEPS,
+        'tempfile.mkdtemp(prefix=f"sealed-panel-{slug}-")',
+        'tempfile.mkdtemp(prefix=f"sealed-panel-{slug}-", dir=".")',
+    ),
+    "an incomplete sealed panel returned as standing": (
+        RESULT,
+        "decision=INCOMPLETE, stands=False, why=why)",
+        "decision=INCOMPLETE, stands=True, why=why)",
+    ),
+    "a grade that does not stand printed as a grade": (
+        REPORT,
+        "    if not result.stands:\n",
+        "    if False:\n",
+    ),
+    # Review round 1: the report's sealed notes from the result view, the folder grade()
+    # makes, the typed reader, a judge's text, the incomplete panel, a missing result file.
+    "the result file without the sealed panel's voids": (
+        RESULT,
+        '        "void": final["voided"],\n',
+        '        "void": [],\n',
+    ),
+    "the result file without the panel's judge environment change": (
+        RESULT,
+        '        "judge_env_changed": final["runner_env_changed"],\n',
+        '        "judge_env_changed": [],\n',
+    ),
+    "the result file without the loop's environment change": (
+        RESULT,
+        '        "panel_env_changed": panel_env_changes(ledger),\n',
+        '        "panel_env_changed": [],\n',
+    ),
+    "the result file without the one-quote judges": (
+        RESULT,
+        '        "one_quote_judges": final["one_quote_judges"],\n',
+        '        "one_quote_judges": [],\n',
+    ),
+    "the result file without the other runs": (
+        RESULT,
+        '        "other_runs": other_runs(run),\n',
+        '        "other_runs": [],\n',
+    ),
+    "a judge's text stored as it came": (
+        RESULT,
+        """                "text": f"{f['text']}",\n""",
+        """                "text": f["text"],\n""",
+    ),
+    "a transcript format recorded without a transcript": (
+        RESULT,
+        '    read = not argv and "transcript" in final["sources"]\n',
+        "    read = not argv\n",
+    ),
+    "a result value of the wrong type read": (
+        f"{PKG}/shape.py",
+        "    if not isinstance(value, _SCALARS[tp]):\n",
+        "    if False:\n",
+    ),
+    "a boolean read as a number": (
+        f"{PKG}/shape.py",
+        "    if isinstance(value, bool) and tp is not bool:\n",
+        "    if False:\n",
+    ),
+    "grade removes a caller's run": (
+        STEPS,
+        "        if made is not None and not _removed(made):",
+        "        if not _removed(made or run):",
+    ),
+    "grade leaves its folder behind on an early refusal": (
+        STEPS,
+        "        shutil.rmtree(folder)\n",
+        "        pass\n",
+    ),
+    "a failed removal replaces the refusal": (
+        STEPS,
+        "    except OSError:\n        return False\n",
+        "    except OSError:\n        raise\n",
+    ),
+    "a deep JSON file breaks the reader": (
+        f"{PKG}/store.py",
+        "    except RecursionError as exc:\n        raise EvalError(",
+        "    except ZeroDivisionError as exc:\n        raise EvalError(",
+    ),
+    "grade's kept run not named in a later refusal": (
+        STEPS,
+        '        raise type(exc)(f"{exc}; the run is kept at {run}") from exc\n',
+        "        raise\n",
+    ),
+    "a default grade run beside other runs": (
+        STEPS,
+        "        target = made / _slug(text)\n",
+        "        target = made\n",
+    ),
+    "a seat with no real attempt a plain refusal": (
+        AGG,
+        "    if silent:\n        raise PanelIncomplete(\n",
+        "    if silent:\n        raise EvalError(\n",
+    ),
+    "too few valid judges a plain refusal": (
+        AGG,
+        '            why = [(r["judge"], r["errors"][:1]) for r in rejected if r["persona"] == pid]\n'
+        "            raise PanelIncomplete(\n",
+        '            why = [(r["judge"], r["errors"][:1]) for r in rejected if r["persona"] == pid]\n'
+        "            raise EvalError(\n",
+    ),
+    "too few verified scores a plain refusal": (
+        AGG,
+        "    if len(cand) < cfg.min_valid_judges:\n        raise PanelIncomplete(\n",
+        "    if len(cand) < cfg.min_valid_judges:\n        raise EvalError(\n",
+    ),
+    "any refusal returned as an incomplete panel": (
+        STEPS,
+        "    except PanelIncomplete as exc:\n",
+        "    except EvalError as exc:\n",
+    ),
+    "grade.json rewritten by a second aggregate": (
+        STEPS,
+        " and not (run / RESULT_FILE).exists():\n",
+        ":\n",
+    ),
+    "grade exits 0 without a grade that stands": (
+        f"{PKG}/cli.py",
+        "    return 0 if r.stands else 1\n",
+        "    return 0\n",
     ),
 }
 

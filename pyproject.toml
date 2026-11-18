@@ -152,14 +152,14 @@ layers = [
     "learning",
     "steps",
     "runner | report",
-    "aggregate",
+    "aggregate | result",
     "record | measure",
     "reply | seat | brief | hosts",
     "run | templates | transcript",
     "rubric | decide | ledger",
     "model | text",
     "settings | store",
-    "errors",
+    "errors | shape",
 ]
 
 # Docstring coverage of the public API (private, semi-private, magic and nested functions are

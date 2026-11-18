@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import NamedTuple
 
-from .decide import (
-    BLOCKED,
-    SUSPECT_JUMP,
-    TOP_SCORE,
-    decide,
-    flagged_roles,
-    measured_ok,
-    sealed_done,
-)
+from .decide import BLOCKED, SUSPECT_JUMP, decide, flagged_roles, sealed_done
 from .ledger import other_runs, used_agent_ids
 from .ledger import view as ledger_view
 from .model import (
@@ -27,11 +17,15 @@ from .model import (
     DimensionResult,
     FrozenSpec,
     LedgerView,
+    RejectedJudge,
+    ResultCell,
+    ResultFile,
     RoundResult,
+    Voided,
 )
+from .result import GradeResult, build, overrides
 from .rubric import dims_for
 from .run import load_frozen, run_config
-from .settings import NOT_GRADING, Config, default_data
 from .store import write_file
 
 # Hex characters of the rubric hash shown in the report.
@@ -112,47 +106,46 @@ def status(run: Path) -> Decision:
     return d
 
 
-def _cell(e: DimensionResult) -> str:
+def _cell(e: DimensionResult | ResultCell) -> str:
     return f"{e['median']:g} ({'/'.join(map(str, e['scores']))})"
 
 
-def acknowledgement_line(spec: FrozenSpec) -> str:
+def acknowledgement_line(view: ResultFile) -> str:
     """The injection acknowledgement, printed on the grade line when the spec has one."""
-    ack = spec.get(INJECTION_ACK)
+    ack = view["flags"]["injection_acknowledged"]
     return f" Injection flags acknowledged: {ack!r}." if ack else ""
 
 
-def model_line(cfg: Config) -> str:
+def model_line(view: ResultFile) -> str:
     """The judge model the run declared, printed next to the grade."""
-    model_id = str(cfg.judge["model_id"])
+    model_id = view["judge"]["model_id"]
     return f"Judge model: `{model_id}`." if model_id else "Judge model: not declared."
 
 
-def _sealed_headline(spec: FrozenSpec, d: Decision, model: str) -> list[str]:
-    f = d["final"]
-    dims = [(pid, did, e) for pid, p in f["personas"].items() for did, e in p["dimensions"].items()]
-    lows = [f"{pid}/{did}" for pid, did, e in dims if e["median"] < TOP_SCORE]
-    grade = "; ".join(f"{did} {_cell(e)}" for _, did, e in dims)
-    if not lows and measured_ok(spec, f):
-        verdict = f"converged: {TOP_SCORE} on every dimension"
-    elif lows:
-        verdict = f"below {TOP_SCORE} on " + ", ".join(lows)
-    else:
-        verdict = "a measured criterion failed or was not measured"
-    out = []
-    if d["decision"] == BLOCKED:
-        out += [
-            f"**{BLOCKED}: the sealed panel's {', '.join(d['roles'])} item contains text "
-            f"addressed to a judge ({', '.join(d['flags'])}); the grade below does not stand. "
-            f"Grade the text without it in a new run, or acknowledge the flag in that run's "
-            f"spec ({INJECTION_ACK}).**",
-            "",
-        ]
-    out += [f"**Grade (sealed panel): {grade}. Verdict: {verdict}.** {model}", ""]
+def _blocked_banner(view: ResultFile) -> list[str]:
+    """The line above a sealed grade that does not stand, naming the flagged items."""
+    if view["stands"]:
+        return []
+    by_role = view["flags"]["injection"]
+    flags = sorted({p for found in by_role.values() for p in found})
+    return [
+        f"**{BLOCKED}: the sealed panel's {', '.join(sorted(by_role))} item contains text "
+        f"addressed to a judge ({', '.join(flags)}); the grade below does not stand. "
+        f"Grade the text without it in a new run, or acknowledge the flag in that run's "
+        f"spec ({INJECTION_ACK}).**",
+        "",
+    ]
+
+
+def _sealed_headline(view: ResultFile, model: str) -> list[str]:
+    cells = [(did, e) for p in view["grade"].values() for did, e in p.items()]
+    grade = "; ".join(f"{did} {_cell(e)}" for did, e in cells)
+    out = _blocked_banner(view)
+    out += [f"**Grade (sealed panel): {grade}. Verdict: {view['verdict']}.** {model}", ""]
     moves = [
         f"{did} {e['baseline_median']:g} -> {e['median']:g}"
-        for _, did, e in dims
-        if "baseline_median" in e
+        for did, e in cells
+        if e["baseline_median"] is not None
     ]
     if moves:
         out += [
@@ -197,70 +190,150 @@ def _round_table(spec: FrozenSpec, ledger: LedgerView) -> list[str]:
     return out
 
 
-def _notes(run: Path, ledger: LedgerView, d: Decision) -> list[str]:
+def _open_findings(view: ResultFile | None) -> list[str]:
+    """The sealed panel's blocking and material reasons, from the result view."""
+    if view is None:
+        return []
+    return [
+        f"- open finding, {pid} [{x['severity']}] ({x['dimension']}) {x['text']}"
+        for pid, found in view["findings"].items()
+        for x in found
+    ]
+
+
+class RoundNotes(NamedTuple):
+    """What the report notes for one round: from its result for a loop round, from the result
+    view for the sealed panel, so the report and the result file print the same values."""
+
+    name: str
+    suspect_jumps: list[str]
+    injection: dict[str, list[str]]
+    rejected: list[RejectedJudge]
+    voided: list[Voided]
+    prompt_extras: dict[str, int]
+    one_quote: list[int]
+    pasted: bool
+    runner: bool
+    env_changed: list[str]
+
+
+def _from_round(r: RoundResult) -> RoundNotes:
+    return RoundNotes(
+        ("sealed round " if r.get("sealed") else "round ") + str(r["round"]),
+        r["suspect_jumps"],
+        flagged_roles(r),
+        r.get("rejected_judges") or [],
+        r.get("voided") or [],
+        r.get("prompt_extras") or {},
+        r.get("one_quote_judges") or [],
+        "output" in r.get("sources", []),
+        RUNNER in r.get("sources", []),
+        r.get("runner_env_changed") or [],
+    )
+
+
+def _from_view(view: ResultFile, rnd: int) -> RoundNotes:
+    """The sealed panel's notes, from the result view. A sealed brief has no previous version,
+    so it has no paired gain and no suspect jump."""
+    flags, attempts = view["flags"], view["attempts"]
+    return RoundNotes(
+        f"sealed round {rnd}",
+        [],
+        flags["injection"],
+        attempts["rejected"],
+        attempts["void"],
+        flags["prompt_extras"],
+        flags["one_quote_judges"],
+        flags["pasted_replies"],
+        RUNNER in attempts["sources"],
+        flags["judge_env_changed"],
+    )
+
+
+def _void_line(name: str, v: Voided) -> str:
+    if v.get("source") == RUNNER:
+        why = f"by the judge runner: {v.get('reason')}"
+        why += "; it wrote output, kept unread" if v.get("replied") else ""
+    elif v.get("replied"):
+        why = "after replying (brief not verbatim)"
+    else:
+        why = "(no reply)"
+    return f"- {name}: judge {v['judge']} attempt {v['agent_id']} voided {why}"
+
+
+def _round_lines(n: RoundNotes) -> list[str]:
     out = []
-    if sealed_done(d):
-        f = d["final"]
-        for pid, p in f["personas"].items():
-            for x in p["findings"]:
-                out.append(
-                    f"- open finding, {pid} [{x['severity']}] ({x['dimension']}) {x['text']}"
-                )
-        loop = [r for r in ledger["rounds"] if not r.get("sealed")]
-        same = [r for r in loop if r.get("candidate_hash") == f.get("candidate_hash")]
-        if same:  # the same text judged by two fresh panels: measured repeat-test noise
-            prev = same[-1]
-            moves = [
-                f"{did} {prev['personas'][pid]['dimensions'][did]['median']:g} -> {e['median']:g}"
-                for pid, p in f["personas"].items()
-                for did, e in p["dimensions"].items()
-            ]
-            out.append(
-                f"- repeat-test on the same text (round {prev['round']} to sealed): "
-                + ", ".join(moves)
-            )
-    others = other_runs(run)
-    if others:
+    if n.suspect_jumps:
         out.append(
-            f"- {len(others)} other run(s) beside this one ({', '.join(others)}): "
-            "a new run is a fresh panel; say why each was started"
+            f"- {n.name}: paired jump of {SUSPECT_JUMP} or more on "
+            f"{', '.join(n.suspect_jumps)}; verify by hand before believing it"
         )
+    for role, found in sorted(n.injection.items()):
+        out.append(f"- {n.name}: the {role} item addresses a judge {found}")
+    for rj in n.rejected:
+        out.append(f"- {n.name}: judge {rj['judge']} rejected: {'; '.join(rj['errors'][:3])}")
+    out += [_void_line(n.name, v) for v in n.voided]
+    for j, chars in sorted(n.prompt_extras.items()):
+        out.append(
+            f"- {n.name}: judge {j}'s prompt carried {chars} characters beyond its brief; "
+            "read what was added"
+        )
+    for oq in n.one_quote:
+        out.append(
+            f"- {n.name}: judge {oq} quoted the same words for every dimension of the "
+            "candidate; its scores may not rest on distinct evidence"
+        )
+    return out + _source_lines(n)
+
+
+def other_runs_note(names: list[str]) -> str:
+    """The note on the runs beside this one: each is a fresh panel, so each needs a reason.
+
+    Args:
+        names: The other runs' names.
+    """
+    return (
+        f"{len(names)} other run(s) beside this one ({', '.join(names)}): "
+        "a new run is a fresh panel; say why each was started"
+    )
+
+
+def _notes(run: Path, ledger: LedgerView, d: Decision, view: ResultFile | None) -> list[str]:
+    out = _open_findings(view) + _repeat_test(ledger, d)
+    others = view["flags"]["other_runs"] if view is not None else other_runs(run)
+    if others:
+        out.append("- " + other_runs_note(others))
     for r in ledger["rounds"]:
-        name = ("sealed round " if r.get("sealed") else "round ") + str(r["round"])
-        if r["suspect_jumps"]:
-            out.append(
-                f"- {name}: paired jump of {SUSPECT_JUMP} or more on "
-                f"{', '.join(r['suspect_jumps'])}; verify by hand before believing it"
-            )
-        for role, found in sorted(flagged_roles(r).items()):
-            out.append(f"- {name}: the {role} item addresses a judge {found}")
-        for rj in r.get("rejected_judges") or []:
-            out.append(f"- {name}: judge {rj['judge']} rejected: {'; '.join(rj['errors'][:3])}")
-        for v in r.get("voided") or []:
-            if v.get("source") == RUNNER:
-                why = f"by the judge runner: {v.get('reason')}"
-                why += "; it wrote output, kept unread" if v.get("replied") else ""
-            elif v.get("replied"):
-                why = "after replying (brief not verbatim)"
-            else:
-                why = "(no reply)"
-            out.append(f"- {name}: judge {v['judge']} attempt {v['agent_id']} voided {why}")
-        for j, n in sorted((r.get("prompt_extras") or {}).items()):
-            out.append(
-                f"- {name}: judge {j}'s prompt carried {n} characters beyond its brief; "
-                "read what was added"
-            )
-        for oq in r.get("one_quote_judges") or []:
-            out.append(
-                f"- {name}: judge {oq} quoted the same words for every dimension of the "
-                "candidate; its scores may not rest on distinct evidence"
-            )
-        out += _source_notes(name, r)
-    return out + _panel_env_note(ledger)
+        notes = _from_view(view, r["round"]) if view and r.get("sealed") else _from_round(r)
+        out += _round_lines(notes)
+    return out + _panel_env_note(view)
 
 
-def _panel_env_note(ledger: LedgerView) -> list[str]:
-    changed = panel_env_changes(ledger)
+def _repeat_test(ledger: LedgerView, d: Decision) -> list[str]:
+    """The same text judged by a loop round and the sealed panel: measured repeat-test noise."""
+    if not sealed_done(d):
+        return []
+    f = d["final"]
+    same = [
+        r
+        for r in ledger["rounds"]
+        if not r.get("sealed") and r.get("candidate_hash") == f.get("candidate_hash")
+    ]
+    if not same:
+        return []
+    prev = same[-1]
+    moves = [
+        f"{did} {prev['personas'][pid]['dimensions'][did]['median']:g} -> {e['median']:g}"
+        for pid, p in f["personas"].items()
+        for did, e in p["dimensions"].items()
+    ]
+    return [
+        f"- repeat-test on the same text (round {prev['round']} to sealed): " + ", ".join(moves)
+    ]
+
+
+def _panel_env_note(view: ResultFile | None) -> list[str]:
+    changed = view["flags"]["panel_env_changed"] if view is not None else []
     if not changed:
         return []
     return [
@@ -270,47 +343,22 @@ def _panel_env_note(ledger: LedgerView) -> list[str]:
     ]
 
 
-def _env_union(rounds: list[RoundResult]) -> dict[str, set[str]] | None:
-    found: dict[str, set[str]] | None = None
-    for r in rounds:
-        hashes = r.get("runner_env_hashes")
-        if isinstance(hashes, dict):
-            found = found if found is not None else {}
-            for name, values in hashes.items():
-                found.setdefault(name, set()).update(values)
-    return found
-
-
-def panel_env_changes(ledger: LedgerView) -> list[str]:
-    """The `[judge] env_allow` names whose values differ between the sealed panel and the loop
-    rounds, by their salted hashes; empty when either side carries no hashes.
-
-    Args:
-        ledger: The run's ledger.
-    """
-    sealed = _env_union([r for r in ledger["rounds"] if r.get("sealed")])
-    loop = _env_union([r for r in ledger["rounds"] if not r.get("sealed")])
-    if sealed is None or loop is None:
-        return []
-    return sorted(n for n in set(sealed) | set(loop) if sealed.get(n) != loop.get(n))
-
-
-def _source_notes(name: str, r: RoundResult) -> list[str]:
+def _source_lines(n: RoundNotes) -> list[str]:
     """What the report says about where a round's replies came from."""
     out = []
-    if "output" in r.get("sources", []):
-        out.append(f"- {name}: some replies were pasted, not read from a transcript")
-    if RUNNER in r.get("sources", []):
+    if n.pasted:
+        out.append(f"- {n.name}: some replies were pasted, not read from a transcript")
+    if n.runner:
         out.append(
-            f"- {name}: some replies were read by sealed-panel from the judge command "
+            f"- {n.name}: some replies were read by sealed-panel from the judge command "
             "(judge.command in the settings above)"
         )
-    changed = r.get("runner_env_changed") or []
-    if changed:
+    if n.env_changed:
         out.append(
-            f"- {name}: the judge command ran under different values of {', '.join(changed)} "
-            "across attempts (another model or key between judges): the declared judge model "
-            "does not cover every attempt; put the model in judge.command to freeze it"
+            f"- {n.name}: the judge command ran under different values of "
+            f"{', '.join(n.env_changed)} across attempts (another model or key between judges): "
+            "the declared judge model does not cover every attempt; put the model in "
+            "judge.command to freeze it"
         )
     return out
 
@@ -325,8 +373,10 @@ def render_report(run: Path) -> str:
     cfg = run_config(run)
     ledger = ledger_view(run)
     d = decide(spec, ledger)
+    view = build(run, spec, cfg, ledger)  # the result file's content, the same function
+    decision = view["decision"] if view is not None else d["decision"]
     n_ctx = len(used_agent_ids(run))
-    changed = overrides(cfg, spec)
+    changed = view["settings"] if view is not None else overrides(cfg, spec)
     ref: Mapping[str, object] = spec.get("template") or {}
     template = (
         f"template {ref.get('id')} v{ref.get('version')}"
@@ -341,7 +391,7 @@ def render_report(run: Path) -> str:
         else "settings that differ from the defaults: " + "; ".join(changed)
     )
     title = f"# Evaluation: {spec['title']}"
-    if d["decision"] == BLOCKED:
+    if decision == BLOCKED:
         title += f" ({BLOCKED})"
     ack = (
         f" Injection flags acknowledged in the spec: {spec[INJECTION_ACK]!r}."
@@ -352,14 +402,27 @@ def render_report(run: Path) -> str:
         title,
         "",
         f"Rubric sha256 `{ledger['rubric_sha256'][:HASH_CHARS]}`, "
-        f"decision **{d['decision']}**, {n_ctx} judge contexts, {template}{settings}.{ack}",
+        f"decision **{decision}**, {n_ctx} judge contexts, {template}{settings}.{ack}",
         "",
     ]
-    if sealed_done(d):
-        out += _sealed_headline(spec, d, model_line(cfg) + acknowledgement_line(spec))
+    if view is not None:
+        out += _sealed_headline(view, model_line(view) + acknowledgement_line(view))
     out += _round_table(spec, ledger)
-    out += _notes(run, ledger, d)
+    out += _notes(run, ledger, d, view)
     return "\n".join(out) + "\n"
+
+
+def grade_line(result: GradeResult) -> str:
+    """What `grade` prints for its outcome: the sealed grade and its verdict, or why there is
+    none that stands.
+
+    Args:
+        result: What grade() returned.
+    """
+    if not result.stands:
+        return f"{result.decision}: {result.why}"
+    cells = "; ".join(f"{did} {_cell(e)}" for p in result.grade.values() for did, e in p.items())
+    return f"{result.decision}: {cells}. Verdict: {result.verdict}."
 
 
 def outcome_line(r: Attempt) -> str:
@@ -375,60 +438,3 @@ def outcome_line(r: Attempt) -> str:
         + f" judge {r['judge']}"
         + ("" if r["ok"] else ": " + "; ".join(r["errors"][:3]))
     )
-
-
-def _flatten(data: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
-    flat: dict[str, Any] = {}
-    for key, value in data.items():
-        name = f"{prefix}{key}"
-        if isinstance(value, dict):
-            flat.update(_flatten(value, name + "."))
-        else:
-            flat[name] = value
-    return flat
-
-
-SHOW_LIMIT = 80
-
-
-# Settings always shown in full: what runs as the judge is never reduced to a hash.
-SHOW_IN_FULL = frozenset({"judge.command", "judge.env_allow"})
-
-
-def _show(value: Any, where: str, key: str = "") -> str:
-    """A value in full, or, when it is long, its size and short hash and where to read it."""
-    text = json.dumps(value, ensure_ascii=True)
-    if len(text) <= SHOW_LIMIT or key in SHOW_IN_FULL:
-        return text
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-    return f"<{len(text)} characters, sha256 {digest}, see {where}>"
-
-
-def overrides(cfg: Config, spec: Mapping[str, Any] | None = None) -> list[str]:
-    """Every setting that differs from the packaged defaults, as `key = value (default x)`.
-
-    Per-run keys are read from the frozen spec when one is given, since that is the value
-    the run uses; the other keys come from the configuration.
-
-    Args:
-        cfg: The configuration.
-        spec: The frozen spec, or None.
-    """
-    defaults = _flatten(default_data())
-    current = _flatten(cfg.data)
-    out = []
-    for key in sorted(set(defaults) | set(current)):
-        if key.startswith("run.") and spec is not None:
-            continue
-        if key in NOT_GRADING:
-            continue  # where files are, not how a text is graded
-        if current.get(key) != defaults.get(key):
-            now = _show(current.get(key), "config.json", key)
-            was = _show(defaults.get(key), "defaults", key)
-            out.append(f"{key} = {now} (default {was})")
-    if spec is not None:
-        for key, default in default_data()["run"].items():
-            if key in spec and spec[key] != default:
-                now, was = _show(spec[key], "spec.json"), _show(default, "defaults")
-                out.append(f"spec.{key} = {now} (default {was})")
-    return out

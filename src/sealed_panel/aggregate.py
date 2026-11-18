@@ -6,7 +6,7 @@ import statistics
 from pathlib import Path
 
 from .decide import SUSPECT_JUMP
-from .errors import EvalError
+from .errors import EvalError, PanelIncomplete
 from .hosts import adapter, read_transcript
 from .model import (
     Attempt,
@@ -161,7 +161,7 @@ def _dimension_entry(pv: list[Attempt], pid: str, did: str, cfg: Config) -> Dime
         if did in r["items"].get("candidate", no_item()).get("scores", {})
     ]
     if len(cand) < cfg.min_valid_judges:
-        raise EvalError(
+        raise PanelIncomplete(
             f"persona {pid}/{did}: fewer than {cfg.min_valid_judges} verified candidate scores"
         )
     sevs = [
@@ -236,7 +236,7 @@ def _check_complete(
         if not any(not r.get("void") for r in by_judge.get(j["judge"], []))
     ]
     if silent:
-        raise EvalError(
+        raise PanelIncomplete(
             f"judge slot(s) {silent} have no real attempt: a void clears a block but never "
             "fills a seat; brief a fresh replacement on the same brief (stopping after two "
             "replies is a re-roll)"
@@ -342,7 +342,7 @@ def aggregate(
         pv = [r for r in valid if r["persona"] == pid]
         if len(pv) < cfg.min_valid_judges:
             why = [(r["judge"], r["errors"][:1]) for r in rejected if r["persona"] == pid]
-            raise EvalError(
+            raise PanelIncomplete(
                 f"persona {pid}: {len(pv)} valid judge(s) in this round, "
                 f"{cfg.min_valid_judges} needed (rejected: {why})"
             )

@@ -84,8 +84,9 @@ The adversaries:
   cannot be read, or one too large to read whole, blocks it too.
 - **Every re-roll path through the commands and tools that this version knows of is refused**,
   or flagged in the report where it cannot be checked (a pasted reply, a changed judge
-  environment, text added around a brief). What the transcript scan cannot see (a brief shown
-  without its id, files outside its reach) is listed under "What a transcript does not prove".
+  environment, text added around a brief, another run in the same folder). What the transcript
+  scan cannot see (a brief shown without its id, files outside its reach) is listed under "What
+  a transcript does not prove".
 - **A judge reply cannot break the reader or hang the runner.** A reply past its byte cap, a
   timeout, a non-zero exit, deep nesting or a huge integer ends as a void or a rejected reply,
   never a crash.
@@ -110,6 +111,10 @@ The adversaries:
   shown next to the grade.
 - **An agent with a shell** can run the command line with a configuration of its own; the
   report shows that choice next to the grade.
+- **A run in another folder.** Each run is a fresh panel, and the report counts only the runs
+  that share its folder: a run started elsewhere, such as every default `grade` run, which gets
+  a folder of its own, is a re-roll the tool cannot see. Keep runs side by side by giving each
+  `--run` under one folder.
 - **What a transcript does not prove.** In host mode the host launches the judge, and
   sealed-panel sees only the file the host wrote: not the judge's tools, its model or its
   directory, only what the file records. What the host marks as its own in a transcript (its

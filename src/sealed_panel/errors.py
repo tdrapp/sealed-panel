@@ -22,6 +22,11 @@ class SeatTaken(EvalError):
     """A seat another call is judging right now, or one that already holds a valid reply."""
 
 
+class PanelIncomplete(EvalError):
+    """A round its judges left without a grade: a seat with no real attempt, or too few valid
+    judges or verified scores. Its open seats can still take a replacement."""
+
+
 def user_message(exc: BaseException) -> str | None:
     """What the caller is told for an error it can fix (a refusal, a missing file, a file of
     the wrong shape), or None for an error in sealed-panel itself. The command line and the

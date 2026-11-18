@@ -348,6 +348,109 @@ class Decision(TypedDict, total=False):
     injection_acknowledged: str
 
 
+# -- the result file (grade.json) -----------------------------------------------------------
+
+# The result file's own format, separate from the run format: a reader accepts every version up
+# to its own and refuses a later one with the advice to upgrade. Any change to the file's keys
+# or to what one means raises it, and the reader of the new release reads the older versions
+# too. docs/protocol.md section 11 says the same for users.
+RESULT_SCHEMA_VERSION: Final = 1
+# Where the sealed aggregate step writes the result file, in the run.
+RESULT_FILE: Final = "grade.json"
+
+
+class ResultCell(TypedDict):
+    """One persona's sealed grade on one dimension: the median, every verified score, the
+    severities, the spread, and the median on the round-1 text when there was a loop."""
+
+    median: float
+    scores: list[int]
+    severities: list[str]
+    sd: float
+    baseline_median: float | None
+
+
+class ResultObtained(TypedDict):
+    """How the grade was obtained: the loop before the sealed panel (no round for a one-shot
+    grade), and the sealed panel's own figures."""
+
+    loop_rounds: int
+    loop_decision: str | None
+    seats: int
+    composite: float
+    noise: float
+    measured: list[Measurement]
+
+
+class ResultJudge(TypedDict):
+    """Who judged: the frozen judge command (runner mode), or the host and its transcript
+    format (host mode), and the model id the run declared."""
+
+    mode: str
+    argv: list[str]
+    model_id: str
+    transcript_format: str | None
+
+
+class ResultFlags(TypedDict):
+    """What the report flags next to the sealed grade. `prompt_extras` is the round result's
+    own (a seat whose counted judge's prompt carried text beyond its brief, by characters);
+    `other_runs` is a snapshot of the runs beside this one when grade.json was written."""
+
+    injection: dict[str, list[str]]
+    injection_acknowledged: str | None
+    pasted_replies: bool
+    judge_env_changed: list[str]
+    panel_env_changed: list[str]
+    prompt_extras: dict[str, int]
+    one_quote_judges: list[int]
+    other_runs: list[str]
+
+
+class ResultFinding(TypedDict):
+    """A blocking or material reason a judge gave, its text as the report prints it."""
+
+    judge: int
+    dimension: str
+    severity: str
+    text: str
+
+
+class ResultAttempts(TypedDict):
+    """The sealed panel's attempts: how many valid ones count, each rejected and each void one
+    with its reasons, and where the valid replies came from."""
+
+    valid: int
+    rejected: list[RejectedJudge]
+    void: list[Voided]
+    sources: list[str]
+
+
+class ResultFile(TypedDict):
+    """The result file (grade.json): a projection of the sealed round's result and the run's
+    identity, derived from the run's files in one function (`result.build`)."""
+
+    schema_version: int
+    sealed_panel: str
+    run_schema_version: int
+    title: str
+    rubric_sha256: str
+    config_sha256: str
+    template: TemplateRef | None
+    candidate_hash: str | None
+    decision: str
+    stands: bool
+    why: str
+    verdict: str
+    grade: dict[str, dict[str, ResultCell]]
+    obtained: ResultObtained
+    findings: dict[str, list[ResultFinding]]
+    judge: ResultJudge
+    flags: ResultFlags
+    attempts: ResultAttempts
+    settings: list[str]
+
+
 # -- the one input type of the API --------------------------------------------------------
 
 
