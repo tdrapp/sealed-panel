@@ -24,7 +24,7 @@ under optimisation pressure driving the CLI to get a better grade, not a person 
 run's files by hand.
 
 The test suite is checked by mutation: `tools/mutation_check.py` switches off one refusal,
-bound or boundary at a time and requires the suite to fail on each. Of its 405 mutations, 403
+bound or boundary at a time and requires the suite to fail on each. Of its 437 mutations, 435
 are killed; the two that survive are redundant guards, kept as defence in depth, listed in the
 tool with the guard that makes each redundant, and not counted as tested. CI runs it on every
 pull request.
@@ -145,6 +145,23 @@ sealed-panel --version
 ```
 
 ## Quick start
+
+**In one command.** With a judge command configured (`[judge] command`; see
+`examples/runner/judge.toml`), one command gives a one-shot sealed grade: it freezes a new run,
+briefs the sealed panel, runs one fresh judge process per brief and aggregates.
+
+```sh
+sealed-panel grade spec.json draft.md --control control.md --config judge.toml
+```
+
+It prints the grade, then the path of `grade.json`, the machine-readable result, and exits 0
+for a grade that stands, 1 when the judges left the panel without a grade (a judge that
+failed, too few valid replies), 2 for a refusal (a text that addresses a judge among them).
+Without `--run`, the run is a fresh temporary directory. From Python, `grade()` does the same
+([docs/api.md](docs/api.md)). It takes no instrument reading: a spec with measured criteria,
+like the example below, goes through the steps.
+
+**Step by step.**
 
 This walks the synthetic example in `examples/announcement`: an internal email announcing a
 build cache, graded for a busy engineering manager. Run it from a clone of the repository, so
@@ -388,9 +405,10 @@ sealed-panel/
       candidates.py      the inbox, its history, promotion and rejection
       location.py        where learning may write: never in a git working tree
       cli.py             the learning commands' handlers
-    steps.py             init and aggregate as the interfaces call them
+    steps.py             init, aggregate and grade() as the interfaces call them
     runner.py            the judge runner: one process per brief, with its proof
-    report.py            findings file, status, report, overrides
+    report.py            findings file, status, report
+    result.py            grade.json, the view the report prints, overrides
     aggregate.py         medians, paired gains, noise, findings (computes, writes nothing)
     record.py            store a judge's attempt: a reply, a rejected reply or a void
     measure.py           instrument readings

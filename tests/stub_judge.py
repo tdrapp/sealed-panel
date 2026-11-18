@@ -6,12 +6,15 @@ bytes read, so a test can check the brief arrived unchanged. Options make it mis
 
     stub_judge.py [--exit N] [--sleep S] [--silent] [--noise] [--show-env] [--show-cwd]
                   [--low WORD] [--score N] [--fixed] [--fail-first PATH] [--flood MIB]
+                  [--not-json] [--bad-quote DIM]
                   [--flood-stderr MIB] [--pid-file PATH] [--wait-for PATH]
 
 --pid-file writes the stub's pid there before anything else; --wait-for blocks after the reply
 until PATH exists (two minutes at most), so a test decides when the judge ends.
 
 Without --fixed, the retell also carries a random tag: real judges never reply identically.
+--not-json prints a line that is no JSON (unique, with the tag); --bad-quote DIM quotes words
+that are in no item for DIM on every item without the low word (the candidate among them).
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ ITEM = re.compile(r'<item label="([A-Z])">\n(.*?)\n</item>', re.DOTALL)
 DIMENSION = re.compile(r"^### ([A-Za-z0-9_-]+):", re.MULTILINE)
 
 
-def reply(brief: str, tag: str, low: str, score: int) -> dict[str, object]:
+def reply(brief: str, tag: str, low: str, score: int, bad_quote: str = "") -> dict[str, object]:
     dims = DIMENSION.findall(brief)
     items: dict[str, object] = {}
     for label, text in ITEM.findall(brief):
@@ -40,7 +43,7 @@ def reply(brief: str, tag: str, low: str, score: int) -> dict[str, object]:
             "dimensions": {
                 d: {
                     "reasoning": "stub reading",
-                    "quote": quote,
+                    "quote": "words in no item at all" if d == bad_quote and not bad else quote,
                     "severity": "blocking" if bad else "none",
                     "score": 1 if bad else score,
                 }
@@ -62,6 +65,8 @@ def main() -> int:
     ap.add_argument("--low", default="synergies")
     ap.add_argument("--score", type=int, default=4)
     ap.add_argument("--fixed", action="store_true")
+    ap.add_argument("--not-json", action="store_true")
+    ap.add_argument("--bad-quote", default="")
     ap.add_argument("--fail-first", help="exit 3 when PATH does not exist yet, creating it")
     ap.add_argument("--flood", type=int, default=0, help="write this many MiB to stdout first")
     ap.add_argument("--flood-stderr", type=int, default=0, help="the same, to stderr")
@@ -87,7 +92,8 @@ def main() -> int:
         print("CWD " + json.dumps([os.getcwd(), sorted(os.listdir("."))]), file=sys.stderr)
     if not a.silent:
         tag = digest if a.fixed else f"{digest} {secrets.token_hex(4)}"
-        print(json.dumps(reply(data.decode("utf-8"), tag, a.low, a.score)), flush=True)
+        out = reply(data.decode("utf-8"), tag, a.low, a.score, a.bad_quote)
+        print(f"no json here {tag}" if a.not_json else json.dumps(out), flush=True)
     if a.fail_first and not os.path.exists(a.fail_first):
         open(a.fail_first, "w").close()
         return 3

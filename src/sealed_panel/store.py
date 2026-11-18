@@ -20,7 +20,7 @@ from .errors import EvalError, SeatTaken
 
 
 def load_json(path: Path) -> Any:
-    """The JSON in a file, refused when it is not valid JSON.
+    """The JSON in a file, refused when it is not valid JSON or nested too deeply to read.
 
     Args:
         path: The file.
@@ -29,6 +29,8 @@ def load_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise EvalError(f"{path} is not valid JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise EvalError(f"{path} is not valid JSON: nested too deeply") from exc
 
 
 def dump_json(path: Path, data: Any) -> None:

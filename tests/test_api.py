@@ -7,6 +7,7 @@ import copy
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -28,30 +29,46 @@ DRAFT = (
 CONTROL = "We are pleased to share synergies that bring meaningful benefits to all teams.\n"
 
 
-def example() -> str:
+def example(n: int) -> str:
     page = ROOT / "docs" / "api.md"
     if not page.exists():  # the mutation check runs on a copy without the docs
         pytest.skip("not a checkout: the docs are not here")
-    text = page.read_text()
-    found = re.search(r"```python\n(.*?)```", text, re.DOTALL)
-    assert found, "docs/api.md has no python example"
-    return found.group(1)
+    found = re.findall(r"```python\n(.*?)```", page.read_text(), re.DOTALL)
+    assert len(found) > n, "docs/api.md lacks a python example"
+    return str(found[n])
 
 
-@pytest.mark.slow
-def test_the_documented_example_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def run_example(n: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "draft.md").write_text(DRAFT)
     (tmp_path / "control.md").write_text(CONTROL)
     (tmp_path / "judge.toml").write_text(
         f"[judge]\ncommand = {json.dumps([sys.executable, str(STUB)])}\n"
     )
-    code = example()
+    code = example(n)
     lines = [ln for ln in code.splitlines() if ln.strip() and not ln.startswith("from ")]
     assert len(lines) <= 10  # ten lines, the imports aside
     exec(compile(code, "docs/api.md", "exec"), {})  # noqa: S102 (the repository's own example)
+
+
+@pytest.mark.slow
+def test_the_documented_one_call_example_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    temp = tmp_path / "system-tmp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    run_example(0, tmp_path, monkeypatch)
+    decision, median, path = capsys.readouterr().out.split()
+    assert (decision, median) == ("SEALED", "4")
+    assert Path(path).parent.parent.parent == temp and Path(path).name == "grade.json"
+
+
+@pytest.mark.slow
+def test_the_documented_step_example_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_example(1, tmp_path, monkeypatch)
     report = capsys.readouterr().out
     assert report.startswith("# Evaluation: Build cache announcement")
     assert "SEALED" in report
@@ -101,6 +118,15 @@ def test_a_spec_built_in_python_is_refused_like_a_file(tmp_path: Path) -> None:
 
 def test_the_stable_names_import_from_the_package() -> None:
     assert sealed_panel.Spec is Spec
+    assert sorted(sealed_panel.__all__) == sorted(
+        [
+            "SCHEMA_VERSION", "Config", "ConfigError", "EvalError", "FormatError",
+            "GradeResult", "MalformedReply", "PanelIncomplete", "SeatTaken", "Spec",
+            "__version__", "aggregate_round", "grade", "init_run", "judge_round",
+            "load_config", "record_from", "record_measurement", "record_reply",
+            "render_report", "status", "write_briefs",
+        ]
+    )  # fmt: skip
     for name in sealed_panel.__all__:
         assert hasattr(sealed_panel, name), name
     assert (Path(sealed_panel.__file__).parent / "py.typed").is_file()

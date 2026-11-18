@@ -57,6 +57,7 @@ RUN_NAMES = frozenset(
         "rubric.lock", "run.json", "run.lock", "config.json", "config.lock", "spec.json",
         "env.salt", "rounds", "sealed", "feedback", "keys.json", "result.json", "measured.json",
         "candidate.md", "control.md", "previous.md", "baseline.md", "known_good.md",
+        "grade.json",
     }
 )  # fmt: skip
 RUN_NAME_PATTERN = re.compile(
@@ -152,7 +153,7 @@ class TestWrites:
             assert cli.main([str(a) for a in args]) == 0, args
         capsys.readouterr()
         names = {p.name for p in r.rglob("*")}
-        assert {"after_r1.md", "result.json", "run.json"} <= names
+        assert {"after_r1.md", "result.json", "run.json", "grade.json"} <= names
         assert any(n.startswith("runner_j") for n in names)
         assert sorted(n for n in names if not run_name(n)) == []
         assert all(run_name(n) for n in store.RESERVED_NAMES - {store.INIT_LOCK})
