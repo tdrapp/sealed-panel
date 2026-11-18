@@ -12,7 +12,7 @@ There are two ways to change one.
   default. No other command accepts `--config`.
 
 The defaults define the shape. An override that names an unknown key, or gives a value of
-another type, is refused. A key 0.4.0 or 0.4.1 removed is refused with a message that names
+another type, is refused. A key 0.4.0 or 0.5.0 removed is refused with a message that names
 it.
 
 Settings that guard the protocol have hard bounds, listed below. A value outside its bounds is
@@ -122,7 +122,7 @@ An adapter reads its format by its own structure and refuses a file it does not 
 rather than guess; it never skips an entry of a type it checks. If no reply is found, `record`
 refuses.
 
-Until 0.4.1, `[transcript]` held 18 field names (`role_key`, `handback_tool` and the others) for
+Until 0.5.0, `[transcript]` held 18 field names (`role_key`, `handback_tool` and the others) for
 the one reader there was. A configuration file that still sets one is refused with a message
 naming each. A run frozen by 0.4.0 holds them and no `format`: after its `config.lock` is
 checked against the file as written, it reads as `format = "agent-jsonl"` when they hold the

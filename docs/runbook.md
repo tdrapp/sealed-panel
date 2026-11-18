@@ -1,6 +1,6 @@
 # Runbook
 
-Last reviewed: 2026-11-16, for 0.4.0.
+Last reviewed: 2026-11-18, for 0.5.0.
 
 How to run sealed-panel, release it, and recover when something goes wrong. The reasons behind
 each rule are in [protocol.md](protocol.md); every command and flag is in [cli.md](cli.md).

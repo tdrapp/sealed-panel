@@ -3,7 +3,7 @@
 The defaults define the shape: an override may only set keys that exist there, with a value
 of the same type. Settings that guard the protocol have hard bounds, so an override can
 tighten a guard but never switch it off. A section 0.4.0 fixed in code, and a transcript field
-name 0.4.1 replaced with host adapters, is refused, by name.
+name 0.5.0 replaced with host adapters, is refused, by name.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ REMOVED_SECTIONS = {
         "--library or $SEALED_PANEL_RUBRICS"
     ),
 }
-# The field names of a transcript entry, settings of [transcript] until 0.4.1 replaced them with
+# The field names of a transcript entry, settings of [transcript] until 0.5.0 replaced them with
 # host adapters, with the value 0.4.0 froze by default: a file that sets one is refused, naming
 # it, and a run frozen with exactly these values reads as `format = "agent-jsonl"` (run.py).
 REMOVED_TRANSCRIPT_KEYS: dict[str, str] = {
@@ -147,14 +147,14 @@ def removed_message(section: str, value: Any) -> str:
 
 
 def removed_transcript_message(section: Mapping[str, Any]) -> str:
-    """The refusal of the transcript field names 0.4.1 removed, naming each one the file sets.
+    """The refusal of the transcript field names 0.5.0 removed, naming each one the file sets.
 
     Args:
         section: The [transcript] table of the file.
     """
     keys = ", ".join(f"transcript.{k}" for k in section if k in REMOVED_TRANSCRIPT_KEYS)
     return (
-        f"{keys}: no longer a setting since 0.4.1: a host adapter reads each transcript format "
+        f"{keys}: no longer a setting since 0.5.0: a host adapter reads each transcript format "
         "by its own structure, and transcript.format names the format; remove the field names "
         "from the configuration file"
     )

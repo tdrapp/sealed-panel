@@ -22,18 +22,18 @@ logging are deprecated too; paths come from the tool parameters, and logs go to 
 Install the extra and start the server over stdio:
 
 ```sh
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0'
 sealed-panel mcp
 ```
 
 Or let `uvx` fetch it on demand:
 
 ```sh
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0' sealed-panel mcp
 ```
 
 Once the package is published on the index, `pip install 'sealed-panel[mcp]'` and
-`uvx --from 'sealed-panel[mcp]==0.4.0' sealed-panel mcp` do the same. Pin a `uvx` line to an
+`uvx --from 'sealed-panel[mcp]==0.5.0' sealed-panel mcp` do the same. Pin a `uvx` line to an
 exact version or tag: an unpinned one runs whatever is newest the day it starts.
 
 The ten tools are listed in [cli.md](cli.md#mcp); learning has none, and stays on the command
@@ -97,7 +97,7 @@ Install it from your host's prompt:
 ```
 
 The entry names the repository by its HTTPS URL, so the folder is fetched without a GitHub
-account or key. An install made before 0.4.1, when the plugin was the repository root, keeps
+account or key. An install made before 0.5.0, when the plugin was the repository root, keeps
 working at its version; to move to this layout, update the marketplace (`/plugin marketplace
 update sealed-panel`) once the release that carries it is tagged, then the plugin (`claude
 plugin update sealed-panel@sealed-panel` in a shell).
@@ -162,7 +162,7 @@ same day and not run in a logged-in session.
 
 Measured: the skill is listed from `~/.agents/skills/sealed-panel/`, as a copy and as a
 symbolic link to a copy; it was listed from a clone of 0.4.0, whose root held
-`.agents/skills/`, and is not from a clone since 0.4.1, so a copy in your skill folder replaces
+`.agents/skills/`, and is not from a clone since 0.5.0, so a copy in your skill folder replaces
 it. Codex reads the table as written: the command, its arguments, `startup_timeout_sec` 120,
 `tool_timeout_sec` 300 and the empty `env_vars`.
 
@@ -217,8 +217,8 @@ Known limits:
 - Project instructions are flagged on one host and not on the other. Where the host marks them
   as its own (an attachment in `agent-jsonl`), they are not counted in the prompt, as in 0.4.0;
   where it does not (user messages in `rollout-jsonl`), they are counted and flagged. So the
-  same kind of input shows in the report for one host only. A separate field for the context a
-  host adds on its own is planned with the result file of the next release.
+  same kind of input shows in the report for one host only. The result file of this release has
+  no separate field for the context a host adds on its own; one is planned for a later release.
 - What a host adds as its own, before or after the first output, is not counted: an adapter
   trusts the host's own marks. A host message that steers a judge is not seen.
 - The adapter does not read session-state lines; instructions a host injects through them are

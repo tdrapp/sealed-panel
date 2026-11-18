@@ -24,7 +24,7 @@ from one release while `main` moves ahead. `uvx`, which must be on the path, fet
 server:
 
 ```
-sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0
+sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0
 ```
 
 The entry names the repository by its HTTPS URL, so the plugin folder is fetched without a

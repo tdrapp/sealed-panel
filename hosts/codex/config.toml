@@ -3,7 +3,7 @@
 # below come from Codex's documentation, read on 2026-11-16 (CLI 0.163.0-alpha.11.1).
 [mcp_servers.sealed-panel]
 command = "uvx"
-args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0", "sealed-panel", "mcp", "--transcript-root", "~/.codex/sessions"]
+args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0", "sealed-panel", "mcp", "--transcript-root", "~/.codex/sessions"]
 # The first start fetches the package; Codex waits 10 seconds for a server by default.
 startup_timeout_sec = 120
 # A judge call runs one judge after another; Codex stops a tool call after 60 seconds by default.

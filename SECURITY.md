@@ -132,7 +132,7 @@ The adversaries:
   another model. What it guarantees is about the recorded panel (each judge blind and fresh,
   given the whole brief verbatim, one valid reply per seat), and that a judge recorded, or
   briefed with its id, cannot be discarded.
-- **Field names of a transcript.** Until 0.4.1, `[transcript]` held the field names the one
+- **Field names of a transcript.** Until 0.5.0, `[transcript]` held the field names the one
   reader used; they are no longer settings, so a configuration cannot point the reader at other
   fields. A file that sets one is refused; a run frozen with values other than the 0.4.0
   defaults is refused and finished with 0.4.0.
@@ -195,7 +195,7 @@ tool writes it after `init`.
 | Setting bounds and the overrides printed next to the grade | a setting that switches off a guard unseen | in | kept, unchanged | `test_every_changed_key_is_printed`; mutations `overrides hidden`, `run bounds off`, `judge timeout unbounded` |
 | No promote or reject tool on the MCP server | a rubric candidate promoted or rejected by the author | in | kept, unchanged | `test_tools_names_order_and_annotations`, `tests/test_mcp_schema.py` (no mutation: the guard is an absent tool) |
 
-### Added in 0.4.1: the transcript adapters
+### Added in 0.5.0: the transcript adapters
 
 | Guard | Threat it answers | Scope | Pinned by |
 |---|---|---|---|

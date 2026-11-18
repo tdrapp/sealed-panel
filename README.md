@@ -3,7 +3,7 @@
 [![CI](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/tdrapp/sealed-panel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Version 0.4.0. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+Version 0.5.0. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 Grade a piece of writing with blind panels of LLM judges, then let a sealed panel give the final
 grade.
@@ -115,11 +115,11 @@ seat lock rely on POSIX process groups and `fcntl.flock`), and the code holds no
 From GitHub, at a release tag:
 
 ```sh
-pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.4.0'
+pip install 'sealed-panel @ git+https://github.com/tdrapp/sealed-panel@v0.5.0'
 # plus the MCP server:
-pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0'
+pip install 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0'
 # run the server without installing it:
-uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0' sealed-panel mcp
 ```
 
 From the package index, once published:
@@ -127,7 +127,7 @@ From the package index, once published:
 ```sh
 pip install sealed-panel
 pip install 'sealed-panel[mcp]'
-uvx --from 'sealed-panel[mcp]==0.4.0' sealed-panel mcp
+uvx --from 'sealed-panel[mcp]==0.5.0' sealed-panel mcp
 ```
 
 Pin a `uvx` line to an exact version or tag, as above: an unpinned one runs whatever is newest
@@ -497,14 +497,19 @@ skip. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Upgrading
 
-A run is finished with the version that started it, and 0.4.0 refuses every run created before
-it. This version cannot continue a run created before 0.4.0: start a new run with this version,
-or finish the old one with the version that created it.
+0.4.0 refuses every run created before it, and so does this version. This version cannot
+continue a run created before 0.4.0: start a new run with this version, or finish the old one
+with the version that created it. A run created by 0.4.0 continues with this version, its
+transcripts read as `agent-jsonl`, unless it froze other transcript field names than the
+defaults: finish that one with 0.4.0.
 
 A configuration file that sets `[text]`, `[injection]` or `[library]` is refused, naming the
-key: those settings are fixed in code since 0.4.0. Code that imports from the package: the
-stable names are in [docs/api.md](docs/api.md), and every name or module that moved or went is
-in the 0.4.0 entries marked **Breaking** in [CHANGELOG.md](CHANGELOG.md).
+key: those settings are fixed in code since 0.4.0. One that sets a field name of `[transcript]`
+(`role_key` and the others) is refused since 0.5.0, naming each. An installed plugin stays at
+its version until the marketplace is refreshed: the host's section of
+[docs/integrations.md](docs/integrations.md) gives the commands. Code that imports from the
+package: the stable names are in [docs/api.md](docs/api.md), and every name or module that
+moved or went is in the 0.4.0 entries marked **Breaking** in [CHANGELOG.md](CHANGELOG.md).
 
 ## Limits
 
