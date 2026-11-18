@@ -38,9 +38,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   later one, and refuses as damaged a file of the wrong keys or types. The report prints its
   sealed grade, its header and its sealed-panel notes from the same derivation. A second
   `aggregate` of a sealed round whose `grade.json` is missing writes it, and says so.
+- `tools/build_hosts.py` writes each host's copy of the skill, and the body of the plugin's
+  judge agent, from `skill/`; `--check` lists what drifted and writes nothing. It never deletes
+  anything: an orphan under a host's `skills/` or `agents/` (another entry, or a file the source
+  lacks inside the copy) makes the build refuse and name it, yours to remove by hand. A
+  symbolic link on the way to a copy is drift too; the build refuses to write through one, and
+  refuses a skill name not made of `a-z`, `0-9` and `-`.
 
 ### Changed
 
+- **Breaking:** Everything one agent host reads moved into that host's folder under `hosts/`,
+  each with a README: the plugin (its manifest, `.mcp.json`, `agents/eval-judge.md` and its
+  skill copy) moved from the repository root to its host's folder, and the skill copy that sat
+  in `.agents/skills/sealed-panel/` moved, with the server table of the integration guide as a
+  `config.toml`, to the other host's folder. The root keeps only the marketplace file, whose
+  entry now installs the plugin folder alone (a `git-subdir` source) at the release tag. An
+  installed plugin keeps working at 0.4.0; to update, refresh the marketplace once 0.4.1 is
+  tagged (`/plugin marketplace update sealed-panel`), then update the plugin; the host's
+  section of `docs/integrations.md` gives the commands. A host started in a clone no longer
+  finds the skill in the repository's `.agents/skills/`: copy
+  `hosts/<host>/skills/sealed-panel/` into your user skill folder. Three values of that host's
+  server table changed: `startup_timeout_sec = 120` is added, since the first start fetches the
+  package and the host waits 10 seconds by default (its documentation); the transcript root is
+  the host's own sessions folder instead of a placeholder path; `env_vars` is empty (host mode)
+  instead of a sample key. To load the plugin from a clone for one session, point the host's
+  local plugin directory option at the plugin's folder under `hosts/`, not at the clone root.
 - **Breaking:** A transcript whose structure its adapter does not recognise is refused (nothing
   is stored) instead of read past: an entry of a checked type with another shape, an untyped
   content block, a file with no message, two agent ids in one file. Before: entries of another

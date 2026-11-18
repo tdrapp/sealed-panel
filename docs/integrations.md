@@ -60,13 +60,28 @@ with shell access to that folder can still forge one; only the runner proves wha
 received. Without the option, `record` refuses transcripts, and a pasted reply is the only way
 left in host mode, flagged in the report.
 
-## Agent host plugin
+## Agent hosts
 
-The repository is also a plugin, and its own marketplace, for agent hosts that install plugins
-from a git repository. The plugin manifest and the marketplace file sit in the plugin folder
-at the repository root. The marketplace entry installs the plugin from the release tag, the same
-tag `.mcp.json` pins the server to, so the skill and the server it calls always come from one
-release, even while `main` moves ahead of it. The plugin brings three things:
+Everything one agent host reads sits in its own folder under `hosts/`, with a README that says
+how to install it. `skill/` is the one source of the skill: `python tools/build_hosts.py`
+writes each host's copy of it (and the body of the plugin's judge agent, from
+`skill/judge.md`), and `tests/test_packaging.py` fails when a copy drifts. Edit `skill/`,
+never a copy.
+
+| Host | Folder | Install | Transcript format |
+|---|---|---|---|
+| Claude Code | [`hosts/claude-code/`](../hosts/claude-code/README.md) | plugin, from this repository's marketplace | `agent-jsonl` (the default) |
+| Codex CLI | [`hosts/codex/`](../hosts/codex/README.md) | skill folder, and a table in `config.toml` | `rollout-jsonl` |
+
+### Claude Code: `hosts/claude-code/`
+
+The folder is a plugin; the repository is its marketplace. The marketplace file must sit at
+`.claude-plugin/marketplace.json` in the repository, where `/plugin marketplace add` looks for
+it, so it is the one host file left at the root. Its entry installs the plugin folder alone (a
+`git-subdir` source) at the release tag, the same tag `.mcp.json` pins the server to, so the
+skill and the server it calls always come from one release, even while `main` moves ahead of
+it. A relative source would install the plugin from whatever branch the marketplace was added
+from. The plugin brings three things:
 
 | Part | File | What it does |
 |---|---|---|
@@ -81,30 +96,41 @@ Install it from your host's prompt:
 /plugin install sealed-panel@sealed-panel
 ```
 
+The entry names the repository by its HTTPS URL, so the folder is fetched without a GitHub
+account or key. An install made before 0.4.1, when the plugin was the repository root, keeps
+working at its version; to move to this layout, update the marketplace (`/plugin marketplace
+update sealed-panel`) once the release that carries it is tagged, then the plugin (`claude
+plugin update sealed-panel@sealed-panel` in a shell).
+
 The plugin works out of the box: its one setting, the transcript folder, defaults to the
 `projects` folder of the host's configuration directory under your home, which the server
 expands, and reaches the server as `--transcript-root`. If you moved that directory, change the
 folder in the plugin's settings (`/config`). Left empty, the server reads no transcript.
 Start the host from a project directory: a host started from your home folder would put the
 transcripts under the server's root, so the server turns transcripts off and says why in
-`status` and in every refusal. The plugin needs `uvx` on the path. The agent file sets `tools:
-[]`. The host's reference does not document an empty list, but measured on its version 2.1.316,
-it gives zero tools to a project agent and to a plugin agent, while leaving the field out would
-grant every tool. If a later version refuses it, the agent fails to launch, loudly. The file
-also denies every built-in tool by name, and MCP tools with `mcp__*`, as a second layer, and the
+`status` and in every refusal. The plugin needs `uvx` on the path.
+
+**A judge without tools.** Launch each judge from the top-level session as a fresh `eval-judge`
+subagent whose prompt is one brief's text. The agent file sets `tools: []`. The host's
+reference does not document an empty list, but measured on its version 2.1.316, it gives zero
+tools to a project agent and to a plugin agent, while leaving the field out would grant every
+tool. If a later version refuses it, the agent fails to launch, loudly. The file also denies
+every built-in tool by name, and MCP tools with `mcp__*`, as a second layer, and the
 instructions forbid tools.
 
 That is not quite no tool: in the host's auto mode a handback tool (`SubagentHandback`) is
 imposed despite all this, and the judge's answer arrives through it instead of a final text.
 That tool only returns the reply, and the `agent-jsonl` adapter reads its message as the reply
-(see [Transcript formats](#transcript-formats)). A judge that can read files could open the run
+(see [`agent-jsonl`](#claude-code-agent-jsonl)). A judge that can read files could open the run
 directory and learn which label is the candidate, so a reply whose transcript shows any other
 tool call is rejected by `record`, and an agent with any tool call at all, whichever its name,
 counts as having replied and cannot be voided. Give the judge one brief's text as its whole
 prompt, never a path.
 
-To work on the plugin from a clone, point the server at the clone instead of the published
-package, in your host's MCP configuration:
+**Working on the plugin from a clone.** Load the folder for one session with `claude
+--plugin-dir hosts/claude-code`, or add a local marketplace that lists a copy of it by a
+relative path, and point the server at the clone instead of the published package, in your
+host's MCP configuration:
 
 ```json
 {
@@ -117,38 +143,52 @@ package, in your host's MCP configuration:
 }
 ```
 
-Then start your host with its option for a local plugin directory pointing at the clone.
+Symbolic links do not replace the copies: the host reads the plugin folder alone, and a link
+from it to `skill/` points outside what it fetches.
 
-`skill/` is the one source of the skill. `skills/sealed-panel/` and
-`.agents/skills/sealed-panel/` are copies that hosts read, and `tests/test_packaging.py` fails
-when a copy drifts: after editing `skill/`, copy it over both.
+### Codex CLI: `hosts/codex/`
 
-## Agent hosts that read `.agents/skills`
+The folder holds the skill (`skills/sealed-panel/`, a copy of `skill/`) and the server table
+(`config.toml`). Copy the skill into `~/.agents/skills/` and the table into
+`~/.codex/config.toml`, from a clone at the release tag; [the folder's
+README](../hosts/codex/README.md) gives the commands. Start Codex from a project directory:
+the table's transcript root, `~/.codex/sessions`, lies under your home, and the server turns
+transcripts off when its root (the folder it starts in, without `--root`) overlaps it.
 
-Some agent hosts read skills from `.agents/skills/` in the repository and MCP servers from a
-TOML configuration file. The skill is there already (`.agents/skills/sealed-panel/`, a copy of
-`skill/`, with its `name` and `description` front matter). Add the server to your host's
-`config.toml`:
+What follows keeps apart what was measured, on 2026-11-16 with Codex CLI 0.163.0-alpha.11.1
+and no login (`codex debug prompt-input`, which prints what a session would show the model,
+and `codex mcp list` and `codex mcp get`), from what was read in Codex's documentation the
+same day and not run in a logged-in session.
 
-```toml
-[mcp_servers.sealed-panel]
-command = "uvx"
-args = ["--from", "sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0", "sealed-panel", "mcp", "--transcript-root", "/path/to/your/host/sessions"]
-tool_timeout_sec = 300
-env_vars = ["MY_MODEL_API_KEY"]
-```
+Measured: the skill is listed from `~/.agents/skills/sealed-panel/`, as a copy and as a
+symbolic link to a copy; it was listed from a clone of 0.4.0, whose root held
+`.agents/skills/`, and is not from a clone since 0.4.1, so a copy in your skill folder replaces
+it. Codex reads the table as written: the command, its arguments, `startup_timeout_sec` 120,
+`tool_timeout_sec` 300 and the empty `env_vars`.
 
-`tool_timeout_sec` is raised to 300 because a `judge` call runs one judge after another and a
-judge can take a minute, while such hosts commonly stop a tool call after 60 seconds. Split a
-large panel across calls with the tool's `judges` parameter so that each call fits.
+Read: Codex reads skills from `.agents/skills/` in every folder from the one it starts in up to
+the repository root and from `~/.agents/skills/`, follows a symbolic link to a skill folder,
+and lists skills with `/skills`; a trusted project's `.codex/config.toml` may hold the table;
+it waits 10 seconds for a server to start and 60 seconds for a tool call by default. So the
+table:
 
-`--transcript-root` names the folder where this host writes its session logs, when an adapter
-reads them: set `[transcript] format` to that format in the file given to `init --config` (see
-[Transcript formats](#transcript-formats)). Drop it if none does: replies are then pasted, and
-flagged. `env_vars` is the host's allow-list of variables passed to the server: list only what
-the judge command needs (your model's key, if the runner calls a model), or drop the line in
-host mode. The judge command still sees only `PATH`, `HOME`, `LANG` and the names in `[judge]
-env_allow`, so a key reaches a judge only when both lists name it.
+- starts the server with `uvx`, pinned to the release tag, and `--transcript-root
+  ~/.codex/sessions`, the folder where Codex writes its sessions (the server expands `~`);
+- raises `startup_timeout_sec` to 120, since the first start fetches the package (how long
+  that takes was not measured);
+- raises `tool_timeout_sec` to 300, because a `judge` call runs one judge after another and a
+  judge can take a minute. Split a large panel across calls with the tool's `judges`
+  parameter so that each call fits;
+- lists in `env_vars` the variables passed to the server: only what the judge command needs
+  (your model's key, if the runner calls a model), none in host mode. The judge command still
+  sees only `PATH`, `HOME`, `LANG` and the names in `[judge] env_allow`, so a key reaches a
+  judge only when both lists name it.
+
+**A judge without tools.** No way to start a Codex session without tools is known. Start each
+judge as a fresh session, from an empty directory, with one brief's text as its whole prompt,
+and keep it to one turn; set `format = "rollout-jsonl"` under `[transcript]` in the file given
+to `init --config`, and the adapter rejects any tool call the transcript shows (see
+[`rollout-jsonl`](#codex-cli-rollout-jsonl)).
 
 ## Transcript formats
 
@@ -212,8 +252,9 @@ The default format. Claude Code writes one JSONL file per subagent, `agent-<id>.
 `workflows/wf_<id>/`, and every entry carries the subagent's `agentId`, the id to give `record
 --agent-id`. Give the plugin's server that
 `projects` folder as its transcript root (the plugin does by default). The judge is the
-plugin's `eval-judge` agent, which has no tools (see [Agent host plugin](#agent-host-plugin));
-its answer is its last text, or the message of its `SubagentHandback` call in auto mode.
+plugin's `eval-judge` agent, which has no tools (see
+[Claude Code](#claude-code-hostsclaude-code)); its answer is its last text, or the message of
+its `SubagentHandback` call in auto mode.
 
 What the adapter reads, from the 413 tool-free subagent transcripts among 3,564 measured,
 written by versions 2.1.219 to 2.1.325:

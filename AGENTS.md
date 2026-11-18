@@ -47,8 +47,8 @@ are in [docs/decisions/](docs/decisions/).
 | A test that starts a process other than git is marked `slow`. | an autouse fixture in `tests/conftest.py`; `--strict-markers` |
 | Dependencies change only through `uv lock`, and `uv.lock` is committed with the change. | `uv sync --locked` in every CI job |
 | Every workflow action is pinned by commit, with its version in a comment. | `tests/test_packaging.py`; actionlint (CI) |
-| The skill has one source, `skill/`; its copies stay equal. | `tests/test_packaging.py` |
-| The version agrees across `pyproject.toml`, `__init__.py`, the plugin files, `.mcp.json`, the README and the install lines. | `tests/test_packaging.py` |
+| The skill has one source, `skill/`; its copies under `hosts/` stay equal (`tools/build_hosts.py` writes them). | `tests/test_packaging.py` |
+| The version agrees across `pyproject.toml`, `__init__.py`, the plugin files and `.mcp.json` under `hosts/`, the marketplace file, the README and the install lines. | `tests/test_packaging.py` |
 | No secret in the repository or its history. | gitleaks (pre-commit hook, CI `gitleaks`) |
 | Commit messages: Conventional Commits, a subject under 72 characters, a blank line after it. | `tools/check_commit_msg.py` (commit-msg hook) |
 | Markdown wraps at 96 columns (not the judged example texts nor `tests/fixtures/`). | `tests/test_docs.py` |
@@ -64,7 +64,7 @@ never the name of a model vendor, a model, or an agent host, and name an adapter
 id. Hosts are named plainly only in the material that integrates with them: the host adapters
 (`src/sealed_panel/hosts/`), their tests (`tests/test_hosts*.py`, `tests/hosts/`),
 `docs/integrations.md`, `docs/hosts/`, `hosts/`, `examples/hosts/`, and the files a host
-requires under its own name (the plugin folder at the root and `.mcp.json`). Model ids in
+requires under its own name (the marketplace file in its folder at the root). Model ids in
 examples are placeholders such as `my-model-2026-01-15`. Plain ASCII punctuation in prose: no
 long dashes, no curly quotes. A style check the maintainer runs as a commit hook (kept outside
 the repository) refuses both; a reviewer checks them on every pull request.

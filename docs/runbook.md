@@ -52,10 +52,12 @@ The first release, 0.4.0, in this order:
 
 A later release: move the `Unreleased` entries of `CHANGELOG.md` under the new version, with an
 empty `[Unreleased]` above and both compare links at the bottom updated; set the version in
-`pyproject.toml`, `src/sealed_panel/__init__.py`, the plugin manifest and marketplace file (its
-`version` and the `ref` of its plugin source, the tag), `.mcp.json`, the README's version line
-and the install lines in the README and `docs/integrations.md` (`tests/test_packaging.py`
-checks they agree), and the `--version` test in `tests/test_cli.py`; run `uv lock` and commit
+`pyproject.toml`, `src/sealed_panel/__init__.py`, the marketplace file at the root (its
+`version` and the `ref` of its plugin source, the tag), the plugin manifest and `.mcp.json` in
+the plugin's folder under `hosts/`, each host folder's `config.toml` and README, the README's
+version line and the install lines in the README and `docs/integrations.md`
+(`tests/test_packaging.py` checks they agree), and the `--version` test in `tests/test_cli.py`;
+run `python tools/build_hosts.py --check`, then `uv lock`, and commit
 `uv.lock` with the rest (CI runs `uv sync --locked`, which fails on a stale lock). Merge, then
 tag the merge commit `v<version>` and push that tag alone. The workflow checks that the tag
 names the package version and builds the sdist and the wheel; approve the `pypi` deployment in
@@ -64,8 +66,9 @@ release notes.
 
 After the first publish, the docs' index lines apply: the hint `sealed-panel mcp` prints without
 the extra (`cli.py`) may then name the index. Until then it names the tag, because an agent
-reading it would install whatever holds that free name. `.mcp.json` may then move from the git
-form to `sealed-panel[mcp]==<version>`, and `tests/test_packaging.py` moves with it.
+reading it would install whatever holds that free name. The plugin's `.mcp.json` and each
+host's `config.toml` may then move from the git form to `sealed-panel[mcp]==<version>`, and
+`tests/test_packaging.py` moves with it.
 
 Branch protection for `main` is kept in `.github/branch-protection.json` (required checks,
 strict status, pull request required with no approving review, linear history, no force push,

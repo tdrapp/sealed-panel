@@ -140,11 +140,18 @@ mutation each night, so a fault in the selection shows within a day.
 
 ## The plugin follows the release
 
-The plugin's marketplace entry installs the plugin from the release tag (the `ref` of its
-`github` source), and `.mcp.json` pins the server to the same tag: the skill on `main` may call
-tools the released server lacks, so users never get one without the other. The release commit
-bumps both with the version (see [docs/runbook.md](docs/runbook.md)), and
-`tests/test_packaging.py` fails when they disagree with the package version.
+Everything one agent host reads sits in its folder under `hosts/`. The plugin's marketplace
+entry, in the marketplace file at the root, installs the plugin's folder at the release tag (the
+`path` and `ref` of its `git-subdir` source), and the plugin's `.mcp.json` pins the server to
+the same tag: the skill on `main` may call tools the released server lacks, so users never get
+one without the other. The release commit bumps both with the version (see
+[docs/runbook.md](docs/runbook.md)), and `tests/test_packaging.py` fails when they disagree
+with the package version.
+
+`skill/` is the one source of the skill. After editing it, run `python tools/build_hosts.py`
+and commit the copies with the source: `tests/test_packaging.py` fails when one drifts. The
+tool writes each host's copy (and the body of the plugin's judge agent) and never deletes: an
+orphan it names in a host's folder is yours to remove by hand.
 
 ## Branches and pull requests
 
@@ -203,8 +210,8 @@ The project stays vendor-neutral: the core, its docs and commit messages say "a 
 "your agent host" or "a host adapter", and name an adapter by its format id. Hosts are named
 plainly only where sealed-panel integrates with them: the host adapters
 (`src/sealed_panel/hosts/`) and their tests (`tests/test_hosts*.py`, `tests/hosts/`),
-`docs/integrations.md`, `docs/hosts/`, `hosts/`, `examples/hosts/`, and the plugin folder at the
-repository root and `.mcp.json`, whose names the host requires.
+`docs/integrations.md`, `docs/hosts/`, `hosts/`, `examples/hosts/`, and the marketplace file
+in its folder at the repository root, whose name and place the host requires.
 
 ## Maintainers
 
