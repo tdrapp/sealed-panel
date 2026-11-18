@@ -200,7 +200,7 @@ checker reads them.
 | `SeatTaken` | A seat another call holds right now, or one that already holds a valid reply. `judge_round` skips such a seat; a caller of `record_reply` may try again later. |
 | `FormatError` | A transcript whose structure its format's adapter does not recognise: refused, never guessed. |
 | `PanelIncomplete` | A round its judges left without a grade: a seat with no real attempt, or too few valid judges or verified scores. `aggregate_round` raises it; `grade()` returns it as INCOMPLETE. Its open seats can still take a replacement. |
-| `MalformedReply` | A reply a transcript holds in a shape that cannot be read. `record_from` records it as rejected; a caller of `transcript.last_reply` gets it. |
+| `MalformedReply` | A reply a transcript holds in a shape that cannot be read. `record_from` records it as rejected; a caller of `transcript.reply_text` gets it. |
 
 A file that is missing or unreadable raises `OSError`.
 
@@ -209,7 +209,8 @@ A file that is missing or unreadable raises `OSError`.
 These import from their modules and may change without a major version:
 
 - the validators and readers: `rubric.validate_spec`, `reply.check_output`,
-  `transcript.last_reply`, `text.normalise`, `text.quote_found`, `decide.decide`;
+  `hosts.read_transcript`, `transcript.reply_text`, `text.normalise`, `text.quote_found`,
+  `decide.decide`;
 - the pieces of a step: `brief.build_brief`, `runner.open_seats`, `runner.judge_seat`,
   `run.load_frozen`, `result.overrides`, `settings.default_config`;
 - the record types in `sealed_panel.model` other than `Spec`;

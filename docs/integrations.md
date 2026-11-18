@@ -99,8 +99,8 @@ Install it from your host's prompt:
 The entry names the repository by its HTTPS URL, so the folder is fetched without a GitHub
 account or key. An install made before 0.5.0, when the plugin was the repository root, keeps
 working at its version; to move to this layout, update the marketplace (`/plugin marketplace
-update sealed-panel`) once the release that carries it is tagged, then the plugin (`claude
-plugin update sealed-panel@sealed-panel` in a shell).
+update sealed-panel`), then the plugin (`claude plugin update sealed-panel@sealed-panel` in a
+shell).
 
 The plugin works out of the box: its one setting, the transcript folder, defaults to the
 `projects` folder of the host's configuration directory under your home, which the server
