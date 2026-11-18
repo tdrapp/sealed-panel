@@ -18,8 +18,8 @@ breaks, and before 1.0 the minor version rises when something breaks: the plugin
 copy moved from the repository root into their host folders, a transcript whose structure its
 adapter does not recognise is refused instead of read past, any assistant item that is neither
 text nor reasoning counts as a tool call, a judge that got an input after its first output is
-rejected, the scan for unrecorded judges refuses rounds 0.4.0 aggregated, the transcript
-readers and four names of `report` left their modules, and the 18 field-name settings of
+rejected, the scan for unrecorded judges can refuse rounds 0.4.0 aggregated, the transcript
+readers and three names of `report` left their modules, and the 18 field-name settings of
 `[transcript]` are gone. Every such change is an entry marked **Breaking** below, first under
 Changed and Removed.
 The package is larger than 0.4.0: 8,711 lines of Python in `src/sealed_panel` against 7,115, in

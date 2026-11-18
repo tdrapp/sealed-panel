@@ -284,8 +284,9 @@ of two things, so that a run frozen before it keeps its grade:
 
 A release that removes settings frozen into every run applies the second rule the other way:
 it keeps the format and reads a run frozen with those settings as the value that behaves the
-same, after checking its `config.lock` as written; a run frozen with values no current setting
-reproduces is refused, naming them and the release to finish it with. 0.5.0 did this for the
+same, after checking its `config.lock` as written, before the two cases below are checked; a
+run frozen with values no current setting reproduces is refused, naming them and the release
+to finish it with. 0.5.0 did this for the
 18 transcript field names: a run frozen by 0.4.0 holds them and no `format`, reads as
 `agent-jsonl` when they are the 0.4.0 defaults, and is refused, naming them and pointing at
 0.4.0, otherwise ([configuration.md](configuration.md#transcript)).
