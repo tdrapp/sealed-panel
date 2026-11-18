@@ -1,6 +1,6 @@
 # Runbook
 
-Last reviewed: 2026-11-16, for 0.4.0.
+Last reviewed: 2026-11-18, for 0.5.0.
 
 How to run sealed-panel, release it, and recover when something goes wrong. The reasons behind
 each rule are in [protocol.md](protocol.md); every command and flag is in [cli.md](cli.md).
@@ -32,7 +32,8 @@ keeps up to date.
 No version before 0.4.0 was published to the package index. The tags `v0.1.0`, `v0.2.0` and
 `v0.2.1` mark early commits and published nothing; 0.3.0 and 0.3.1 are development milestones,
 neither tagged nor published (`CHANGELOG.md` names the commit that holds each). 0.4.0 is the
-first published release.
+first release built for the index; a release is published when the owner approves its `pypi`
+deployment, so the first version on the index is the first one approved.
 
 The first release, 0.4.0, in this order:
 
@@ -47,6 +48,7 @@ The first release, 0.4.0, in this order:
 5. The `release` workflow checks that the tag names the package version and builds the sdist
    and the wheel; its publish job then waits for the `pypi` environment. In the Actions tab,
    open the run and approve the deployment: the job publishes through trusted publishing.
+   Until it is approved, the tag exists and the index holds nothing for that version.
 6. Create the GitHub release from the tag, with the release notes (what it is, the breaking
    changes, how to install from the tag).
 

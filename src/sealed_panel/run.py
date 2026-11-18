@@ -333,7 +333,7 @@ CHANGED_AFTER_FREEZE = (
 
 
 def _transcript_format_supplied(data: dict[str, Any], lock: str) -> dict[str, Any]:
-    """A run frozen before 0.4.1 holds the transcript field names and no `format` (the run
+    """A run frozen before 0.5.0 holds the transcript field names and no `format` (the run
     format's forward rule, docs/protocol.md section 11): checked against its config.lock as
     written first, then read as the format those names described, when they hold the values
     0.4.0 froze by default. A run frozen with other field names is refused, naming them: no

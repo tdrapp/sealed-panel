@@ -7,6 +7,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-18
+
+0.5.0 is the hosts release. A judge's transcript is read by the adapter of its format, and two
+formats are read, `agent-jsonl` and `rollout-jsonl`. What each agent host reads sits in that
+host's folder under `hosts/`, with a README. A sealed grade is one call, `grade()` or
+`sealed-panel grade`, and the sealed aggregate step writes `RUN/grade.json`, a result file with
+a format of its own that a program can read. It is 0.5.0 and not a patch release because it
+breaks, and before 1.0 the minor version rises when something breaks: the plugin and the skill
+copy moved from the repository root into their host folders, a transcript whose structure its
+adapter does not recognise is refused instead of read past, any assistant item that is neither
+text nor reasoning counts as a tool call, a judge that got an input after its first output is
+rejected, the scan for unrecorded judges can refuse rounds 0.4.0 aggregated, the transcript
+readers and three names of `report` left their modules, and the 18 field-name settings of
+`[transcript]` are gone. Every such change is an entry marked **Breaking** below, first under
+Changed and Removed.
+The package is larger than 0.4.0: 8,711 lines of Python in `src/sealed_panel` against 7,115, in
+34 files against 29 (`wc -l` over the tracked `.py` files of each tree, as for 0.4.0). It grew
+by 1,596 lines: 655 in the three files of the new `hosts` package, 395 in `result.py`, the
+result file, 142 in `steps.py`, which holds `grade()`, and 76 in `shape.py`, which checks a
+result file read back; `transcript.py`, whose reading moved to the adapters, is 70 lines
+shorter, and the rest is spread over the modules the adapters and the result file touch. The
+mutation check holds 437 mutations against 342, and the suite 720 test functions against 571.
+
 ### Added
 
 - Host adapters. A judge's transcript is read by the adapter of its format, from a closed list
@@ -15,9 +38,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that opens each session file with a session record. `docs/integrations.md` says which host
   writes which, where its transcripts are and how to launch a judge for it.
 - `[transcript] format`, frozen at `init`, names the run's transcript format.
-- A judge whose session carries another session's history (a fork) is rejected, and so is a
-  judge that got an input after its first output, beyond what its host adds on its own: an
-  input after an answer can ask again, a re-roll. Each refusal has a mutation.
+- A judge whose session carries another session's history (a fork) is rejected: the history
+  can hold the run's labels or other judges' replies. The refusal has its mutations.
 - `grade()` and `sealed-panel grade SPEC ARTEFACT --control FILE --config CONFIG.toml`: the
   one-shot sealed grade in one call, with the judge runner (the judge comes from the
   configuration only; a configuration without a judge command is refused, and so is a spec with
@@ -53,9 +75,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in `.agents/skills/sealed-panel/` moved, with the server table of the integration guide as a
   `config.toml`, to the other host's folder. The root keeps only the marketplace file, whose
   entry now installs the plugin folder alone (a `git-subdir` source) at the release tag. An
-  installed plugin keeps working at 0.4.0; to update, refresh the marketplace once 0.4.1 is
-  tagged (`/plugin marketplace update sealed-panel`), then update the plugin; the host's
-  section of `docs/integrations.md` gives the commands. A host started in a clone no longer
+  installed plugin keeps working at 0.4.0; to update, refresh the marketplace
+  (`/plugin marketplace update sealed-panel`), then update the plugin; the host's section of
+  `docs/integrations.md` gives the commands. A host started in a clone no longer
   finds the skill in the repository's `.agents/skills/`: copy
   `hosts/<host>/skills/sealed-panel/` into your user skill folder. Three values of that host's
   server table changed: `startup_timeout_sec = 120` is added, since the first start fetches the
@@ -66,32 +88,56 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** A transcript whose structure its adapter does not recognise is refused (nothing
   is stored) instead of read past: an entry of a checked type with another shape, an untyped
   content block, a file with no message, two agent ids in one file. Before: entries of another
-  shape were skipped.
+  shape were skipped. When a transcript is refused, check the run's `[transcript] format`
+  against the host that wrote it, or upgrade.
 - **Breaking:** Any assistant item that is neither text nor reasoning counts as a tool call,
-  whatever its type. Before: only a type ending in `tool_use` did.
+  whatever its type. Before: only a type ending in `tool_use` did. A judge rejected for such an
+  item counts against its seat's replacements: brief a fresh judge on the same brief, launched
+  without tools.
+- **Breaking:** A judge that got an input after its first output, beyond what its host adds on
+  its own, is rejected: an input after an answer can ask again, a re-roll. Before: the inputs
+  after the first output were not checked. A judge rejected for it counts against its seat's
+  replacements: brief a fresh judge on the same brief and send it nothing after its answer.
+- **Breaking:** The scan for unrecorded judges reads the transcripts the run's adapter lists for
+  the recorded ones, last changed since the round was briefed (minus 60 seconds), and refuses
+  the aggregation past 1000 rather than stop short. For `agent-jsonl`, every file under the
+  session's `subagents/` folder at any depth, the host's `*.meta.json` and `*.prefix.json` side
+  files and workflow `journal.jsonl` logs excepted; for `rollout-jsonl`, every session file
+  under the sessions root, whatever its date folder or parent. `agent-jsonl` also reads each
+  recorded judge's main session file. A session holding a brief id of the round anywhere and not
+  recorded refuses the aggregation, as a judge when the id is in its prompt (its inputs before
+  its first output), with its own message otherwise. The one exception is the top-level session
+  the recorded judges were launched from, when no brief id is in its prompt: judges are launched
+  by it, each as a fresh subagent, and a helper or standby agent that handles a brief blocks the
+  round. Files are searched for brief ids whatever their size; one holding a brief id that
+  cannot be read, or is larger than 20 MB, refuses the aggregation, and the top-level session's
+  prompt is read from the start of its file, refusing when its first 20 MB show no output. A
+  file without a brief id is never parsed. Before: every file of the recorded transcripts' own
+  folders under 20 MB was read, larger ones were skipped, and every agent holding a brief id was
+  refused alike. A round 0.4.0 aggregated can be refused: record every session that handled a
+  brief (a void for one that never replied), and launch judges from the top-level session.
+- **Breaking** for code that imports a module rather than the package; only `__all__` is stable,
+  and these modules are unstable until 1.0 (`docs/api.md`). The transcript readers of
+  `transcript` are gone: the adapter of the run's format reads a file into one `Transcript`
+  record, `sealed_panel.hosts.read_transcript(path, cfg)`. A public name that no longer imports
+  from its 0.4.0 module, and what replaces it (from an AST scan of both trees):
+
+| Old module | Names | Now |
+|---|---|---|
+| `transcript` | `last_reply` | `transcript.reply_text(hosts.read_transcript(path, cfg))` |
+| `transcript` | `transcript_agent_id`, `transcript_prompt`, `judge_tools`, `unreadable_lines` | the `agent_id`, `prompt`, `tools` and `unreadable` fields of the record `hosts.read_transcript` returns |
+| `transcript` | `handback_messages`, `assistant_texts`, `tool_calls` | no public name: the adapter reads them into the record's `reply`, `reply_problem` and `tools` |
+| `transcript` | `AGENT_ID_SCAN_CHARS` | no public name: each adapter finds the agent id in its format |
+| `settings` | `OPTIONAL_TRANSCRIPT_KEYS` | none: gone with the transcript field names (see Removed) |
+| `report` | `SHOW_LIMIT`, `SHOW_IN_FULL`, `panel_env_changes` | `result` |
+| `report` | `overrides` | `result`; `from sealed_panel.report import overrides` still works, through the import in `report` |
+
 - The prompt a transcript is checked against is every input before the judge's first output
   but what the host marks as its own, not only the first user entry: a second one, or a message
   from another agent (an entry carrying an `origin` in `agent-jsonl`, whatever its kind), is
   counted as a prompt extra (in `agent-jsonl`, a queued command is an agent's whatever its
   origin). A message from another agent after the first output is a later
   input; the host's own message (marked `isMeta`, with no `origin`) is neither.
-- The scan for unrecorded judges reads the transcripts the run's adapter lists for the recorded
-  ones, last changed since the round was briefed (minus 60 seconds), and refuses the aggregation
-  past 1000 rather than stop short. For `agent-jsonl`, every file under the session's
-  `subagents/` folder at any depth, the host's `*.meta.json` and `*.prefix.json` side files and
-  workflow `journal.jsonl` logs excepted; for `rollout-jsonl`, every session file under the
-  sessions root, whatever its date folder or parent. `agent-jsonl` also reads each recorded
-  judge's main session file. A session holding a brief id of the round anywhere and not recorded
-  refuses the aggregation, as a judge when the id is in its prompt (its inputs before its first
-  output), with its own message otherwise. The one exception is the top-level session the
-  recorded judges were launched from, when no brief id is in its prompt: judges are launched by
-  it, each as a fresh subagent, and a helper or standby agent that handles a brief blocks the
-  round. Files are searched for brief ids whatever their size; one holding a brief id that
-  cannot be read, or is larger than 20 MB, refuses the aggregation, and the top-level session's
-  prompt is read from the start of its file, refusing when its first 20 MB show no output. A
-  file without a brief id is never parsed. Before: every file of the recorded transcripts' own
-  folders under 20 MB was read, larger ones were skipped, and every agent holding a brief id was
-  refused alike.
 - A run frozen by 0.4.0 holds the transcript field names and no `format`: after its
   `config.lock` is checked as written, it reads as `agent-jsonl` when they hold the 0.4.0
   defaults (docs/protocol.md section 11).
@@ -101,10 +147,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are unchanged.
 - `aggregate --sealed` on a sealed round whose `grade.json` is missing, which includes every run
   sealed by an earlier release, now writes the file and exits 0; it used to be refused with
-  status 2. It is the way to get a result file for a run sealed before 0.4.1. Every other exit
+  status 2. It is the way to get a result file for a run sealed before 0.5.0. Every other exit
   code is unchanged.
-- A JSON file nested too deeply to read is refused as not valid JSON (status 2), instead of
-  ending in a traceback.
 
 ### Removed
 
@@ -112,8 +156,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the others). Before: a configuration could rename the fields the one reader read, or set
   `handback_tool = ""` to read no handback tool. After: each adapter reads its format's fields
   as constants, and `agent-jsonl` always reads `SubagentHandback`. A configuration file that
-  still sets one is refused, naming each; a run frozen by 0.4.0 with values other than the 0.4.0
-  defaults is refused, naming them, and is finished with 0.4.0.
+  still sets one is refused, naming each: remove those keys. A run frozen by 0.4.0 with values
+  other than the 0.4.0 defaults is refused, naming them, and is finished with 0.4.0.
+
+### Fixed
+
+- A JSON file nested too deeply to read is refused as not valid JSON (status 2), instead of
+  ending in a traceback.
 
 ## [0.4.0] - 2026-11-16
 
@@ -632,7 +681,8 @@ Not tagged and not published: a development milestone, held by commit `92199c7`.
 - Agent skill in `skill/`, synthetic example with demo judges in `examples/announcement/`.
 - Mutation check, pre-commit configuration, CI and branch protection settings.
 
-[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/tdrapp/sealed-panel/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/tdrapp/sealed-panel/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tdrapp/sealed-panel/compare/5ec3e76...v0.4.0
 [0.3.1]: https://github.com/tdrapp/sealed-panel/compare/92199c7...5ec3e76
 [0.3.0]: https://github.com/tdrapp/sealed-panel/compare/v0.2.1...92199c7

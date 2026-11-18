@@ -282,6 +282,15 @@ of two things, so that a run frozen before it keeps its grade:
   reproduces how that run behaved. It checks the run's `config.lock` against the file as
   written first, so the fingerprint still proves the configuration was not changed.
 
+A release that removes settings frozen into every run applies the second rule the other way:
+it keeps the format and reads a run frozen with those settings as the value that behaves the
+same, after checking its `config.lock` as written, before the two cases below are checked; a
+run frozen with values no current setting reproduces is refused, naming them and the release
+to finish it with. 0.5.0 did this for the
+18 transcript field names: a run frozen by 0.4.0 holds them and no `format`, reads as
+`agent-jsonl` when they are the 0.4.0 defaults, and is refused, naming them and pointing at
+0.4.0, otherwise ([configuration.md](configuration.md#transcript)).
+
 Within one format, a run and the release that opens it can differ in both directions:
 
 - the run was frozen by an earlier release, and its configuration lacks a key this release has
@@ -294,13 +303,13 @@ A configuration that both lacks a key and holds an unknown one is not explained 
 release, and is refused as damaged. The rule is written next to `SCHEMA_VERSION` in
 `sealed_panel/model.py`.
 
-The result file, `RUN/grade.json`, has a format of its own (`schema_version`, 1 since 0.4.1),
+The result file, `RUN/grade.json`, has a format of its own (`schema_version`, 1 since 0.5.0),
 separate from the run format. The sealed aggregate step writes it once the sealed round's
 result is stored, derived from the run's files by the same function the report prints its
 sealed grade from ([api.md](api.md) lists its fields). A reader accepts every result format up
 to its own and refuses a later one with the advice to upgrade. A release that adds, removes or
 changes the meaning of a key raises the result format, and its reader reads the earlier formats
-too, so a comparison across runs reads every file written since 0.4.1. A run sealed before
-0.4.1 has no result file: `aggregate --sealed` on it writes one from its round files, with the
+too, so a comparison across runs reads every file written since 0.5.0. A run sealed before
+0.5.0 has no result file: `aggregate --sealed` on it writes one from its round files, with the
 run's own `run_schema_version` and, in `sealed_panel`, the release that wrote the file, not the
 one that sealed the run.

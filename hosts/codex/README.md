@@ -19,13 +19,13 @@ add the table of `config.toml` to `~/.codex/config.toml`. Both come from the sam
 the table starts the server of that release:
 
 ```sh
-git clone --branch v0.4.0 https://github.com/tdrapp/sealed-panel
+git clone --branch v0.5.0 https://github.com/tdrapp/sealed-panel
 mkdir -p ~/.agents/skills
 cp -R sealed-panel/hosts/codex/skills/sealed-panel ~/.agents/skills/
 ```
 
 ```
-sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.4.0
+sealed-panel[mcp] @ git+https://github.com/tdrapp/sealed-panel@v0.5.0
 ```
 
 Start Codex from a project directory, not from your home folder. The table gives the server
@@ -39,7 +39,7 @@ reply, flagged in the report, is left in host mode. Adding `"--root", "/path/to/
 Measured:
 
 - `sealed-panel` is listed from `~/.agents/skills/sealed-panel/`, as a copy and as a symbolic
-  link to a copy, and is not listed from a clone of this repository since 0.4.1 (the root no
+  link to a copy, and is not listed from a clone of this repository since 0.5.0 (the root no
   longer holds `.agents/skills/`).
 - `codex mcp list` and `codex mcp get sealed-panel` read the table: the command, its arguments,
   `startup_timeout_sec` 120, `tool_timeout_sec` 300 and the empty `env_vars`.

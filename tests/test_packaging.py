@@ -219,6 +219,11 @@ def test_the_readme_names_this_version() -> None:
     assert found and found[1] == __version__
 
 
+def test_the_package_metadata_names_this_version() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["version"] == __version__
+
+
 def test_no_uvx_line_runs_an_unpinned_server() -> None:
     for path in install_docs():
         text = path.read_text(encoding="utf-8")
