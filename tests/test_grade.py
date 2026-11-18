@@ -140,6 +140,23 @@ class TestTheFolderGradeMakes:
         assert type(caught.value) is EvalError
         assert str(caught.value).endswith(f"; could not remove {folder}")
 
+    def test_a_removal_that_fails_never_replaces_another_error(
+        self, h: Harness, temp_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An error that is not a refusal cannot be rebuilt from one message: it is raised as
+        it is, with the folder left behind in a note."""
+
+        def fail(path: object) -> None:
+            raise PermissionError(f"cannot remove {path}")
+
+        monkeypatch.setattr(steps.shutil, "rmtree", fail)
+        binary = h.tmp / "binary.md"
+        binary.write_bytes(b"\xff\xfe not utf-8 \xff")
+        with pytest.raises(UnicodeDecodeError) as caught:
+            grade(binary, spec_file(h.tmp), control=h.files["ctrl"], config=judge_config(h.tmp))
+        (folder,) = temp_root.iterdir()
+        assert caught.value.__notes__ == [f"could not remove {folder}"]
+
     @pytest.mark.slow
     def test_a_judge_command_that_cannot_start_keeps_the_run(
         self, h: Harness, temp_root: Path

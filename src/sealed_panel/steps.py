@@ -148,15 +148,18 @@ def _brief_new_run(
 ) -> None:
     """Freeze the run and brief its sealed panel. A refusal here comes before judging started:
     the folder grade() made (`made`) is removed with what it holds; a caller's run is never
-    removed. The refusal is what the caller gets: a removal that fails is added to its
-    message, never raised in its place."""
+    removed. What stopped the call is what the caller gets: a removal that fails is added to a
+    refusal's message, and to any other error as a note, never raised in its place."""
     text, control, known_good = texts
     try:
         init_run(run, spec, cfg)
         write_briefs(run, 1, text, control, known_good, sealed=True)
     except BaseException as exc:
         if made is not None and not _removed(made):  # only grade()'s folder, never a caller's
-            raise type(exc)(f"{exc}; could not remove {made}") from exc
+            left = f"could not remove {made}"
+            if isinstance(exc, EvalError):  # the package's own errors take one message
+                raise type(exc)(f"{exc}; {left}") from exc
+            exc.add_note(left)
         raise
 
 
