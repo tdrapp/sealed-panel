@@ -32,7 +32,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-mcp = ["fastmcp>=4.1.6,<4.2"]
+mcp = ["fastmcp>=4.1.6,<4.3"]
 
 [dependency-groups]
 # What the tests need, with or without the mcp extra.
@@ -47,7 +47,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pre-commit>=3.7",
-    "fastmcp>=4.1.6,<4.2",
+    "fastmcp>=4.1.6,<4.3",
     # The workflow linter, and the shell checker it runs on each step's script.
     "actionlint-py>=1.7",
     "shellcheck-py>=0.10",
